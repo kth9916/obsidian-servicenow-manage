@@ -28,6 +28,7 @@ const required = [
   'excludeCompleted && task.status === "done"',
   '"text/html"',
   '"text/plain"',
+  "opus-modal-backdrop",
   "Jira 표 복사"
 ];
 
