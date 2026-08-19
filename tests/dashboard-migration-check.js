@@ -3,6 +3,10 @@ const path = require("path");
 
 const root = path.resolve(__dirname, "..");
 const main = fs.readFileSync(path.join(root, "main.js"), "utf8");
+const runtimeStart = main.indexOf("function upgradeDashboardRuntime(");
+const runtimeEnd = main.indexOf("\nfunction ", runtimeStart + 1);
+if (runtimeStart < 0) throw new Error("Dashboard runtime migration was not found");
+eval(main.slice(runtimeStart, runtimeEnd));
 const start = main.indexOf("function upgradeDashboardPopupFieldGrid(");
 const end = main.indexOf("\nfunction ", start + 1);
 if (start < 0) throw new Error("Dashboard popup migration was not found");
@@ -44,6 +48,15 @@ if (paginationStart < 0) throw new Error("Dashboard To-Do pagination migration w
 eval(main.slice(paginationStart, paginationEnd));
 
 const oldDashboard = fs.readFileSync(path.join(root, "resources", "업무현황.md"), "utf8");
+const legacyDelegation = `    const sharedPlugin = app.plugins.getPlugin("clt-servicenow-worknotes");\n    if (sharedPlugin?.openTodoEntryModal) return;\n`;
+const brokenDashboard = oldDashboard
+  .replace('const DASHBOARD_RUNTIME_VERSION = "2.1.0";', 'const DASHBOARD_RUNTIME_VERSION = "2.0.0";')
+  .replace('function renderTodoBoard() {', `${legacyDelegation}\nfunction renderTodoBoard() {`);
+const runtimeUpgraded = upgradeDashboardRuntime(brokenDashboard, oldDashboard);
+if (!runtimeUpgraded.includes('const DASHBOARD_RUNTIME_VERSION = "2.1.0";')) throw new Error("Dashboard runtime was not upgraded");
+if (runtimeUpgraded.includes('getPlugin("clt-servicenow-worknotes")')) throw new Error("Legacy duplicate plugin delegation remains");
+if (!runtimeUpgraded.includes("Jira 용 Export")) throw new Error("Jira Export runtime was not installed");
+if (upgradeDashboardRuntime(runtimeUpgraded, oldDashboard) !== runtimeUpgraded) throw new Error("Dashboard runtime migration is not idempotent");
 const upgraded = upgradeDashboardPopupFieldGrid(oldDashboard);
 if (!upgraded.includes("repeat(4, minmax(0, 1fr))")) throw new Error("Four-column grid was not added");
 if (!upgraded.includes("grid.appendChild(button)")) throw new Error("Field buttons were not moved into the grid");
