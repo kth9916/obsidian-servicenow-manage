@@ -1,0 +1,7538 @@
+(async () => {
+/*****************************************************************
+ * ServiceNow 업무 현황
+ *
+ * 기능
+ * - 전체 검색
+ * - Notion 형태의 동적 필터
+ * - 다중 정렬
+ * - 표시 필드 선택 및 저장
+ * - 컬럼 너비 드래그 조절 및 저장
+ * - 행 높이 조절 및 저장
+ * - 관련/테스트 문서 내부 링크 아이콘화
+ * - 최근/전체 작업 일지 조회
+ * - 작업 일지 신규 추가
+ * - To-Do 3단계 칸반 보드 및 티켓별 그룹
+ *****************************************************************/
+
+
+// ================================================================
+// 1. 초기화
+// ================================================================
+
+const container = dv.container;
+
+container.innerHTML = "";
+container.classList.add("opus-dashboard");
+
+
+// ================================================================
+// 2. 설정
+// ================================================================
+
+const SETTINGS_KEY = [
+    "opus-dashboard",
+    app.vault.getName(),
+    dv.current()?.file?.path ?? "default"
+].join(":");
+
+const SETTINGS_SCHEMA_VERSION = 9;
+
+const DEFAULT_ROW_HEIGHT = 29;
+
+const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
+
+// 업무현황에서 숨길 완료 상태입니다. 상태를 추가하거나 다시 보이게 하려면 이 목록만 수정하세요.
+const EXCLUDED_STATUSES = new Set([
+    "Resolved",
+    "Implemented",
+    "Closed"
+].map(status => status.toLowerCase()));
+
+const DEFAULT_COLUMN_WIDTHS = {
+    file: 52,
+    id: 120,
+    status: 205,
+    category: 58,
+    priority: 82,
+    purpose: 120,
+    serviceNowPriority: 110,
+    ticketCreator: 150,
+    ticketRequester: 150,
+    serviceNowCreated: 145,
+    assignmentGroup: 120,
+    assignedPerson: 150,
+    serviceNowCategory: 260,
+    serviceNowUpdated: 145,
+    scheduledDate: 92,
+    lastChecked: 92,
+    todoSummary: 142,
+    serviceNow: 92,
+    jira: 52,
+    workingNotes: 72,
+    bs: 46,
+    fs: 46,
+    ds: 46,
+    ut: 52,
+    relatedDocument: 82,
+    testDocument: 82,
+    created: 135,
+    updated: 135
+};
+
+
+// ================================================================
+// 3. 공통 유틸리티
+// ================================================================
+
+function isEmpty(value) {
+    return (
+        value == null
+        || value === ""
+        || (
+            Array.isArray(value)
+            && value.length === 0
+        )
+    );
+}
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+function escapeAttribute(value) {
+    return escapeHtml(value);
+}
+
+function getFileName(path) {
+    return String(path ?? "")
+        .split("/")
+        .pop()
+        .replace(/\.md$/i, "");
+}
+
+function isExternalUrl(value) {
+    return (
+        typeof value === "string"
+        && /^(https?:\/\/|mailto:|obsidian:\/\/)/i.test(
+            value.trim()
+        )
+    );
+}
+
+function normalizeDate(value) {
+    if (isEmpty(value)) {
+        return "";
+    }
+
+    if (typeof value?.toFormat === "function") {
+        return value.toFormat("yyyy-MM-dd");
+    }
+
+    if (
+        value instanceof Date
+        && !Number.isNaN(value.getTime())
+    ) {
+        return value.toISOString().slice(0, 10);
+    }
+
+    const text = String(value);
+    const matched = text.match(
+        /\d{4}-\d{2}-\d{2}/
+    );
+
+    return matched?.[0] ?? text;
+}
+
+function normalizeDateTime(value) {
+    if (isEmpty(value)) {
+        return "";
+    }
+
+    if (typeof value?.toFormat === "function") {
+        return value.toFormat("yyyy-MM-dd HH:mm");
+    }
+
+    if (
+        value instanceof Date
+        && !Number.isNaN(value.getTime())
+    ) {
+        return formatDateTime(value);
+    }
+
+    return String(value);
+}
+
+function normalizeValue(value) {
+    if (isEmpty(value)) {
+        return "";
+    }
+
+    if (Array.isArray(value)) {
+        return value
+            .map(normalizeValue)
+            .filter(Boolean)
+            .join(" ");
+    }
+
+    if (
+        typeof value === "object"
+        && value.dateTime !== undefined
+        && value.text !== undefined
+    ) {
+        return [
+            value.dateTime ?? "",
+            value.text ?? ""
+        ]
+            .filter(Boolean)
+            .join(" ");
+    }
+
+    if (
+        typeof value === "object"
+        && value.path
+    ) {
+        return [
+            value.path,
+            value.display,
+            getFileName(value.path)
+        ]
+            .filter(Boolean)
+            .join(" ");
+    }
+
+    if (typeof value?.toFormat === "function") {
+        return value.toFormat(
+            "yyyy-MM-dd HH:mm"
+        );
+    }
+
+    return String(value);
+}
+
+function stripMarkdown(value) {
+    return String(value ?? "")
+        .replace(/!\[\[([^\]]+)]]/g, "$1")
+        .replace(
+            /\[\[([^|\]]+)\|([^\]]+)]]/g,
+            "$2"
+        )
+        .replace(/\[\[([^\]]+)]]/g, "$1")
+        .replace(
+            /\[([^\]]+)]\([^)]+\)/g,
+            "$1"
+        )
+        .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .replace(/__([^_]+)__/g, "$1")
+        .replace(/`([^`]+)`/g, "$1")
+        .replace(/^[\s>*+-]+/, "")
+        .trim();
+}
+
+function formatDateTime(date = new Date()) {
+    const parts = new Intl.DateTimeFormat(
+        "ko-KR",
+        {
+            timeZone: "Asia/Seoul",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false
+        }
+    ).formatToParts(date);
+
+    const values = Object.fromEntries(
+        parts.map(part => [
+            part.type,
+            part.value
+        ])
+    );
+
+    return (
+        `${values.year}-${values.month}-${values.day} `
+        + `${values.hour}:${values.minute}`
+    );
+}
+
+function createControlId(prefix) {
+    createControlId.sequence =
+        (createControlId.sequence ?? 0) + 1;
+
+    return [
+        prefix,
+        Date.now(),
+        createControlId.sequence
+    ].join("-");
+}
+
+
+// ================================================================
+// 4. 컬럼 정의
+// ================================================================
+
+const columns = [
+    {
+        key: "file",
+        label: "File",
+        value: page => page.file,
+        type: "file",
+        filterType: "text",
+        sortType: "text"
+    },
+    {
+        key: "id",
+        label: "CR 번호",
+        value: page => page.id,
+        type: "cr",
+        filterType: "text",
+        sortType: "text"
+    },
+    {
+        key: "status",
+        label: "상태",
+        value: page => page.status,
+        type: "text",
+        filterType: "select",
+        sortType: "text"
+    },
+    {
+        key: "category",
+        label: "구분",
+        value: page => page.category,
+        type: "text",
+        filterType: "select",
+        sortType: "text"
+    },
+    {
+        key: "priority",
+        label: "업무 Priority",
+        value: page => page.priority,
+        type: "editablePriority",
+        filterType: "select",
+        sortType: "priority"
+    },
+    {
+        key: "purpose",
+        label: "Purpose",
+        value: page => page.purpose,
+        type: "text",
+        filterType: "select",
+        sortType: "text"
+    },
+    {
+        key: "serviceNowPriority",
+        label: "ServiceNow Priority",
+        value: page => page.service_now_priority,
+        type: "text",
+        filterType: "select",
+        sortType: "priority"
+    },
+    {
+        key: "ticketCreator",
+        label: "Ticket Creator",
+        value: page => page.ticket_creator,
+        type: "text",
+        filterType: "select",
+        sortType: "text"
+    },
+    {
+        key: "ticketRequester",
+        label: "Ticket Requester",
+        value: page => page.ticket_requester,
+        type: "text",
+        filterType: "select",
+        sortType: "text"
+    },
+    {
+        key: "serviceNowCreated",
+        label: "ServiceNow 생성일",
+        value: page => page.service_now_created,
+        type: "dateTime",
+        filterType: "date",
+        sortType: "dateTime"
+    },
+    {
+        key: "assignmentGroup",
+        label: "Assignment Group",
+        value: page => page.assignment_group,
+        type: "text",
+        filterType: "select",
+        sortType: "text"
+    },
+    {
+        key: "assignedPerson",
+        label: "Assigned Person",
+        value: page => page.assigned_person,
+        type: "text",
+        filterType: "select",
+        sortType: "text"
+    },
+    {
+        key: "serviceNowCategory",
+        label: "ServiceNow Category",
+        value: page => page.service_now_category,
+        type: "text",
+        filterType: "text",
+        sortType: "text"
+    },
+    {
+        key: "serviceNowUpdated",
+        label: "ServiceNow 수정일",
+        value: page => page.service_now_updated,
+        type: "dateTime",
+        filterType: "date",
+        sortType: "dateTime"
+    },
+    {
+        key: "scheduledDate",
+        label: "작업예정일",
+        value: page => page["작업예정일"],
+        type: "date",
+        filterType: "date",
+        sortType: "date"
+    },
+    {
+        key: "lastChecked",
+        label: "마지막확인",
+        value: page => page["마지막확인"],
+        type: "date",
+        filterType: "date",
+        sortType: "date"
+    },
+    {
+        key: "todoSummary",
+        label: "To-Do",
+        value: (_page, item) => {
+            const pending = item?.todos?.filter(todo => todo.status === "pending").length || 0;
+            const inProgress = item?.todos?.filter(todo => todo.status === "in-progress").length || 0;
+            return `진행 전 ${pending} 진행 중 ${inProgress}`;
+        },
+        type: "todoSummary",
+        filterType: "text",
+        sortType: "text"
+    },
+    {
+        key: "serviceNow",
+        label: "ServiceNow",
+        value: page => page["서비스나우"],
+        type: "external",
+        filterType: "presence",
+        sortType: "presence",
+        linkTitle: "ServiceNow 열기"
+    },
+    {
+        key: "jira",
+        label: "Jira",
+        value: page => page.jira,
+        type: "external",
+        filterType: "presence",
+        sortType: "presence",
+        linkTitle: "Jira 열기"
+    },
+    {
+        key: "workingNotes",
+        label: "워킹노트",
+        value: page => page["워킹노트"],
+        type: "smartLink",
+        filterType: "presence",
+        sortType: "presence",
+        linkTitle: "워킹노트 열기"
+    },
+    {
+        key: "bs",
+        label: "BS",
+        value: page => page.BS,
+        type: "external",
+        filterType: "presence",
+        sortType: "presence",
+        linkTitle: "BS 열기"
+    },
+    {
+        key: "fs",
+        label: "FS",
+        value: page => page.FS,
+        type: "external",
+        filterType: "presence",
+        sortType: "presence",
+        linkTitle: "FS 열기"
+    },
+    {
+        key: "ds",
+        label: "DS",
+        value: page => page.DS,
+        type: "external",
+        filterType: "presence",
+        sortType: "presence",
+        linkTitle: "DS 열기"
+    },
+    {
+        key: "ut",
+        label: "UT",
+        value: page => page.ut,
+        type: "smartLink",
+        filterType: "presence",
+        sortType: "text",
+        linkTitle: "UT 문서 열기"
+    },
+    {
+        key: "relatedDocument",
+        label: "관련 문서",
+        value: page => page["관련 문서"],
+        type: "documentIcon",
+        filterType: "presence",
+        sortType: "text",
+        linkTitle: "관련 문서 열기"
+    },
+    {
+        key: "testDocument",
+        label: "테스트 문서",
+        value: page => page["테스트 문서"],
+        type: "documentIcon",
+        filterType: "presence",
+        sortType: "text",
+        linkTitle: "테스트 문서 열기"
+    },
+    {
+        key: "created",
+        label: "생성일",
+        value: page => page.created,
+        type: "dateTime",
+        filterType: "date",
+        sortType: "dateTime"
+    },
+    {
+        key: "updated",
+        label: "수정일",
+        value: page => page.updated,
+        type: "dateTime",
+        filterType: "date",
+        sortType: "dateTime"
+    }
+];
+
+const mappedTemplateProperties = new Set([
+    "id", "category", "status", "purpose", "priority", "service_now_priority",
+    "ticket_creator", "ticket_requester", "service_now_created", "assignment_group",
+    "assigned_person", "service_now_category", "service_now_updated", "작업예정일",
+    "마지막확인", "서비스나우", "jira", "BS", "FS", "DS", "ut", "관련 문서",
+    "테스트 문서", "워킹노트", "created", "updated"
+]);
+const hiddenTemplateProperties = new Set(["change_complexity", "status_changed", "sla_basis"]);
+const ticketTemplateFile = app.vault.getAbstractFileByPath(`${ROOT_FOLDER}/Templates/티켓 템플릿.md`);
+if (ticketTemplateFile?.extension === "md") {
+    try {
+        const templateSource = await app.vault.cachedRead(ticketTemplateFile);
+        const frontmatter = templateSource.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] || "";
+        const propertyNames = [...frontmatter.matchAll(/^([^\s:#][^:]*):/gm)]
+            .map(match => match[1].trim())
+            .filter(Boolean);
+        for (const property of propertyNames) {
+            if (mappedTemplateProperties.has(property) || hiddenTemplateProperties.has(property)) continue;
+            const key = `template:${property}`;
+            columns.push({
+                key,
+                label: property,
+                value: page => page[property],
+                type: "text",
+                filterType: "text",
+                sortType: "text"
+            });
+            DEFAULT_COLUMN_WIDTHS[key] = 130;
+            mappedTemplateProperties.add(property);
+        }
+    } catch (error) {
+        console.warn("티켓 템플릿의 추가 속성을 읽지 못했습니다.", error);
+    }
+}
+
+const columnMap = new Map(
+    columns.map(column => [
+        column.key,
+        column
+    ])
+);
+
+
+// ================================================================
+// 5. 사용자 설정 관리
+// ================================================================
+
+function createDefaultSettings() {
+    return {
+        schemaVersion: SETTINGS_SCHEMA_VERSION,
+
+        visibleColumns: columns.map(
+            column => column.key
+        ),
+
+        columnOrder: columns.map(
+            column => column.key
+        ),
+
+        knownColumns: columns.map(
+            column => column.key
+        ),
+
+        columnWidths: {
+            ...DEFAULT_COLUMN_WIDTHS
+        },
+
+        rowHeight: DEFAULT_ROW_HEIGHT,
+
+        searchKeyword: "",
+
+        activeView: "table",
+
+        todoGroupByTicket: true,
+
+        todoSearchKeyword: "",
+
+        todoQuickView: "all",
+
+        showAppliedFilters: true,
+
+        showAppliedSorts: true,
+
+        filters: [],
+
+        sorts: []
+    };
+}
+
+function loadSettings() {
+    const defaults = createDefaultSettings();
+
+    try {
+        const raw =
+            localStorage.getItem(SETTINGS_KEY);
+
+        if (!raw) {
+            return defaults;
+        }
+
+        const saved = JSON.parse(raw);
+
+        let visibleColumns =
+            Array.isArray(saved.visibleColumns)
+                ? saved.visibleColumns.filter(
+                    key => columnMap.has(key)
+                )
+                : defaults.visibleColumns;
+
+        if (
+            Number(saved.schemaVersion ?? 1)
+                < SETTINGS_SCHEMA_VERSION
+            && !visibleColumns.includes("workingNotes")
+        ) {
+            const jiraIndex =
+                visibleColumns.indexOf("jira");
+
+            visibleColumns = [...visibleColumns];
+            visibleColumns.splice(
+                jiraIndex >= 0
+                    ? jiraIndex + 1
+                    : visibleColumns.length,
+                0,
+                "workingNotes"
+            );
+        }
+
+        if (
+            Number(saved.schemaVersion ?? 1) < 4
+            && !visibleColumns.includes("bs")
+        ) {
+            const workNotesIndex =
+                visibleColumns.indexOf("workingNotes");
+
+            visibleColumns = [...visibleColumns];
+            visibleColumns.splice(
+                workNotesIndex >= 0
+                    ? workNotesIndex + 1
+                    : visibleColumns.length,
+                0,
+                "bs"
+            );
+        }
+
+        if (
+            Number(saved.schemaVersion ?? 1) < 5
+            && !visibleColumns.includes("priority")
+        ) {
+            const categoryIndex =
+                visibleColumns.indexOf("category");
+
+            visibleColumns = [...visibleColumns];
+            visibleColumns.splice(
+                categoryIndex >= 0
+                    ? categoryIndex + 1
+                    : visibleColumns.length,
+                0,
+                "priority"
+            );
+        }
+
+        if (Number(saved.schemaVersion ?? 1) < 6) {
+            const newKeys = [
+                "purpose", "serviceNowPriority", "ticketCreator", "ticketRequester",
+                "serviceNowCreated", "assignmentGroup", "assignedPerson",
+                "serviceNowCategory", "serviceNowUpdated",
+                ...columns.filter(column => column.key.startsWith("template:")).map(column => column.key)
+            ];
+            visibleColumns = [...visibleColumns];
+            for (const key of newKeys) {
+                if (columnMap.has(key) && !visibleColumns.includes(key)) visibleColumns.push(key);
+            }
+        } else {
+            const previouslyKnown = new Set(Array.isArray(saved.knownColumns) ? saved.knownColumns : []);
+            const newlyAvailable = columns.map(column => column.key).filter(key => !previouslyKnown.has(key));
+            visibleColumns = [...visibleColumns, ...newlyAvailable.filter(key => !visibleColumns.includes(key))];
+        }
+
+        const mergedWidths = {
+            ...defaults.columnWidths,
+            ...(saved.columnWidths ?? {})
+        };
+
+        const rowHeight =
+            Number(saved.rowHeight);
+
+        const savedOrder = Array.isArray(saved.columnOrder)
+            ? saved.columnOrder.filter(key => columnMap.has(key))
+            : visibleColumns;
+
+        const columnOrder = [
+            ...savedOrder,
+            ...columns
+                .map(column => column.key)
+                .filter(key => !savedOrder.includes(key))
+        ];
+
+        return {
+            schemaVersion: SETTINGS_SCHEMA_VERSION,
+
+            knownColumns: columns.map(
+                column => column.key
+            ),
+
+            visibleColumns:
+                visibleColumns.length > 0
+                    ? visibleColumns
+                    : defaults.visibleColumns,
+
+            columnOrder,
+
+            columnWidths: mergedWidths,
+
+            rowHeight:
+                Number.isFinite(rowHeight)
+                    ? Math.min(
+                        60,
+                        Math.max(24, rowHeight)
+                    )
+                    : defaults.rowHeight,
+
+            searchKeyword:
+                typeof saved.searchKeyword === "string"
+                    ? saved.searchKeyword
+                    : defaults.searchKeyword,
+
+            activeView:
+                ["table", "todo"].includes(saved.activeView)
+                    ? saved.activeView
+                    : defaults.activeView,
+
+            todoGroupByTicket:
+                typeof saved.todoGroupByTicket === "boolean"
+                    ? saved.todoGroupByTicket
+                    : defaults.todoGroupByTicket,
+
+            todoSearchKeyword:
+                typeof saved.todoSearchKeyword === "string"
+                    ? saved.todoSearchKeyword
+                    : defaults.todoSearchKeyword,
+
+            todoQuickView:
+                ["all", "open", "today", "overdue", "done"].includes(saved.todoQuickView)
+                    ? saved.todoQuickView
+                    : defaults.todoQuickView,
+
+            showAppliedFilters:
+                typeof saved.showAppliedFilters === "boolean"
+                    ? saved.showAppliedFilters
+                    : typeof saved.showAppliedControls === "boolean"
+                        ? saved.showAppliedControls
+                        : defaults.showAppliedFilters,
+
+            showAppliedSorts:
+                typeof saved.showAppliedSorts === "boolean"
+                    ? saved.showAppliedSorts
+                    : typeof saved.showAppliedControls === "boolean"
+                        ? saved.showAppliedControls
+                        : defaults.showAppliedSorts,
+
+            filters:
+                Array.isArray(saved.filters)
+                    ? saved.filters.filter(
+                        filter =>
+                            columnMap.has(filter?.columnKey)
+                            && typeof filter?.operator === "string"
+                    )
+                    : defaults.filters,
+
+            sorts:
+                Array.isArray(saved.sorts)
+                    ? saved.sorts.filter(
+                        rule =>
+                            columnMap.has(rule?.columnKey)
+                            && ["asc", "desc"].includes(rule?.direction)
+                    )
+                    : defaults.sorts
+        };
+    } catch (error) {
+        console.error(
+            "[전체 업무 현황] 설정 불러오기 실패",
+            error
+        );
+
+        return defaults;
+    }
+}
+
+function saveSettings() {
+    try {
+        localStorage.setItem(
+            SETTINGS_KEY,
+            JSON.stringify(settings)
+        );
+    } catch (error) {
+        console.error(
+            "[전체 업무 현황] 설정 저장 실패",
+            error
+        );
+    }
+}
+
+function getVisibleColumns() {
+    const visible = new Set(settings.visibleColumns);
+    return settings.columnOrder
+        .filter(key => visible.has(key))
+        .map(key => columnMap.get(key))
+        .filter(Boolean);
+}
+
+let settings = loadSettings();
+
+
+// ================================================================
+// 6. 작업 일지 섹션 탐색
+// ================================================================
+
+function findWorkLogSection(markdown) {
+    const lines = markdown.split(/\r?\n/);
+
+    let headingLineIndex = -1;
+    let headingLevel = null;
+    let sectionEndLineIndex = lines.length;
+
+    for (
+        let index = 0;
+        index < lines.length;
+        index += 1
+    ) {
+        const headingMatch =
+            lines[index].match(
+                /^(#{1,6})\s+(.+)$/
+            );
+
+        if (!headingMatch) {
+            continue;
+        }
+
+        const normalizedHeading =
+            headingMatch[2]
+                .replace(
+                    /[^\p{L}\p{N}]/gu,
+                    ""
+                )
+                .toLowerCase();
+
+        if (
+            !normalizedHeading.includes(
+                "작업일지"
+            )
+        ) {
+            continue;
+        }
+
+        headingLineIndex = index;
+        headingLevel =
+            headingMatch[1].length;
+
+        break;
+    }
+
+    if (headingLineIndex < 0) {
+        return null;
+    }
+
+    for (
+        let index = headingLineIndex + 1;
+        index < lines.length;
+        index += 1
+    ) {
+        const headingMatch =
+            lines[index].match(
+                /^(#{1,6})\s+(.+)$/
+            );
+
+        if (
+            headingMatch
+            && headingMatch[1].length
+                <= headingLevel
+        ) {
+            sectionEndLineIndex = index;
+            break;
+        }
+    }
+
+    return {
+        lines,
+        headingLineIndex,
+        headingLevel,
+        sectionEndLineIndex
+    };
+}
+
+
+// ================================================================
+// 7. 작업 일지 파싱
+// ================================================================
+
+function extractWorkLogs(markdown) {
+    const section =
+        findWorkLogSection(markdown);
+
+    if (!section) {
+        return [];
+    }
+
+    const entries = [];
+    let currentEntry = null;
+
+    for (
+        let index =
+            section.headingLineIndex + 1;
+        index <
+            section.sectionEndLineIndex;
+        index += 1
+    ) {
+        const line = section.lines[index];
+
+        const bulletMatch =
+            line.match(
+                /^\s*[-*+]\s+(.+)$/
+            );
+
+        if (bulletMatch) {
+            if (currentEntry) {
+                entries.push(currentEntry);
+            }
+
+            currentEntry = {
+                raw: bulletMatch[1].trim(),
+                order: entries.length
+            };
+
+            continue;
+        }
+
+        if (
+            currentEntry
+            && line.trim()
+        ) {
+            currentEntry.raw +=
+                `\n${line.trim()}`;
+        }
+    }
+
+    if (currentEntry) {
+        entries.push(currentEntry);
+    }
+
+    return entries.map(
+        (entry, index) => {
+            const dateTimeMatch =
+                entry.raw.match(
+                    /\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?/
+                );
+
+            const dateTime =
+                dateTimeMatch?.[0] ?? "";
+
+            let text =
+                stripMarkdown(entry.raw);
+
+            let contentMarkdown =
+                entry.raw;
+
+            if (dateTime) {
+                text = text
+                    .replace(dateTime, "")
+                    .replace(
+                        /^[:\s.,-]+/,
+                        ""
+                    )
+                    .trim();
+
+                contentMarkdown =
+                    contentMarkdown
+                        .replace(
+                            dateTime,
+                            ""
+                        )
+                        .replace(
+                            /^[\s*_`~:.,-]+/,
+                            ""
+                        )
+                        .trim();
+            }
+
+            return {
+                dateTime,
+                text,
+                contentMarkdown,
+                raw: entry.raw,
+                index
+            };
+        }
+    );
+}
+
+function getLatestWorkLog(workLogs) {
+    if (
+        !Array.isArray(workLogs)
+        || workLogs.length === 0
+    ) {
+        return null;
+    }
+
+    return [...workLogs]
+        .sort((left, right) => {
+            const leftDate =
+                left.dateTime || "";
+
+            const rightDate =
+                right.dateTime || "";
+
+            if (leftDate !== rightDate) {
+                return leftDate.localeCompare(
+                    rightDate
+                );
+            }
+
+            return left.index - right.index;
+        })
+        .at(-1);
+}
+
+async function readWorkLogs(page) {
+    try {
+        const file =
+            app.vault.getAbstractFileByPath(
+                page.file.path
+            );
+
+        if (!file) {
+            return [];
+        }
+
+        const markdown =
+            await app.vault.cachedRead(file);
+
+        return extractWorkLogs(markdown);
+    } catch (error) {
+        console.error(
+            `[전체 업무 현황] 작업 일지 읽기 실패: ${page.file.path}`,
+            error
+        );
+
+        return [];
+    }
+}
+
+
+// ================================================================
+// 7-1. To-Do 파싱 및 3단계 상태 저장
+// ================================================================
+
+function findTodoSection(markdown) {
+    const lines = markdown.split(/\r?\n/);
+    let headingLineIndex = -1;
+    let headingLevel = null;
+    let sectionEndLineIndex = lines.length;
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const headingMatch = lines[index].match(/^(#{1,6})\s+(.+)$/);
+        if (!headingMatch) continue;
+        const normalizedHeading = headingMatch[2]
+            .replace(/[^\p{L}\p{N}]/gu, "")
+            .toLowerCase();
+        if (!normalizedHeading.includes("todo")) continue;
+        headingLineIndex = index;
+        headingLevel = headingMatch[1].length;
+        break;
+    }
+
+    if (headingLineIndex < 0) return null;
+    for (let index = headingLineIndex + 1; index < lines.length; index += 1) {
+        const headingMatch = lines[index].match(/^(#{1,6})\s+(.+)$/);
+        if (headingMatch && headingMatch[1].length <= headingLevel) {
+            sectionEndLineIndex = index;
+            break;
+        }
+    }
+    return { lines, headingLineIndex, headingLevel, sectionEndLineIndex };
+}
+
+function extractTodos(markdown, page) {
+    const section = findTodoSection(markdown);
+    if (!section) return [];
+    const todos = [];
+    for (let lineIndex = section.headingLineIndex + 1; lineIndex < section.sectionEndLineIndex; lineIndex += 1) {
+        const match = section.lines[lineIndex].match(/^(\s*)[-*+]\s+\[([ xX])\]\s+(.+)$/);
+        if (!match) continue;
+        const completed = match[2].toLowerCase() === "x";
+        const markedProgress = /<!--\s*clt-todo:in-progress\s*-->/i.test(match[3]);
+        const dueDate = match[3].match(/<!--\s*clt-todo-due:(\d{4}-\d{2}-\d{2})\s*-->/i)?.[1] || "";
+        const completedAt = match[3].match(/<!--\s*clt-todo-completed:([^>]+?)\s*-->/i)?.[1]?.trim() || "";
+        const rawContent = match[3]
+            .replace(/\s*<!--\s*clt-todo:(?:pending|in-progress|done)\s*-->\s*/gi, " ")
+            .replace(/\s*<!--\s*clt-todo-due:\d{4}-\d{2}-\d{2}\s*-->\s*/gi, " ")
+            .replace(/\s*<!--\s*clt-todo-completed:[^>]+-->\s*/gi, " ")
+            .trim();
+        const dateTime = rawContent.match(/\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?/)?.[0] || "";
+        const text = stripMarkdown(rawContent)
+            .replace(dateTime, "")
+            .replace(/^[:\s.,-]+/, "")
+            .trim();
+        const taskIndex = todos.length;
+        todos.push({
+            id: `${page.file.path}::${taskIndex}`,
+            filePath: page.file.path,
+            ticketId: String(page.id || page.file.name || ""),
+            ticketTitle: String(page.file.name || page.id || ""),
+            taskIndex,
+            lineIndex,
+            dateTime,
+            dueDate,
+            completedAt,
+            text: text || rawContent,
+            rawContent,
+            status: completed ? "done" : markedProgress ? "in-progress" : "pending"
+        });
+    }
+    return todos;
+}
+
+async function readTodos(page) {
+    try {
+        const file = app.vault.getAbstractFileByPath(page.file.path);
+        if (!file) return [];
+        return extractTodos(await app.vault.cachedRead(file), page);
+    } catch (error) {
+        console.error(`[전체 업무 현황] To-Do 읽기 실패: ${page.file.path}`, error);
+        return [];
+    }
+}
+
+async function updateTodoStatus(task, nextStatus) {
+    return updateTodoDetails(task, { status: nextStatus });
+}
+
+async function updateTodoDetails(task, changes = {}) {
+    const nextStatus = changes.status ?? task.status;
+    if (!["pending", "in-progress", "done"].includes(nextStatus)) return;
+    const previousStatus = task.status;
+    const completionTimestamp = nextStatus === "done"
+        ? String(changes.completedAt || task.completedAt || (previousStatus !== "done" ? formatDateTime() : "")).trim()
+        : "";
+    const file = app.vault.getAbstractFileByPath(task.filePath);
+    if (!file) throw new Error("원본 티켓 노트를 찾을 수 없습니다.");
+    await app.vault.process(file, markdown => {
+        const section = findTodoSection(markdown);
+        if (!section) throw new Error("To-Do 섹션을 찾을 수 없습니다.");
+        const taskLines = [];
+        for (let index = section.headingLineIndex + 1; index < section.sectionEndLineIndex; index += 1) {
+            if (/^\s*[-*+]\s+\[[ xX]\]\s+/.test(section.lines[index])) taskLines.push(index);
+        }
+        const targetLine = taskLines[task.taskIndex];
+        if (!Number.isInteger(targetLine)) throw new Error("할 일 위치가 변경되었습니다. 업무현황을 다시 열어 주세요.");
+        const match = section.lines[targetLine].match(/^(\s*)([-*+])\s+\[[ xX]\]\s+(.+)$/);
+        if (!match) throw new Error("할 일 형식을 확인할 수 없습니다.");
+        const cleanContent = match[3]
+            .replace(/\s*<!--\s*clt-todo:(?:pending|in-progress|done)\s*-->\s*/gi, " ")
+            .replace(/\s*<!--\s*clt-todo-due:\d{4}-\d{2}-\d{2}\s*-->\s*/gi, " ")
+            .replace(/\s*<!--\s*clt-todo-completed:[^>]+-->\s*/gi, " ")
+            .trim();
+        const originalDateTime = cleanContent.match(/\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?/)?.[0] || task.dateTime || formatDateTime();
+        const originalText = stripMarkdown(cleanContent)
+            .replace(originalDateTime, "")
+            .replace(/^[:\s.,-]+/, "")
+            .trim();
+        const nextText = String(changes.text ?? originalText).replace(/\r?\n+/g, " ").trim();
+        const nextDueDate = String(changes.dueDate ?? task.dueDate ?? "").trim();
+        const nextCompletedAt = completionTimestamp;
+        const checkbox = nextStatus === "done" ? "x" : " ";
+        const statusMarker = nextStatus === "in-progress" ? " <!-- clt-todo:in-progress -->" : "";
+        const dueMarker = nextDueDate ? ` <!-- clt-todo-due:${nextDueDate} -->` : "";
+        const completedMarker = nextCompletedAt ? ` <!-- clt-todo-completed:${nextCompletedAt} -->` : "";
+        section.lines[targetLine] = `${match[1]}${match[2]} [${checkbox}] ${originalDateTime} : ${nextText}${statusMarker}${dueMarker}${completedMarker}`;
+        return section.lines.join("\n");
+    });
+    task.status = nextStatus;
+    task.text = String(changes.text ?? task.text).trim();
+    task.dueDate = String(changes.dueDate ?? task.dueDate ?? "").trim();
+    task.completedAt = completionTimestamp;
+}
+
+function appendTodoToMarkdown(markdown, dateTime, content, dueDate = "", status = "pending") {
+    const normalizedContent = String(content || "").replace(/\r?\n+/g, " ").trim();
+    const checkbox = status === "done" ? "x" : " ";
+    const statusMarker = status === "in-progress" ? " <!-- clt-todo:in-progress -->" : "";
+    const dueMarker = dueDate ? ` <!-- clt-todo-due:${dueDate} -->` : "";
+    const completedMarker = status === "done" ? ` <!-- clt-todo-completed:${formatDateTime()} -->` : "";
+    const newEntry = `- [${checkbox}] ${dateTime} : ${normalizedContent}${statusMarker}${dueMarker}${completedMarker}`;
+    const section = findTodoSection(markdown);
+    if (!section) {
+        return [markdown.trimEnd(), "", "## ✅ To-Do", "", newEntry, ""].join("\n");
+    }
+    const lines = [...section.lines];
+    let insertionIndex = section.sectionEndLineIndex;
+    while (insertionIndex > section.headingLineIndex + 1 && lines[insertionIndex - 1].trim() === "") {
+        insertionIndex -= 1;
+    }
+    lines.splice(insertionIndex, 0, newEntry);
+    if (insertionIndex + 1 < lines.length && /^#{1,6}\s+/.test(lines[insertionIndex + 1])) {
+        lines.splice(insertionIndex + 1, 0, "");
+    }
+    return lines.join("\n");
+}
+
+async function addTodo(item, content, dueDate = "", status = "pending") {
+    const normalizedContent = String(content || "").trim();
+    if (!item?.page?.file?.path) throw new Error("티켓을 선택해 주세요.");
+    if (!normalizedContent) throw new Error("할 일을 입력해 주세요.");
+    const file = app.vault.getAbstractFileByPath(item.page.file.path);
+    if (!file) throw new Error("원본 티켓 노트를 찾을 수 없습니다.");
+    const dateTime = formatDateTime();
+    await app.vault.process(file, markdown => appendTodoToMarkdown(
+        markdown,
+        dateTime,
+        normalizedContent,
+        dueDate,
+        status
+    ));
+    item.todos = await readTodos(item.page);
+    todoItems = pages.flatMap(pageItem => pageItem.todos || []);
+    return dateTime;
+}
+
+function todoDueInfo(task) {
+    if (!task?.dueDate) return null;
+    const todayText = formatDateTime().slice(0, 10);
+    const today = new Date(`${todayText}T00:00:00`);
+    const due = new Date(`${task.dueDate}T00:00:00`);
+    if (Number.isNaN(due.getTime())) return null;
+    const difference = Math.round((due.getTime() - today.getTime()) / 86400000);
+    if (task.status === "done") return { label: `✓ ${task.dueDate}`, tone: "done", difference };
+    if (difference < 0) {
+        const elapsed = Math.abs(difference);
+        return {
+            label: `⏰ ${elapsed === 1 ? "어제" : `${elapsed}일 전`}`,
+            tone: "overdue",
+            difference
+        };
+    }
+    if (difference === 0) return { label: "⏳ 오늘", tone: "today", difference };
+    return { label: `⌛ ${difference}일 남음`, tone: difference <= 3 ? "soon" : "future", difference };
+}
+
+
+// ================================================================
+// 8. 새 작업 일지 삽입
+// ================================================================
+
+function appendWorkLogToMarkdown(
+    markdown,
+    dateTime,
+    content
+) {
+    const normalizedContent = content
+        .replace(/\r?\n+/g, " ")
+        .trim();
+
+    const newEntry =
+        `- ${dateTime} : ${normalizedContent}`;
+
+    const section =
+        findWorkLogSection(markdown);
+
+    if (!section) {
+        return [
+            markdown.trimEnd(),
+            "",
+            "## 📝 작업 일지",
+            "",
+            newEntry,
+            ""
+        ].join("\n");
+    }
+
+    const lines = [...section.lines];
+
+    let insertionIndex =
+        section.sectionEndLineIndex;
+
+    while (
+        insertionIndex >
+            section.headingLineIndex + 1
+        && lines[
+            insertionIndex - 1
+        ].trim() === ""
+    ) {
+        insertionIndex -= 1;
+    }
+
+    lines.splice(
+        insertionIndex,
+        0,
+        newEntry
+    );
+
+    const nextLineIndex =
+        insertionIndex + 1;
+
+    if (
+        nextLineIndex < lines.length
+        && lines[nextLineIndex].trim() !== ""
+        && /^#{1,6}\s+/.test(
+            lines[nextLineIndex]
+        )
+    ) {
+        lines.splice(
+            nextLineIndex,
+            0,
+            ""
+        );
+    }
+
+    return lines.join("\n");
+}
+
+async function addWorkLog(
+    item,
+    content
+) {
+    const normalizedContent =
+        content.trim();
+
+    if (!normalizedContent) {
+        throw new Error(
+            "작업 내용을 입력해 주세요."
+        );
+    }
+
+    const file =
+        app.vault.getAbstractFileByPath(
+            item.page.file.path
+        );
+
+    if (!file) {
+        throw new Error(
+            "원본 파일을 찾을 수 없습니다."
+        );
+    }
+
+    const dateTime = formatDateTime();
+
+    await app.vault.process(
+        file,
+        markdown =>
+            appendWorkLogToMarkdown(
+                markdown,
+                dateTime,
+                normalizedContent
+            )
+    );
+
+    await app.fileManager.processFrontMatter(
+        file,
+        frontmatter => {
+            frontmatter["마지막확인"] =
+                dateTime.slice(0, 10);
+        }
+    );
+
+    item.workLogs =
+        await readWorkLogs(item.page);
+
+    item.latestWorkLog =
+        getLatestWorkLog(item.workLogs);
+
+    return dateTime;
+}
+
+
+// ================================================================
+// 9. 데이터 조회
+// ================================================================
+
+const sourcePages = dv.pages('""')
+    .where(page => String(page.file?.path ?? "")
+        .toLowerCase()
+        .startsWith(`${ROOT_FOLDER}/티켓/`.toLowerCase())
+    )
+    .where(page => ["CR", "SR"].includes(
+        String(page.category ?? "").toUpperCase()
+    ))
+    .where(page => /^(CR|SR)\d+$/i.test(
+        String(page.id ?? "").trim()
+    ))
+    .where(page => !EXCLUDED_STATUSES.has(
+        String(page.status ?? "").trim().toLowerCase()
+    ))
+    .array();
+
+const pages = await Promise.all(
+    sourcePages.map(async page => {
+        const [workLogs, todos] = await Promise.all([
+            readWorkLogs(page),
+            readTodos(page)
+        ]);
+
+        return {
+            page,
+            workLogs,
+            todos,
+            latestWorkLog:
+                getLatestWorkLog(workLogs)
+        };
+    })
+);
+
+
+// ================================================================
+// 10. 화면 상태
+// ================================================================
+
+let searchKeyword = settings.searchKeyword;
+
+let activeView = settings.activeView;
+
+let todoItems = pages.flatMap(item => item.todos || []);
+
+let filterMenuOpen = false;
+let sortMenuOpen = false;
+let fieldMenuOpen = false;
+
+const activeFilters = settings.filters.map(
+    filter => ({
+        id: createControlId("filter"),
+        columnKey: filter.columnKey,
+        operator: filter.operator,
+        value: filter.value ?? ""
+    })
+);
+const activeSorts = settings.sorts.map(
+    rule => ({
+        id: createControlId("sort"),
+        columnKey: rule.columnKey,
+        direction: rule.direction
+    })
+);
+
+function saveActiveSorts() {
+    settings.sorts = activeSorts.map(
+        rule => ({
+            columnKey: rule.columnKey,
+            direction: rule.direction
+        })
+    );
+    saveSettings();
+}
+
+function saveActiveFilters() {
+    settings.filters = activeFilters.map(
+        filter => ({
+            columnKey: filter.columnKey,
+            operator: filter.operator,
+            value: filter.value ?? ""
+        })
+    );
+    saveSettings();
+}
+
+const operators = {
+    text: [
+        {
+            value: "contains",
+            label: "포함"
+        },
+        {
+            value: "equals",
+            label: "같음"
+        },
+        {
+            value: "notContains",
+            label: "포함하지 않음"
+        },
+        {
+            value: "empty",
+            label: "비어 있음"
+        },
+        {
+            value: "notEmpty",
+            label: "비어 있지 않음"
+        }
+    ],
+
+    select: [
+        {
+            value: "equals",
+            label: "같음"
+        },
+        {
+            value: "notEquals",
+            label: "같지 않음"
+        },
+        {
+            value: "empty",
+            label: "비어 있음"
+        },
+        {
+            value: "notEmpty",
+            label: "비어 있지 않음"
+        }
+    ],
+
+    presence: [
+        {
+            value: "notEmpty",
+            label: "있음"
+        },
+        {
+            value: "empty",
+            label: "없음"
+        }
+    ],
+
+    date: [
+        {
+            value: "equals",
+            label: "해당 날짜"
+        },
+        {
+            value: "before",
+            label: "이전"
+        },
+        {
+            value: "after",
+            label: "이후"
+        },
+        {
+            value: "empty",
+            label: "비어 있음"
+        },
+        {
+            value: "notEmpty",
+            label: "비어 있지 않음"
+        }
+    ]
+};
+
+
+// ================================================================
+// 11. CSS
+// ================================================================
+
+const style =
+    document.createElement("style");
+
+style.textContent = `
+.opus-dashboard {
+    position: relative;
+    width: 100%;
+    min-height: min(620px, calc(100vh - 180px));
+    font-size: 13px;
+}
+
+.opus-view-tabs {
+    display: inline-flex;
+    gap: 3px;
+    margin: 0 0 12px;
+    padding: 3px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    background: var(--background-secondary);
+}
+
+.opus-view-tab {
+    min-height: 30px;
+    padding: 4px 12px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12.5px;
+}
+
+.opus-view-tab.active {
+    background: var(--background-primary);
+    color: var(--text-normal);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+    font-weight: 600;
+}
+
+.opus-hidden {
+    display: none !important;
+}
+
+/* ------------------------------------------------
+ * 상단 툴바
+ * ------------------------------------------------ */
+
+.opus-toolbar {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.opus-title-area {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+}
+
+.opus-title {
+    margin: 0 !important;
+    font-size: 1.25rem;
+    white-space: nowrap;
+}
+
+.opus-summary {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+.opus-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.opus-search {
+    width: 230px;
+    height: 31px;
+    box-sizing: border-box;
+    padding: 4px 9px;
+    border: 1px solid
+        var(--background-modifier-border);
+    border-radius: 5px;
+    background:
+        var(--background-primary);
+    color: var(--text-normal);
+    font-size: 12.5px;
+}
+
+.opus-icon-button {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 31px;
+    height: 31px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 15px;
+}
+
+.opus-icon-button:hover,
+.opus-icon-button.active {
+    background:
+        var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.opus-icon-button.active {
+    color: var(--interactive-accent);
+}
+
+
+/* ------------------------------------------------
+ * 팝업 공통
+ * ------------------------------------------------ */
+
+.opus-popup-panel {
+    position: absolute;
+    top: 38px;
+    z-index: 200;
+    padding: 8px;
+    border: 1px solid
+        var(--background-modifier-border);
+    border-radius: 9px;
+    background:
+        var(--background-primary);
+    box-shadow: var(--shadow-l);
+}
+
+.opus-filter-panel {
+    right: 0;
+    width: min(760px, calc(100vw - 70px));
+    max-height: min(560px, 72vh);
+    overflow-y: auto;
+}
+
+.opus-sort-panel {
+    right: 35px;
+    width: min(760px, calc(100vw - 70px));
+    max-height: min(560px, 72vh);
+    overflow-y: auto;
+}
+
+/*
+ * 필드 메뉴는 세로 스크롤 방식이 아니라
+ * 화면을 넓게 사용하는 방식으로 변경
+ */
+.opus-field-panel {
+    right: 0;
+    width: min(620px, calc(100vw - 60px));
+    max-height: none;
+    overflow: visible;
+}
+
+.opus-popup-title {
+    padding: 6px 8px;
+    color: var(--text-muted);
+    font-size: 0.76rem;
+}
+
+.opus-popup-field-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+}
+
+.opus-filter-display-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+    padding: 11px 8px 5px;
+    border-top: 1px solid var(--background-modifier-border);
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.opus-popup-field {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    min-height: 34px;
+    padding: 7px 9px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 7px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.opus-popup-field:hover {
+    background:
+        var(--background-modifier-hover);
+}
+
+.opus-popup-field.disabled {
+    color: var(--text-faint);
+    background: var(--background-secondary-alt);
+    opacity: 0.58;
+    cursor: default;
+}
+
+
+/* ------------------------------------------------
+ * 표시 필드 설정
+ * ------------------------------------------------ */
+
+.opus-field-list {
+    display: grid;
+    grid-template-columns:
+        repeat(3, minmax(0, 1fr));
+    gap: 3px 10px;
+    margin: 3px 0 9px;
+}
+
+.opus-field-option {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    min-height: 30px;
+    padding: 4px 7px;
+    border-radius: 5px;
+    cursor: grab;
+    border: 1px solid transparent;
+    user-select: none;
+}
+
+.opus-field-option:active {
+    cursor: grabbing;
+}
+
+.opus-field-option.dragging {
+    opacity: 0.45;
+}
+
+.opus-field-option.drag-over {
+    border-color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+}
+
+.opus-field-drag-handle {
+    flex: 0 0 auto;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.opus-table th[draggable="true"] .opus-header-content {
+    cursor: grab;
+}
+
+.opus-table th.dragging {
+    opacity: 0.45;
+}
+
+.opus-table th.drag-over {
+    box-shadow: inset 3px 0 0 var(--interactive-accent);
+}
+
+.opus-field-option:hover {
+    background:
+        var(--background-modifier-hover);
+}
+
+.opus-field-option input {
+    flex: 0 0 auto;
+    margin: 0;
+}
+
+.opus-field-option span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.opus-row-height-section {
+    padding: 9px 8px;
+    border-top: 1px solid
+        var(--background-modifier-border);
+}
+
+.opus-row-height-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 5px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.opus-row-height-slider {
+    width: 100%;
+}
+
+.opus-field-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 8px;
+    border-top: 1px solid
+        var(--background-modifier-border);
+}
+
+.opus-field-actions-left,
+.opus-field-actions-right {
+    display: flex;
+    gap: 5px;
+}
+
+.opus-small-button {
+    height: 28px;
+    padding: 3px 8px;
+    border: 1px solid
+        var(--background-modifier-border);
+    border-radius: 5px;
+    background:
+        var(--interactive-normal);
+    color: var(--text-normal);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.opus-small-button:hover {
+    background:
+        var(--interactive-hover);
+}
+
+.opus-small-button.primary {
+    background:
+        var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+
+/* ------------------------------------------------
+ * 활성 필터 및 정렬
+ * ------------------------------------------------ */
+
+.opus-control-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.opus-control-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 28px;
+    padding: 3px 5px;
+    border: 1px solid
+        var(--background-modifier-border);
+    border-radius: 6px;
+    background:
+        var(--background-secondary);
+}
+
+.opus-filter-chip {
+    border-left: 3px solid
+        var(--interactive-accent);
+}
+
+.opus-sort-chip {
+    border-left: 3px solid
+        var(--text-accent);
+}
+
+.opus-control-chip-label {
+    padding-left: 2px;
+    color: var(--interactive-accent);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.opus-sort-chip
+.opus-control-chip-label {
+    color: var(--text-accent);
+}
+
+.opus-control-chip select,
+.opus-control-chip input {
+    height: 25px;
+    max-width: 165px;
+    box-sizing: border-box;
+    padding: 2px 5px;
+    border: 1px solid
+        var(--background-modifier-border);
+    border-radius: 4px;
+    background:
+        var(--background-primary);
+    color: var(--text-normal);
+    font-size: 12px;
+}
+
+.opus-control-remove {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 21px;
+    height: 21px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.opus-control-remove:hover {
+    background:
+        var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+
+/* ------------------------------------------------
+ * 테이블
+ * ------------------------------------------------ */
+
+.opus-table-scroll {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: visible;
+    padding-bottom: 5px;
+}
+
+.opus-table {
+    display: table;
+    width: max-content !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    margin: 0 !important;
+    border-collapse: collapse !important;
+    border-spacing: 0 !important;
+    table-layout: fixed !important;
+    border: 1px solid
+        var(--background-modifier-border);
+    font-size: 13px;
+    line-height: 1.15;
+}
+
+.opus-table tr {
+    height:
+        var(--opus-row-height) !important;
+}
+
+.opus-table th,
+.opus-table td {
+    position: relative;
+    height:
+        var(--opus-row-height) !important;
+    max-height:
+        var(--opus-row-height) !important;
+    padding: 3px 6px !important;
+    box-sizing: border-box;
+    border-right: 1px solid
+        var(--background-modifier-border);
+    border-bottom: 1px solid
+        var(--background-modifier-border);
+    vertical-align: middle;
+    white-space: nowrap !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: keep-all !important;
+}
+
+.opus-table th:last-child,
+.opus-table td:last-child {
+    border-right: 0;
+}
+
+.opus-table tbody
+tr:last-child td {
+    border-bottom: 0;
+}
+
+.opus-table th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background:
+        var(--background-secondary);
+    color: var(--text-normal);
+    font-weight: 600;
+    text-align: left;
+    user-select: none;
+}
+
+.opus-table tbody tr:hover {
+    background:
+        var(--background-modifier-hover);
+}
+
+/* ------------------------------------------------
+ * To-Do 칸반 보드
+ * ------------------------------------------------ */
+
+.opus-todo-board-area {
+    width: 100%;
+}
+
+.opus-todo-board-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    background: var(--background-secondary-alt);
+}
+
+.opus-todo-board-guide {
+    color: var(--text-muted);
+    font-size: 11.5px;
+}
+
+.opus-todo-board-filters {
+    display: flex;
+    flex: 1 1 360px;
+    align-items: center;
+    gap: 7px;
+}
+
+.opus-todo-search {
+    width: min(320px, 34vw);
+    min-width: 180px;
+    min-height: 31px;
+    padding: 5px 9px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 7px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+}
+
+.opus-todo-quick-view {
+    min-height: 31px;
+    padding: 4px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 7px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+}
+
+.opus-todo-board-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.opus-todo-add-button {
+    min-height: 30px;
+    padding: 4px 11px;
+    border: 1px solid var(--interactive-accent);
+    border-radius: 7px;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.opus-todo-add-button:hover {
+    filter: brightness(1.06);
+}
+
+.opus-todo-group-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.opus-todo-board {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(240px, 1fr));
+    gap: 10px;
+    min-height: 430px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+}
+
+.opus-todo-column {
+    min-width: 240px;
+    min-height: 410px;
+    padding: 9px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 10px;
+    background: var(--background-secondary);
+    transition: border-color 120ms ease, background 120ms ease;
+}
+
+.opus-todo-column.drag-over {
+    border-color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+}
+
+.opus-todo-column-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 9px;
+    padding: 2px 3px 8px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    font-weight: 700;
+}
+
+.opus-todo-count {
+    min-width: 23px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: var(--background-primary);
+    color: var(--text-muted);
+    text-align: center;
+    font-size: 11px;
+}
+
+.opus-todo-load-more {
+    display: block;
+    width: 100%;
+    margin-top: 9px;
+    padding: 8px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    background: var(--interactive-normal);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.opus-todo-load-more:hover {
+    border-color: var(--interactive-accent);
+    background: var(--interactive-hover);
+    color: var(--text-normal);
+}
+
+.opus-todo-ticket-group + .opus-todo-ticket-group {
+    margin-top: 12px;
+}
+
+.opus-todo-ticket-heading {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 3px 2px 6px;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    font-weight: 700;
+}
+
+.opus-todo-card {
+    margin-bottom: 7px;
+    padding: 9px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    background: var(--background-primary);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+    cursor: grab;
+}
+
+.opus-todo-card:hover {
+    border-color: var(--interactive-accent);
+    box-shadow: 0 3px 10px rgb(0 0 0 / 10%);
+}
+
+.opus-todo-card:active {
+    cursor: grabbing;
+}
+
+.opus-todo-card.dragging {
+    opacity: 0.48;
+}
+
+.opus-todo-card.overdue {
+    border-color: var(--color-red);
+    box-shadow: inset 3px 0 0 var(--color-red), 0 1px 2px rgb(0 0 0 / 8%);
+}
+
+.opus-todo-card-ticket {
+    margin-bottom: 5px;
+    color: var(--interactive-accent);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.opus-todo-card-text {
+    margin-bottom: 7px;
+    overflow-wrap: anywhere;
+    line-height: 1.45;
+}
+
+.opus-todo-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+}
+
+.opus-todo-card-date {
+    color: var(--text-faint);
+    font-size: 10.5px;
+}
+
+.opus-todo-card-timing {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+}
+
+.opus-todo-due-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 2px 7px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 999px;
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    font-size: 10.5px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.opus-todo-due-badge.overdue {
+    border-color: color-mix(in srgb, var(--color-red) 45%, transparent);
+    background: color-mix(in srgb, var(--color-red) 12%, var(--background-primary));
+    color: var(--color-red);
+}
+
+.opus-todo-due-badge.today,
+.opus-todo-due-badge.soon {
+    border-color: color-mix(in srgb, var(--color-orange) 45%, transparent);
+    color: var(--color-orange);
+}
+
+.opus-todo-due-badge.done {
+    color: var(--text-faint);
+    text-decoration: line-through;
+}
+
+.opus-todo-completed-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-green) 10%, var(--background-secondary));
+    color: var(--color-green);
+    font-size: 10.5px;
+    white-space: nowrap;
+}
+
+.opus-todo-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+}
+
+.opus-todo-detail-item {
+    padding: 9px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 7px;
+    background: var(--background-secondary);
+}
+
+.opus-todo-detail-item > span {
+    display: block;
+    margin-bottom: 3px;
+    color: var(--text-faint);
+    font-size: 10.5px;
+}
+
+.opus-todo-detail-item > strong {
+    display: block;
+    overflow-wrap: anywhere;
+    font-size: 12px;
+}
+
+.opus-todo-detail-description {
+    min-height: 76px;
+    padding: 11px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 7px;
+    background: var(--background-primary);
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+    .opus-todo-board-toolbar,
+    .opus-todo-board-filters,
+    .opus-todo-board-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .opus-todo-search {
+        width: 100%;
+    }
+
+    .opus-todo-detail-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .opus-ticket-todo-layout {
+        grid-template-columns: 1fr;
+        max-height: 72vh;
+    }
+
+    .opus-ticket-todo-list-pane {
+        border-bottom: 1px solid var(--background-modifier-border);
+        border-right: 0;
+        max-height: 230px;
+    }
+}
+
+.opus-todo-summary-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+}
+
+.opus-todo-summary-counts {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text-muted);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.opus-todo-summary-cell.empty .opus-todo-summary-counts {
+    color: var(--text-faint);
+}
+
+.opus-todo-summary-add {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    padding: 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 50%;
+    background: var(--background-secondary);
+    color: var(--interactive-accent);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.opus-todo-summary-list {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    padding: 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+}
+
+.opus-todo-summary-add:hover,
+.opus-todo-summary-list:hover {
+    border-color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+    color: var(--interactive-accent);
+}
+
+.opus-ticket-todo-modal {
+    width: min(920px, 96vw);
+    max-height: min(720px, 90vh);
+}
+
+.opus-ticket-todo-layout {
+    display: grid;
+    grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+    min-height: 380px;
+    max-height: min(600px, 75vh);
+}
+
+.opus-ticket-todo-list-pane {
+    border-right: 1px solid var(--background-modifier-border);
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.opus-ticket-todo-list-summary {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin: 0 3px 9px;
+}
+
+.opus-ticket-todo-list-item {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    box-shadow: none;
+    color: var(--text-normal);
+    cursor: pointer;
+    display: block;
+    height: auto;
+    margin: 3px 0;
+    padding: 9px;
+    text-align: left;
+    width: 100%;
+}
+
+.opus-ticket-todo-list-item:hover {
+    background: var(--background-modifier-hover);
+}
+
+.opus-ticket-todo-list-item.selected {
+    background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
+    border-color: var(--interactive-accent);
+}
+
+.opus-ticket-todo-list-heading {
+    align-items: center;
+    display: flex;
+    gap: 6px;
+}
+
+.opus-ticket-todo-list-text {
+    display: -webkit-box;
+    font-size: 13px;
+    line-height: 1.35;
+    margin-top: 5px;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.opus-ticket-todo-list-date {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-left: auto;
+}
+
+.opus-ticket-todo-detail-pane {
+    min-width: 0;
+    overflow-y: auto;
+    padding: 16px;
+}
+
+.opus-ticket-todo-detail-empty {
+    align-items: center;
+    color: var(--text-muted);
+    display: flex;
+    height: 100%;
+    justify-content: center;
+}
+
+.opus-ticket-todo-detail-text {
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 9px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+    padding: 12px;
+    user-select: text;
+    white-space: pre-wrap;
+}
+
+.opus-ticket-todo-detail-text a {
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.opus-ticket-todo-detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    justify-content: flex-end;
+    margin-top: 14px;
+}
+
+.opus-todo-create-modal {
+    width: min(520px, 94vw);
+}
+
+.opus-todo-create-body {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+    padding: 16px;
+}
+
+.opus-todo-form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.opus-todo-form-field > span {
+    color: var(--text-muted);
+    font-size: 11.5px;
+    font-weight: 600;
+}
+
+.opus-todo-form-field select,
+.opus-todo-form-field input,
+.opus-todo-form-field textarea {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 7px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-family: inherit;
+}
+
+.opus-todo-form-field select,
+.opus-todo-form-field input {
+    min-height: 35px;
+    padding: 5px 8px;
+}
+
+.opus-todo-form-field textarea {
+    min-height: 105px;
+    padding: 9px;
+    resize: vertical;
+    line-height: 1.5;
+}
+
+.opus-todo-form-required {
+    color: var(--color-red);
+}
+
+.opus-todo-create-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 7px;
+    padding: 11px 16px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.opus-todo-status-select {
+    height: 25px;
+    max-width: 92px;
+    padding: 1px 4px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 5px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 11px;
+}
+
+.opus-todo-empty {
+    padding: 28px 10px;
+    color: var(--text-muted);
+    text-align: center;
+    font-size: 12px;
+}
+
+.opus-cell-content {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.opus-inline-date {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 88px;
+    height: 24px;
+    padding: 1px 3px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-normal);
+    font-size: 12px;
+}
+
+.opus-inline-date:hover,
+.opus-inline-date:focus {
+    border-color: var(--interactive-accent);
+    background: var(--background-primary);
+}
+
+.opus-last-checked-control {
+    align-items: center;
+    display: flex;
+    gap: 3px;
+    width: 100%;
+}
+
+.opus-last-checked-control .opus-inline-date {
+    min-width: 0;
+}
+
+.opus-last-checked-today {
+    align-items: center;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 5px;
+    display: inline-flex;
+    flex: 0 0 24px;
+    height: 24px;
+    justify-content: center;
+    padding: 0;
+}
+
+.opus-last-checked-today:hover {
+    border-color: var(--interactive-accent);
+    color: var(--interactive-accent);
+}
+
+.opus-inline-priority {
+    box-sizing: border-box;
+    width: 100%;
+    height: 24px;
+    padding: 1px 3px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-normal);
+    font-size: 12px;
+}
+
+.opus-inline-priority:hover,
+.opus-inline-priority:focus {
+    border-color: var(--interactive-accent);
+    background: var(--background-primary);
+}
+
+.opus-link-header,
+.opus-link-cell,
+.opus-document-header,
+.opus-document-cell {
+    text-align: center !important;
+}
+
+
+/* ------------------------------------------------
+ * 외부 링크 아이콘
+ * ------------------------------------------------ */
+
+.opus-external-link {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    text-decoration: none !important;
+    font-size: 11px;
+    line-height: 1;
+}
+
+.opus-external-link:hover {
+    background:
+        var(--background-modifier-hover);
+}
+
+
+/* ------------------------------------------------
+ * 내부 문서 아이콘
+ * ------------------------------------------------ */
+
+.opus-document-links {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    width: 100%;
+}
+
+.opus-internal-document-link {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 21px;
+    height: 21px;
+    border-radius: 4px;
+    text-decoration: none !important;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.opus-internal-document-link:hover {
+    background:
+        var(--background-modifier-hover);
+}
+
+
+/* ------------------------------------------------
+ * 컬럼 리사이즈
+ * ------------------------------------------------ */
+
+.opus-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    z-index: 10;
+    width: 7px;
+    height: 100%;
+    cursor: col-resize;
+}
+
+.opus-resize-handle:hover::after,
+.opus-resize-handle.resizing::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 3px;
+    width: 2px;
+    height: 100%;
+    background:
+        var(--interactive-accent);
+}
+
+
+/* ------------------------------------------------
+ * 헤더 정렬 표시
+ * ------------------------------------------------ */
+
+.opus-header-content {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow: hidden;
+}
+
+.opus-header-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.opus-header-sort-badge {
+    display: inline-flex;
+    flex: 0 0 auto;
+    justify-content: center;
+    align-items: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 3px;
+    border-radius: 4px;
+    background:
+        var(--background-modifier-hover);
+    color: var(--text-accent);
+    font-size: 10px;
+}
+
+.opus-header-sort-priority {
+    margin-left: 1px;
+    color: var(--text-muted);
+    font-size: 9px;
+}
+
+
+/* ------------------------------------------------
+ * CR 작업 일지 버튼
+ * ------------------------------------------------ */
+
+.opus-cr-cell {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+}
+
+.opus-cr-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.opus-work-log-button {
+    display: inline-flex;
+    flex: 0 0 auto;
+    justify-content: center;
+    align-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.opus-work-log-button:hover {
+    background:
+        var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.opus-work-log-button.empty {
+    opacity: 0.28;
+}
+
+
+/* ------------------------------------------------
+ * 결과 없음
+ * ------------------------------------------------ */
+
+.opus-empty-result {
+    display: inline-block;
+    padding: 24px;
+    color: var(--text-muted);
+    border: 1px solid
+        var(--background-modifier-border);
+    border-radius: 5px;
+}
+
+
+/* ------------------------------------------------
+ * 작업 일지 팝업
+ * ------------------------------------------------ */
+
+.opus-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    background:
+        rgba(0, 0, 0, 0.52);
+}
+
+.opus-note-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(640px, 94vw);
+    max-height: min(760px, 90vh);
+    overflow: hidden;
+    border: 1px solid
+        var(--background-modifier-border);
+    border-radius: 11px;
+    background:
+        var(--background-primary);
+    box-shadow: var(--shadow-l);
+}
+
+.opus-note-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 11px 14px;
+    border-bottom: 1px solid
+        var(--background-modifier-border);
+}
+
+.opus-note-title {
+    margin: 0 !important;
+    font-size: 15px;
+}
+
+.opus-note-close {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 27px;
+    height: 27px;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.opus-note-close:hover {
+    background:
+        var(--background-modifier-hover);
+}
+
+.opus-note-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 13px;
+    border-bottom: 1px solid
+        var(--background-modifier-border);
+}
+
+.opus-note-view-options {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.opus-note-view-button {
+    height: 28px;
+    padding: 4px 9px;
+    border: 1px solid
+        var(--background-modifier-border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.opus-note-view-button.active {
+    background:
+        var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color:
+        var(--interactive-accent);
+}
+
+.opus-work-log-sort.hidden {
+    display: none;
+}
+
+.opus-note-body {
+    flex: 1 1 auto;
+    min-height: 110px;
+    overflow-y: auto;
+    padding: 14px;
+}
+
+.opus-work-log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.opus-work-log-entry {
+    padding: 10px 11px;
+    border: 1px solid
+        var(--background-modifier-border);
+    border-radius: 7px;
+    background:
+        var(--background-secondary);
+}
+
+.opus-work-log-date {
+    display: block;
+    margin-bottom: 5px;
+    color:
+        var(--interactive-accent);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.opus-work-log-text {
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+}
+
+.opus-work-log-text .internal-link {
+    color: var(--link-color);
+    cursor: pointer;
+    font-weight: 600;
+    text-decoration-line:
+        var(--link-decoration);
+}
+
+.opus-work-log-text .internal-link:hover {
+    color: var(--link-color-hover);
+    text-decoration-line:
+        var(--link-decoration-hover);
+}
+
+.opus-no-work-log {
+    padding: 24px;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.opus-add-log-area {
+    padding: 12px 14px;
+    border-top: 1px solid
+        var(--background-modifier-border);
+    background:
+        var(--background-secondary);
+}
+
+.opus-add-log-area.hidden {
+    display: none;
+}
+
+.opus-add-log-time {
+    margin-bottom: 7px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.opus-add-log-input {
+    width: 100%;
+    min-height: 78px;
+    box-sizing: border-box;
+    resize: vertical;
+    padding: 8px 9px;
+    border: 1px solid
+        var(--background-modifier-border);
+    border-radius: 6px;
+    background:
+        var(--background-primary);
+    color: var(--text-normal);
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.opus-add-log-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.opus-note-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 12px;
+    border-top: 1px solid
+        var(--background-modifier-border);
+}
+
+.opus-note-footer-left,
+.opus-note-footer-right {
+    display: flex;
+    gap: 6px;
+}
+
+.opus-note-action-button {
+    height: 29px;
+    padding: 4px 10px;
+    border: 1px solid
+        var(--background-modifier-border);
+    border-radius: 5px;
+    background:
+        var(--interactive-normal);
+    color: var(--text-normal);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.opus-note-action-button:hover {
+    background:
+        var(--interactive-hover);
+}
+
+.opus-note-action-button.primary {
+    background:
+        var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.opus-note-action-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+
+/* ------------------------------------------------
+ * 반응형
+ * ------------------------------------------------ */
+
+@media (max-width: 900px) {
+.opus-popup-field-grid {
+        grid-template-columns:
+            repeat(3, minmax(0, 1fr));
+    }
+
+    .opus-field-list {
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 650px) {
+    .opus-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .opus-actions {
+        width: 100%;
+    }
+
+    .opus-search {
+        flex: 1 1 auto;
+        width: auto;
+    }
+
+    .opus-filter-panel,
+    .opus-sort-panel,
+    .opus-field-panel {
+        top: 77px;
+        left: 0;
+        right: auto;
+    }
+
+    /*
+     * 아주 작은 화면에서만 제한적으로 스크롤 허용
+     */
+    .opus-field-panel {
+        width: calc(100vw - 40px);
+        max-height: 70vh;
+        overflow-y: auto;
+    }
+
+    .opus-field-list {
+        grid-template-columns: 1fr;
+    }
+
+    .opus-popup-field-grid {
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 430px) {
+    .opus-popup-field-grid {
+        grid-template-columns: 1fr;
+    }
+}
+`;
+
+container.appendChild(style);
+
+
+// ================================================================
+// 12. 화면 레이아웃
+// ================================================================
+
+const viewTabs = dv.el(
+    "div",
+    "",
+    { container }
+);
+
+viewTabs.classList.add("opus-view-tabs");
+
+const tableViewButton = dv.el(
+    "button",
+    "📋 업무 목록",
+    { container: viewTabs }
+);
+
+tableViewButton.classList.add("opus-view-tab");
+
+const todoViewButton = dv.el(
+    "button",
+    "✅ To-Do 보드",
+    { container: viewTabs }
+);
+
+todoViewButton.classList.add("opus-view-tab");
+
+const toolbar = dv.el(
+    "div",
+    "",
+    { container }
+);
+
+toolbar.classList.add("opus-toolbar");
+
+const titleArea = dv.el(
+    "div",
+    "",
+    { container: toolbar }
+);
+
+titleArea.classList.add(
+    "opus-title-area"
+);
+
+const title = dv.el(
+    "h3",
+    "📋 전체 업무 현황",
+    { container: titleArea }
+);
+
+title.classList.add("opus-title");
+
+const summary = dv.el(
+    "span",
+    "",
+    { container: titleArea }
+);
+
+summary.classList.add("opus-summary");
+
+const actions = dv.el(
+    "div",
+    "",
+    { container: toolbar }
+);
+
+actions.classList.add("opus-actions");
+
+const statusRefreshButton = dv.el(
+    "button",
+    "↻ 상태 전체 갱신",
+    { container: actions }
+);
+
+statusRefreshButton.classList.add(
+    "opus-small-button"
+);
+
+statusRefreshButton.title =
+    "ServiceNow에서 모든 CR/SR 원본 노트의 상태를 갱신";
+
+const searchInput = dv.el(
+    "input",
+    "",
+    {
+        container: actions,
+        placeholder: "🔍 전체 검색..."
+    }
+);
+
+searchInput.classList.add(
+    "opus-search"
+);
+
+searchInput.value = searchKeyword;
+
+const sortButton = dv.el(
+    "button",
+    "⇅",
+    { container: actions }
+);
+
+sortButton.classList.add(
+    "opus-icon-button"
+);
+
+sortButton.title = "정렬";
+
+const filterButton = dv.el(
+    "button",
+    "☷",
+    { container: actions }
+);
+
+filterButton.classList.add(
+    "opus-icon-button"
+);
+
+filterButton.title = "필터";
+
+const fieldButton = dv.el(
+    "button",
+    "▦",
+    { container: actions }
+);
+
+fieldButton.classList.add(
+    "opus-icon-button"
+);
+
+fieldButton.title =
+    "표시 필드 및 크기 설정";
+
+const sortMenu = dv.el(
+    "div",
+    "",
+    { container: toolbar }
+);
+
+sortMenu.classList.add(
+    "opus-popup-panel",
+    "opus-sort-panel"
+);
+
+sortMenu.style.display = "none";
+
+const filterMenu = dv.el(
+    "div",
+    "",
+    { container: toolbar }
+);
+
+filterMenu.classList.add(
+    "opus-popup-panel",
+    "opus-filter-panel"
+);
+
+filterMenu.style.display = "none";
+
+const fieldMenu = dv.el(
+    "div",
+    "",
+    { container: toolbar }
+);
+
+fieldMenu.classList.add(
+    "opus-popup-panel",
+    "opus-field-panel"
+);
+
+fieldMenu.style.display = "none";
+
+const controlBar = dv.el(
+    "div",
+    "",
+    { container }
+);
+
+controlBar.classList.add(
+    "opus-control-bar"
+);
+
+const tableArea = dv.el(
+    "div",
+    "",
+    { container }
+);
+
+const todoBoardArea = dv.el(
+    "div",
+    "",
+    { container }
+);
+
+todoBoardArea.classList.add(
+    "opus-todo-board-area"
+);
+
+
+// ================================================================
+// 13. 링크 렌더링
+// ================================================================
+
+function createInternalLink(
+    path,
+    displayName
+) {
+    return `
+        <a
+            class="internal-link"
+            href="${escapeAttribute(path)}"
+            data-href="${escapeAttribute(path)}"
+        >${escapeHtml(displayName)}</a>
+    `;
+}
+
+function createInternalIconLink(
+    path,
+    displayName,
+    icon = "📄"
+) {
+    const safePath =
+        escapeAttribute(path);
+
+    const safeName =
+        escapeAttribute(displayName);
+
+    return `
+        <a
+            class="internal-link opus-internal-document-link"
+            href="${safePath}"
+            data-href="${safePath}"
+            title="${safeName}"
+            aria-label="${safeName}"
+        >${icon}</a>
+    `;
+}
+
+function createExternalLink(
+    url,
+    title
+) {
+    if (isEmpty(url)) {
+        return "";
+    }
+
+    const cleanUrl =
+        String(url).trim();
+
+    if (!isExternalUrl(cleanUrl)) {
+        return escapeHtml(cleanUrl);
+    }
+
+    return `
+        <a
+            class="external-link opus-external-link"
+            href="${escapeAttribute(cleanUrl)}"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="${escapeAttribute(title)}"
+            aria-label="${escapeAttribute(title)}"
+        >🔗</a>
+    `;
+}
+
+
+// ================================================================
+// 14. 내부 링크 파싱
+// ================================================================
+
+function parseWikiLink(value) {
+    if (typeof value !== "string") {
+        return null;
+    }
+
+    const match = value
+        .trim()
+        .match(
+            /^\[\[([^|\]]+)(?:\|([^\]]+))?]]$/
+        );
+
+    if (!match) {
+        return null;
+    }
+
+    const path = match[1].trim();
+
+    const displayName =
+        match[2]?.trim()
+        || getFileName(path);
+
+    return {
+        path,
+        displayName
+    };
+}
+
+
+// ================================================================
+// 15. 일반 값 포맷팅
+// ================================================================
+
+function formatValue(value) {
+    if (isEmpty(value)) {
+        return "";
+    }
+
+    if (Array.isArray(value)) {
+        return value
+            .map(formatValue)
+            .filter(Boolean)
+            .join("<br>");
+    }
+
+    if (
+        typeof value === "object"
+        && value.path
+    ) {
+        return createInternalLink(
+            value.path,
+            value.display
+            || getFileName(value.path)
+        );
+    }
+
+    if (typeof value === "string") {
+        if (isExternalUrl(value)) {
+            return createExternalLink(
+                value,
+                "외부 링크 열기"
+            );
+        }
+
+        const wikiLink =
+            parseWikiLink(value);
+
+        if (wikiLink) {
+            return createInternalLink(
+                wikiLink.path,
+                wikiLink.displayName
+            );
+        }
+    }
+
+    return escapeHtml(value);
+}
+
+
+// ================================================================
+// 16. 문서 아이콘 포맷팅
+// ================================================================
+
+function formatDocumentIcon(
+    value,
+    defaultTitle
+) {
+    if (isEmpty(value)) {
+        return "";
+    }
+
+    const values =
+        Array.isArray(value)
+            ? value
+            : [value];
+
+    const icons = values
+        .map(item => {
+            if (isEmpty(item)) {
+                return "";
+            }
+
+            /*
+             * Dataview Link 객체
+             */
+            if (
+                typeof item === "object"
+                && item.path
+            ) {
+                const displayName =
+                    item.display
+                    || getFileName(item.path)
+                    || defaultTitle;
+
+                return createInternalIconLink(
+                    item.path,
+                    displayName
+                );
+            }
+
+            if (typeof item === "string") {
+                const clean =
+                    item.trim();
+
+                /*
+                 * 외부 URL이면 외부 링크 아이콘
+                 */
+                if (isExternalUrl(clean)) {
+                    return createExternalLink(
+                        clean,
+                        defaultTitle
+                    );
+                }
+
+                /*
+                 * [[노트]]
+                 * [[노트|표시명]]
+                 */
+                const wikiLink =
+                    parseWikiLink(clean);
+
+                if (wikiLink) {
+                    return createInternalIconLink(
+                        wikiLink.path,
+                        wikiLink.displayName
+                    );
+                }
+
+                /*
+                 * Dataview가 간혹 내부 링크 값을
+                 * 일반 경로 문자열로 넘기는 경우를 보완
+                 */
+                const target =
+                    app.metadataCache
+                        .getFirstLinkpathDest(
+                            clean,
+                            dv.current()?.file
+                                ?.path ?? ""
+                        );
+
+                if (target?.path) {
+                    return createInternalIconLink(
+                        target.path,
+                        getFileName(
+                            target.path
+                        )
+                    );
+                }
+
+                /*
+                 * 실제 링크가 아닌 일반 문자열은
+                 * 텍스트로 유지
+                 */
+                return escapeHtml(clean);
+            }
+
+            return escapeHtml(item);
+        })
+        .filter(Boolean);
+
+    if (icons.length === 0) {
+        return "";
+    }
+
+    return `
+        <span class="opus-document-links">
+            ${icons.join("")}
+        </span>
+    `;
+}
+
+
+// ================================================================
+// 17. 셀 포맷팅
+// ================================================================
+
+function formatCell(
+    column,
+    item,
+    rowIndex
+) {
+    const page = item.page;
+    const value =
+        column.value(page, item);
+
+    switch (column.type) {
+        case "file":
+            return createInternalIconLink(
+                page.file.path,
+                page.file.name,
+                "🔗"
+            );
+
+        case "todoSummary": {
+            const pending = item.todos.filter(todo => todo.status === "pending").length;
+            const inProgress = item.todos.filter(todo => todo.status === "in-progress").length;
+            const active = pending + inProgress;
+            return `
+                <div class="opus-todo-summary-cell ${active ? "" : "empty"}">
+                    <span class="opus-todo-summary-counts" title="진행 전 ${pending}개 · 진행 중 ${inProgress}개">
+                        <span>○ ${pending}</span>
+                        <span>◐ ${inProgress}</span>
+                    </span>
+                    <button
+                        type="button"
+                        class="opus-todo-summary-list"
+                        data-todo-list-ticket-id="${escapeAttribute(page.id || page.file.name)}"
+                        title="${escapeAttribute(`${page.id || page.file.name} To-Do 목록 보기`)}"
+                        aria-label="${escapeAttribute(`${page.id || page.file.name} To-Do 목록 보기`)}"
+                    >☷</button>
+                    <button
+                        type="button"
+                        class="opus-todo-summary-add"
+                        data-todo-ticket-id="${escapeAttribute(page.id || page.file.name)}"
+                        title="${escapeAttribute(`${page.id || page.file.name} To-Do 추가`)}"
+                        aria-label="${escapeAttribute(`${page.id || page.file.name} To-Do 추가`)}"
+                    >＋</button>
+                </div>
+            `;
+        }
+
+        case "cr": {
+            const hasWorkLog =
+                item.workLogs.length > 0;
+
+            return `
+                <div class="opus-cr-cell">
+                    <span class="opus-cr-value">
+                        ${formatValue(value)}
+                    </span>
+
+                    <button
+                        class="
+                            opus-work-log-button
+                            ${hasWorkLog ? "" : "empty"}
+                        "
+                        data-work-log-index="${rowIndex}"
+                        title="${
+                            hasWorkLog
+                                ? "작업 일지 보기"
+                                : "작업 일지 추가"
+                        }"
+                    >📝</button>
+                </div>
+            `;
+        }
+
+        case "editablePriority": {
+            const current = String(value ?? "");
+            const options = ["", "Critical", "High", "Medium", "Low"];
+
+            return `
+                <select
+                    class="opus-inline-priority"
+                    data-inline-priority-index="${rowIndex}"
+                    title="Obsidian priority 속성을 바로 수정"
+                >
+                    ${options.map(option => `
+                        <option
+                            value="${option}"
+                            ${current.toLowerCase() === option.toLowerCase() ? "selected" : ""}
+                        >${option || "미지정"}</option>
+                    `).join("")}
+                </select>
+            `;
+        }
+
+        case "external":
+            return createExternalLink(
+                value,
+                column.linkTitle
+            );
+
+        case "documentIcon":
+            return formatDocumentIcon(
+                value,
+                column.linkTitle
+            );
+
+        case "smartLink":
+            if (
+                typeof value === "object"
+                && value?.path
+            ) {
+                return formatDocumentIcon(
+                    value,
+                    column.linkTitle
+                );
+            }
+
+            if (
+                typeof value === "string"
+                && (
+                    isExternalUrl(value)
+                    || parseWikiLink(value)
+                )
+            ) {
+                return formatDocumentIcon(
+                    value,
+                    column.linkTitle
+                );
+            }
+
+            return formatValue(value);
+
+        case "date":
+            if (
+                column.key === "scheduledDate"
+                || column.key === "lastChecked"
+            ) {
+                const input = `
+                    <input
+                        class="opus-inline-date"
+                        type="date"
+                        value="${escapeAttribute(normalizeDate(value))}"
+                        data-inline-date-index="${rowIndex}"
+                        data-inline-date-field="${column.key === "scheduledDate" ? "작업예정일" : "마지막확인"}"
+                        title="날짜를 바로 수정"
+                    >
+                `;
+                if (column.key !== "lastChecked") return input;
+                return `
+                    <div class="opus-last-checked-control">
+                        ${input}
+                        <button
+                            class="opus-last-checked-today"
+                            data-last-checked-today-index="${rowIndex}"
+                            title="마지막확인을 오늘 날짜로 저장"
+                            aria-label="마지막확인을 오늘 날짜로 저장"
+                        >✓</button>
+                    </div>
+                `;
+            }
+            return escapeHtml(
+                normalizeDate(value)
+            );
+
+        case "dateTime":
+            return escapeHtml(
+                normalizeDateTime(value)
+            );
+
+        case "text":
+        default:
+            return formatValue(value);
+    }
+}
+
+
+// ================================================================
+// 18. 검색 및 필터
+// ================================================================
+
+function getUniqueValues(column) {
+    return [
+        ...new Set(
+            pages
+                .map(item =>
+                    normalizeValue(
+                        column.value(
+                            item.page,
+                            item
+                        )
+                    )
+                )
+                .filter(Boolean)
+        )
+    ].sort((left, right) =>
+        left.localeCompare(
+            right,
+            "ko",
+            {
+                numeric: true,
+                sensitivity: "base"
+            }
+        )
+    );
+}
+
+function matchesGlobalSearch(item) {
+    const query = searchKeyword
+        .trim()
+        .toLowerCase();
+
+    if (!query) {
+        return true;
+    }
+
+    const pageText = columns
+        .map(column =>
+            normalizeValue(
+                column.value(item.page, item)
+            )
+        )
+        .join(" ")
+        .toLowerCase();
+
+    const workLogText =
+        item.workLogs
+            .map(normalizeValue)
+            .join(" ")
+            .toLowerCase();
+
+    return `${pageText} ${workLogText}`
+        .includes(query);
+}
+
+function matchesFilter(
+    item,
+    filter
+) {
+    const column =
+        columnMap.get(
+            filter.columnKey
+        );
+
+    if (!column) {
+        return true;
+    }
+
+    const rawValue =
+        column.value(item.page, item);
+
+    const normalizedValue =
+        normalizeValue(rawValue);
+
+    const filterValue =
+        String(filter.value ?? "");
+
+    switch (filter.operator) {
+        case "contains":
+            return (
+                !filterValue
+                || normalizedValue
+                    .toLowerCase()
+                    .includes(
+                        filterValue.toLowerCase()
+                    )
+            );
+
+        case "notContains":
+            return (
+                !filterValue
+                || !normalizedValue
+                    .toLowerCase()
+                    .includes(
+                        filterValue.toLowerCase()
+                    )
+            );
+
+        case "equals":
+            if (!filterValue) {
+                return true;
+            }
+
+            if (
+                column.filterType
+                === "date"
+            ) {
+                return (
+                    normalizeDate(rawValue)
+                    === filterValue
+                );
+            }
+
+            return (
+                normalizedValue
+                === filterValue
+            );
+
+        case "notEquals":
+            return (
+                !filterValue
+                || normalizedValue
+                    !== filterValue
+            );
+
+        case "before":
+            return (
+                !filterValue
+                || (
+                    Boolean(
+                        normalizeDate(rawValue)
+                    )
+                    && normalizeDate(rawValue)
+                        < filterValue
+                )
+            );
+
+        case "after":
+            return (
+                !filterValue
+                || (
+                    Boolean(
+                        normalizeDate(rawValue)
+                    )
+                    && normalizeDate(rawValue)
+                        > filterValue
+                )
+            );
+
+        case "empty":
+            return isEmpty(rawValue);
+
+        case "notEmpty":
+            return !isEmpty(rawValue);
+
+        default:
+            return true;
+    }
+}
+
+
+// ================================================================
+// 19. 정렬
+// ================================================================
+
+function getSortValue(
+    item,
+    column
+) {
+    const rawValue =
+        column.value(item.page, item);
+
+    if (isEmpty(rawValue)) {
+        return null;
+    }
+
+    switch (column.sortType) {
+        case "date": {
+            const value =
+                normalizeDate(rawValue);
+
+            const time =
+                Date.parse(
+                    `${value}T00:00:00`
+                );
+
+            return Number.isNaN(time)
+                ? value
+                : time;
+        }
+
+        case "dateTime": {
+            if (
+                typeof rawValue?.toMillis
+                    === "function"
+            ) {
+                return rawValue.toMillis();
+            }
+
+            if (
+                rawValue instanceof Date
+            ) {
+                return rawValue.getTime();
+            }
+
+            const time =
+                Date.parse(
+                    String(rawValue)
+                );
+
+            return Number.isNaN(time)
+                ? normalizeDateTime(
+                    rawValue
+                )
+                : time;
+        }
+
+        case "presence":
+            return isEmpty(rawValue)
+                ? 0
+                : 1;
+
+        case "priority": {
+            const ranks = {
+                critical: 1,
+                high: 2,
+                medium: 3,
+                moderate: 3,
+                low: 4
+            };
+            const normalized = String(rawValue).trim().toLowerCase();
+            const named = Object.entries(ranks).find(([name]) => normalized.includes(name));
+            if (named) return named[1];
+            const numeric = normalized.match(/^([1-4])(?:\D|$)/)?.[1];
+            return numeric ? Number(numeric) : null;
+        }
+
+        case "text":
+        default:
+            return normalizeValue(
+                rawValue
+            );
+    }
+}
+
+function compareSortValues(
+    left,
+    right,
+    direction
+) {
+    const leftEmpty =
+        left == null || left === "";
+
+    const rightEmpty =
+        right == null || right === "";
+
+    if (leftEmpty && rightEmpty) {
+        return 0;
+    }
+
+    if (leftEmpty) {
+        return 1;
+    }
+
+    if (rightEmpty) {
+        return -1;
+    }
+
+    let result;
+
+    if (
+        typeof left === "number"
+        && typeof right === "number"
+    ) {
+        result = left - right;
+    } else {
+        result = String(left).localeCompare(
+            String(right),
+            "ko",
+            {
+                numeric: true,
+                sensitivity: "base"
+            }
+        );
+    }
+
+    return direction === "desc"
+        ? result * -1
+        : result;
+}
+
+function sortItems(items) {
+    if (activeSorts.length === 0) {
+        return [...items].sort(
+            (left, right) =>
+                String(
+                    left.page.id ?? ""
+                ).localeCompare(
+                    String(
+                        right.page.id ?? ""
+                    ),
+                    "ko",
+                    {
+                        numeric: true,
+                        sensitivity: "base"
+                    }
+                )
+        );
+    }
+
+    return [...items].sort(
+        (left, right) => {
+            for (
+                const rule
+                of activeSorts
+            ) {
+                const column =
+                    columnMap.get(
+                        rule.columnKey
+                    );
+
+                if (!column) {
+                    continue;
+                }
+
+                const result =
+                    compareSortValues(
+                        getSortValue(
+                            left,
+                            column
+                        ),
+                        getSortValue(
+                            right,
+                            column
+                        ),
+                        rule.direction
+                    );
+
+                if (result !== 0) {
+                    return result;
+                }
+            }
+
+            return String(
+                left.page.id ?? ""
+            ).localeCompare(
+                String(
+                    right.page.id ?? ""
+                ),
+                "ko",
+                {
+                    numeric: true,
+                    sensitivity: "base"
+                }
+            );
+        }
+    );
+}
+
+
+// ================================================================
+// 20. 필터 메뉴
+// ================================================================
+
+function addFilter(column) {
+    const availableOperators =
+        operators[column.filterType]
+        ?? operators.text;
+
+    activeFilters.push({
+        id: createControlId("filter"),
+        columnKey: column.key,
+        operator:
+            availableOperators[0].value,
+        value: ""
+    });
+
+    filterMenuOpen = false;
+
+    saveActiveFilters();
+
+    renderAll();
+}
+
+function removeFilter(id) {
+    const index =
+        activeFilters.findIndex(
+            filter => filter.id === id
+        );
+
+    if (index >= 0) {
+        activeFilters.splice(index, 1);
+        saveActiveFilters();
+    }
+
+    renderAll();
+}
+
+function renderFilterMenu() {
+    filterMenu.innerHTML = "";
+
+    const title =
+        document.createElement("div");
+
+    title.className =
+        "opus-popup-title";
+
+    title.textContent =
+        "필터할 필드 선택";
+
+    filterMenu.appendChild(title);
+
+    const grid =
+        document.createElement("div");
+
+    grid.className =
+        "opus-popup-field-grid";
+
+    filterMenu.appendChild(grid);
+
+    for (const column of columns) {
+        const alreadyActive =
+            activeFilters.some(
+                filter =>
+                    filter.columnKey
+                    === column.key
+            );
+
+        const button =
+            document.createElement(
+                "button"
+            );
+
+        button.className = [
+            "opus-popup-field",
+            alreadyActive
+                ? "disabled"
+                : ""
+        ]
+            .filter(Boolean)
+            .join(" ");
+
+        button.textContent =
+            column.label;
+
+        button.disabled =
+            alreadyActive;
+
+        button.addEventListener(
+            "click",
+            event => {
+                event.stopPropagation();
+                addFilter(column);
+            }
+        );
+
+        grid.appendChild(button);
+    }
+
+    const displayToggle = document.createElement("label");
+    displayToggle.className = "opus-filter-display-toggle";
+    const displayCheckbox = document.createElement("input");
+    displayCheckbox.type = "checkbox";
+    displayCheckbox.checked = settings.showAppliedFilters !== false;
+    const displayText = document.createElement("span");
+    displayText.textContent = "적용된 필터 조건을 표 위에 표시";
+    displayToggle.append(displayCheckbox, displayText);
+    displayCheckbox.addEventListener("change", event => {
+        event.stopPropagation();
+        settings.showAppliedFilters = displayCheckbox.checked;
+        saveSettings();
+        renderAll();
+    });
+    filterMenu.appendChild(displayToggle);
+}
+
+
+// ================================================================
+// 21. 정렬 메뉴
+// ================================================================
+
+function addSort(column) {
+    activeSorts.push({
+        id: createControlId("sort"),
+        columnKey: column.key,
+        direction: "asc"
+    });
+
+    sortMenuOpen = false;
+
+    saveActiveSorts();
+
+    renderAll();
+}
+
+function removeSort(id) {
+    const index =
+        activeSorts.findIndex(
+            rule => rule.id === id
+        );
+
+    if (index >= 0) {
+        activeSorts.splice(index, 1);
+        saveActiveSorts();
+    }
+
+    renderAll();
+}
+
+function renderSortMenu() {
+    sortMenu.innerHTML = "";
+
+    const title =
+        document.createElement("div");
+
+    title.className =
+        "opus-popup-title";
+
+    title.textContent =
+        "정렬할 필드 선택";
+
+    sortMenu.appendChild(title);
+
+    const grid =
+        document.createElement("div");
+
+    grid.className =
+        "opus-popup-field-grid";
+
+    sortMenu.appendChild(grid);
+
+    for (const column of columns) {
+        const alreadyActive =
+            activeSorts.some(
+                rule =>
+                    rule.columnKey
+                    === column.key
+            );
+
+        const button =
+            document.createElement(
+                "button"
+            );
+
+        button.className = [
+            "opus-popup-field",
+            alreadyActive
+                ? "disabled"
+                : ""
+        ]
+            .filter(Boolean)
+            .join(" ");
+
+        button.textContent =
+            column.label;
+
+        button.disabled =
+            alreadyActive;
+
+        button.addEventListener(
+            "click",
+            event => {
+                event.stopPropagation();
+                addSort(column);
+            }
+        );
+
+        grid.appendChild(button);
+    }
+
+    const displayToggle = document.createElement("label");
+    displayToggle.className = "opus-filter-display-toggle";
+    const displayCheckbox = document.createElement("input");
+    displayCheckbox.type = "checkbox";
+    displayCheckbox.checked = settings.showAppliedSorts !== false;
+    const displayText = document.createElement("span");
+    displayText.textContent = "적용된 정렬 조건을 표 위에 표시";
+    displayToggle.append(displayCheckbox, displayText);
+    displayCheckbox.addEventListener("change", event => {
+        event.stopPropagation();
+        settings.showAppliedSorts = displayCheckbox.checked;
+        saveSettings();
+        renderAll();
+    });
+    sortMenu.appendChild(displayToggle);
+}
+
+
+// ================================================================
+// 22. 표시 필드 메뉴
+// ================================================================
+
+function renderTemporaryChecks(
+    list,
+    pendingVisible
+) {
+    const options =
+        list.querySelectorAll(
+            ".opus-field-option"
+        );
+
+    options.forEach(
+        option => {
+            const checkbox = option.querySelector('input[type="checkbox"]');
+            checkbox.checked = pendingVisible.has(option.dataset.columnKey);
+        }
+    );
+}
+
+function renderFieldMenu() {
+    fieldMenu.innerHTML = "";
+
+    const pendingVisible =
+        new Set(
+            settings.visibleColumns
+        );
+
+    let pendingOrder = [
+        ...settings.columnOrder
+    ];
+
+    let pendingRowHeight =
+        settings.rowHeight;
+
+    const title =
+        document.createElement("div");
+
+    title.className =
+        "opus-popup-title";
+
+    title.textContent =
+        "표시할 필드";
+
+    fieldMenu.appendChild(title);
+
+    const list =
+        document.createElement("div");
+
+    list.className =
+        "opus-field-list";
+
+    let draggedOption = null;
+
+    for (const key of pendingOrder) {
+        const column = columnMap.get(key);
+        if (!column) continue;
+        const label =
+            document.createElement(
+                "label"
+            );
+
+        label.className =
+            "opus-field-option";
+        label.dataset.columnKey = column.key;
+        label.draggable = true;
+
+        const handle = document.createElement("span");
+        handle.className = "opus-field-drag-handle";
+        handle.textContent = "⠿";
+        handle.title = "드래그하여 필드 순서 변경";
+
+        const checkbox =
+            document.createElement(
+                "input"
+            );
+
+        checkbox.type = "checkbox";
+
+        checkbox.checked =
+            pendingVisible.has(
+                column.key
+            );
+
+        checkbox.addEventListener(
+            "change",
+            () => {
+                if (checkbox.checked) {
+                    pendingVisible.add(
+                        column.key
+                    );
+                } else {
+                    pendingVisible.delete(
+                        column.key
+                    );
+                }
+            }
+        );
+
+        const text =
+            document.createElement(
+                "span"
+            );
+
+        text.textContent =
+            column.label;
+
+        label.appendChild(handle);
+        label.appendChild(checkbox);
+        label.appendChild(text);
+
+        label.addEventListener("dragstart", event => {
+            draggedOption = label;
+            label.classList.add("dragging");
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", column.key);
+        });
+
+        label.addEventListener("dragend", () => {
+            label.classList.remove("dragging");
+            list.querySelectorAll(".drag-over").forEach(item => item.classList.remove("drag-over"));
+            draggedOption = null;
+        });
+
+        label.addEventListener("dragover", event => {
+            event.preventDefault();
+            if (draggedOption && draggedOption !== label) label.classList.add("drag-over");
+        });
+
+        label.addEventListener("dragleave", () => label.classList.remove("drag-over"));
+
+        label.addEventListener("drop", event => {
+            event.preventDefault();
+            label.classList.remove("drag-over");
+            if (!draggedOption || draggedOption === label) return;
+            const bounds = label.getBoundingClientRect();
+            const insertAfter = event.clientY > bounds.top + bounds.height / 2;
+            list.insertBefore(draggedOption, insertAfter ? label.nextSibling : label);
+            pendingOrder = Array.from(list.querySelectorAll(".opus-field-option"))
+                .map(option => option.dataset.columnKey);
+        });
+
+        list.appendChild(label);
+    }
+
+    fieldMenu.appendChild(list);
+
+    const rowSection =
+        document.createElement("div");
+
+    rowSection.className =
+        "opus-row-height-section";
+
+    const rowHeader =
+        document.createElement("div");
+
+    rowHeader.className =
+        "opus-row-height-header";
+
+    const rowLabel =
+        document.createElement("span");
+
+    rowLabel.textContent = "행 높이";
+
+    const rowValue =
+        document.createElement("span");
+
+    rowValue.textContent =
+        `${pendingRowHeight}px`;
+
+    rowHeader.appendChild(rowLabel);
+    rowHeader.appendChild(rowValue);
+
+    const slider =
+        document.createElement("input");
+
+    slider.className =
+        "opus-row-height-slider";
+
+    slider.type = "range";
+    slider.min = "24";
+    slider.max = "50";
+    slider.step = "1";
+    slider.value =
+        String(pendingRowHeight);
+
+    slider.addEventListener(
+        "input",
+        () => {
+            pendingRowHeight =
+                Number(slider.value);
+
+            rowValue.textContent =
+                `${pendingRowHeight}px`;
+        }
+    );
+
+    rowSection.appendChild(rowHeader);
+    rowSection.appendChild(slider);
+
+    fieldMenu.appendChild(rowSection);
+
+    const actions =
+        document.createElement("div");
+
+    actions.className =
+        "opus-field-actions";
+
+    const left =
+        document.createElement("div");
+
+    left.className =
+        "opus-field-actions-left";
+
+    const right =
+        document.createElement("div");
+
+    right.className =
+        "opus-field-actions-right";
+
+    const selectAllButton =
+        document.createElement(
+            "button"
+        );
+
+    selectAllButton.className =
+        "opus-small-button";
+
+    selectAllButton.textContent =
+        "전체 선택";
+
+    selectAllButton.addEventListener(
+        "click",
+        event => {
+            event.stopPropagation();
+
+            pendingVisible.clear();
+
+            for (
+                const column
+                of columns
+            ) {
+                pendingVisible.add(
+                    column.key
+                );
+            }
+
+            renderTemporaryChecks(
+                list,
+                pendingVisible
+            );
+        }
+    );
+
+    const resetButton =
+        document.createElement(
+            "button"
+        );
+
+    resetButton.className =
+        "opus-small-button";
+
+    resetButton.textContent = "초기화";
+
+    resetButton.addEventListener(
+        "click",
+        event => {
+            event.stopPropagation();
+
+            const defaults =
+                createDefaultSettings();
+
+            pendingVisible.clear();
+
+            for (
+                const key
+                of defaults.visibleColumns
+            ) {
+                pendingVisible.add(key);
+            }
+
+            pendingRowHeight =
+                defaults.rowHeight;
+
+            pendingOrder = [
+                ...defaults.columnOrder
+            ];
+
+            slider.value =
+                String(pendingRowHeight);
+
+            rowValue.textContent =
+                `${pendingRowHeight}px`;
+
+            settings.columnWidths = {
+                ...defaults.columnWidths
+            };
+
+            renderTemporaryChecks(
+                list,
+                pendingVisible
+            );
+        }
+    );
+
+    const cancelButton =
+        document.createElement(
+            "button"
+        );
+
+    cancelButton.className =
+        "opus-small-button";
+
+    cancelButton.textContent = "취소";
+
+    cancelButton.addEventListener(
+        "click",
+        event => {
+            event.stopPropagation();
+
+            fieldMenuOpen = false;
+            renderAll();
+        }
+    );
+
+    const saveButton =
+        document.createElement(
+            "button"
+        );
+
+    saveButton.className =
+        "opus-small-button primary";
+
+    saveButton.textContent = "저장";
+
+    saveButton.addEventListener(
+        "click",
+        event => {
+            event.stopPropagation();
+
+            if (
+                pendingVisible.size === 0
+            ) {
+                new Notice(
+                    "최소 한 개의 필드는 표시해야 합니다."
+                );
+
+                return;
+            }
+
+            settings.visibleColumns =
+                pendingOrder
+                    .filter(
+                        key =>
+                            pendingVisible
+                                .has(key)
+                    );
+
+            settings.columnOrder = [
+                ...pendingOrder
+            ];
+
+            settings.rowHeight =
+                pendingRowHeight;
+
+            saveSettings();
+
+            fieldMenuOpen = false;
+
+            renderAll();
+        }
+    );
+
+    left.appendChild(
+        selectAllButton
+    );
+
+    left.appendChild(
+        resetButton
+    );
+
+    right.appendChild(
+        cancelButton
+    );
+
+    right.appendChild(
+        saveButton
+    );
+
+    actions.appendChild(left);
+    actions.appendChild(right);
+
+    fieldMenu.appendChild(actions);
+}
+
+
+// ================================================================
+// 23. 활성 필터 UI
+// ================================================================
+
+function createFilterValueControl(
+    column,
+    filter
+) {
+    if (
+        column.filterType
+        === "select"
+    ) {
+        const select =
+            document.createElement(
+                "select"
+            );
+
+        const empty =
+            document.createElement(
+                "option"
+            );
+
+        empty.value = "";
+        empty.textContent = "값 선택";
+
+        select.appendChild(empty);
+
+        for (
+            const value
+            of getUniqueValues(column)
+        ) {
+            const option =
+                document.createElement(
+                    "option"
+                );
+
+            option.value = value;
+            option.textContent = value;
+
+            option.selected =
+                value === filter.value;
+
+            select.appendChild(option);
+        }
+
+        select.addEventListener(
+            "change",
+            event => {
+                filter.value =
+                    event.target.value;
+
+                saveActiveFilters();
+                renderTable();
+            }
+        );
+
+        return select;
+    }
+
+    const input =
+        document.createElement(
+            "input"
+        );
+
+    input.type =
+        column.filterType === "date"
+            ? "date"
+            : "text";
+
+    input.value =
+        filter.value ?? "";
+
+    input.placeholder =
+        column.filterType === "date"
+            ? ""
+            : "값 입력";
+
+    input.addEventListener(
+        "input",
+        event => {
+            filter.value =
+                event.target.value;
+
+            saveActiveFilters();
+        }
+    );
+
+    input.addEventListener(
+        "change",
+        event => {
+            filter.value =
+                event.target.value;
+
+            saveActiveFilters();
+            renderTable();
+        }
+    );
+
+    input.addEventListener(
+        "keydown",
+        event => {
+            if (event.key === "Enter") {
+                filter.value =
+                    event.target.value;
+
+                saveActiveFilters();
+                renderTable();
+            }
+        }
+    );
+
+    return input;
+}
+
+
+// ================================================================
+// 24. 활성 필터·정렬 표시
+// ================================================================
+
+function renderControlBar() {
+    controlBar.innerHTML = "";
+
+    if (settings.showAppliedFilters !== false) {
+    for (
+        const filter
+        of activeFilters
+    ) {
+        const column =
+            columnMap.get(
+                filter.columnKey
+            );
+
+        if (!column) {
+            continue;
+        }
+
+        const chip =
+            document.createElement(
+                "div"
+            );
+
+        chip.className =
+            "opus-control-chip opus-filter-chip";
+
+        const label =
+            document.createElement(
+                "span"
+            );
+
+        label.className =
+            "opus-control-chip-label";
+
+        label.textContent =
+            column.label;
+
+        chip.appendChild(label);
+
+        const operatorSelect =
+            document.createElement(
+                "select"
+            );
+
+        const availableOperators =
+            operators[column.filterType]
+            ?? operators.text;
+
+        for (
+            const operator
+            of availableOperators
+        ) {
+            const option =
+                document.createElement(
+                    "option"
+                );
+
+            option.value =
+                operator.value;
+
+            option.textContent =
+                operator.label;
+
+            option.selected =
+                operator.value
+                === filter.operator;
+
+            operatorSelect.appendChild(
+                option
+            );
+        }
+
+        operatorSelect.addEventListener(
+            "change",
+            event => {
+                filter.operator =
+                    event.target.value;
+
+                if (
+                    filter.operator
+                        === "empty"
+                    || filter.operator
+                        === "notEmpty"
+                ) {
+                    filter.value = "";
+                }
+
+                saveActiveFilters();
+                renderAll();
+            }
+        );
+
+        chip.appendChild(
+            operatorSelect
+        );
+
+        if (
+            ![
+                "empty",
+                "notEmpty"
+            ].includes(
+                filter.operator
+            )
+        ) {
+            chip.appendChild(
+                createFilterValueControl(
+                    column,
+                    filter
+                )
+            );
+        }
+
+        const remove =
+            document.createElement(
+                "button"
+            );
+
+        remove.className =
+            "opus-control-remove";
+
+        remove.textContent = "×";
+        remove.title = "필터 제거";
+
+        remove.addEventListener(
+            "click",
+            () => removeFilter(
+                filter.id
+            )
+        );
+
+        chip.appendChild(remove);
+        controlBar.appendChild(chip);
+    }
+    }
+
+    if (settings.showAppliedSorts !== false) {
+    activeSorts.forEach(
+        (rule, index) => {
+            const column =
+                columnMap.get(
+                    rule.columnKey
+                );
+
+            if (!column) {
+                return;
+            }
+
+            const chip =
+                document.createElement(
+                    "div"
+                );
+
+            chip.className =
+                "opus-control-chip opus-sort-chip";
+
+            const label =
+                document.createElement(
+                    "span"
+                );
+
+            label.className =
+                "opus-control-chip-label";
+
+            label.textContent =
+                activeSorts.length > 1
+                    ? `${index + 1}. ${column.label}`
+                    : column.label;
+
+            chip.appendChild(label);
+
+            const direction =
+                document.createElement(
+                    "select"
+                );
+
+            const asc =
+                document.createElement(
+                    "option"
+                );
+
+            asc.value = "asc";
+            asc.textContent =
+                "↑ 오름차순";
+
+            asc.selected =
+                rule.direction === "asc";
+
+            const desc =
+                document.createElement(
+                    "option"
+                );
+
+            desc.value = "desc";
+            desc.textContent =
+                "↓ 내림차순";
+
+            desc.selected =
+                rule.direction === "desc";
+
+            direction.appendChild(asc);
+            direction.appendChild(desc);
+
+            direction.addEventListener(
+                "change",
+                event => {
+                    rule.direction =
+                        event.target.value;
+
+                    saveActiveSorts();
+                    renderAll();
+                }
+            );
+
+            chip.appendChild(direction);
+
+            const remove =
+                document.createElement(
+                    "button"
+                );
+
+            remove.className =
+                "opus-control-remove";
+
+            remove.textContent = "×";
+            remove.title = "정렬 제거";
+
+            remove.addEventListener(
+                "click",
+                () => removeSort(
+                    rule.id
+                )
+            );
+
+            chip.appendChild(remove);
+            controlBar.appendChild(chip);
+        }
+    );
+    }
+}
+
+// ================================================================
+// 25. 작업 일지 팝업
+// ================================================================
+
+function cleanWorkLogPlainText(value) {
+    return String(value ?? "")
+        .replace(
+            /\*\*([^*]+)\*\*/g,
+            "$1"
+        )
+        .replace(
+            /__([^_]+)__/g,
+            "$1"
+        )
+        .replace(
+            /`([^`]+)`/g,
+            "$1"
+        );
+}
+
+function renderWorkLogContent(
+    container,
+    markdown,
+    sourcePath
+) {
+    const value =
+        String(markdown ?? "");
+
+    const wikiLinkPattern =
+        /(!)?\[\[([^|\]]+)(?:\|([^\]]+))?]]/g;
+
+    let cursor = 0;
+    let match;
+
+    while (
+        (
+            match =
+                wikiLinkPattern.exec(value)
+        ) !== null
+    ) {
+        if (match.index > cursor) {
+            container.appendChild(
+                document.createTextNode(
+                    cleanWorkLogPlainText(
+                        value.slice(
+                            cursor,
+                            match.index
+                        )
+                    )
+                )
+            );
+        }
+
+        const targetPath =
+            match[2].trim();
+
+        const displayName =
+            match[3]?.trim()
+            || getFileName(targetPath);
+
+        const link =
+            document.createElement("a");
+
+        link.className =
+            "internal-link";
+
+        link.href = targetPath;
+
+        link.dataset.href =
+            targetPath;
+
+        link.textContent =
+            displayName;
+
+        link.addEventListener(
+            "click",
+            async event => {
+                event.preventDefault();
+                event.stopPropagation();
+
+                await app.workspace
+                    .openLinkText(
+                        targetPath,
+                        sourcePath ?? "",
+                        event.ctrlKey
+                            || event.metaKey
+                    );
+            }
+        );
+
+        container.appendChild(link);
+
+        cursor =
+            wikiLinkPattern.lastIndex;
+    }
+
+    if (cursor < value.length) {
+        container.appendChild(
+            document.createTextNode(
+                cleanWorkLogPlainText(
+                    value.slice(cursor)
+                )
+            )
+        );
+    }
+
+    if (
+        cursor === 0
+        && value.length === 0
+    ) {
+        container.textContent = "";
+    }
+}
+
+function createWorkLogEntryElement(
+    log,
+    sourcePath
+) {
+    const entry =
+        document.createElement("div");
+
+    entry.className =
+        "opus-work-log-entry";
+
+    if (log.dateTime) {
+        const date =
+            document.createElement(
+                "span"
+            );
+
+        date.className =
+            "opus-work-log-date";
+
+        date.textContent =
+            log.dateTime;
+
+        entry.appendChild(date);
+    }
+
+    const text =
+        document.createElement("div");
+
+    text.className =
+        "opus-work-log-text";
+
+    renderWorkLogContent(
+        text,
+        log.contentMarkdown
+            ?? log.text,
+        sourcePath
+    );
+
+    entry.appendChild(text);
+
+    return entry;
+}
+
+function openTodoCreateModal(preselectedItem = null) {
+    const sharedPlugin = app.plugins.getPlugin("servicenow-manage");
+    if (typeof sharedPlugin?.openTodoEntryModal === "function") {
+        try {
+            sharedPlugin.openTodoEntryModal(
+                preselectedItem?.page?.id || "",
+                async savedTicketId => {
+                    const item = pages.find(pageItem => String(pageItem.page.id || "") === savedTicketId);
+                    if (item) item.todos = await readTodos(item.page);
+                    todoItems = pages.flatMap(pageItem => pageItem.todos || []);
+                    if (activeView === "todo") renderTodoBoard();
+                    else renderTable();
+                }
+            );
+            return;
+        } catch (error) {
+            console.error("[업무현황] 공용 To-Do 팝업 열기 실패, 내장 팝업으로 전환", error);
+        }
+    }
+    const backdrop = document.createElement("div");
+    backdrop.className = "opus-modal-backdrop";
+
+    const modal = document.createElement("div");
+    modal.className = "opus-note-modal opus-todo-create-modal";
+
+    const header = document.createElement("div");
+    header.className = "opus-note-header";
+    const title = document.createElement("h4");
+    title.className = "opus-note-title";
+    title.textContent = "☑ 새 To-Do 추가";
+    const closeButton = document.createElement("button");
+    closeButton.className = "opus-note-close";
+    closeButton.textContent = "×";
+    header.append(title, closeButton);
+
+    const body = document.createElement("div");
+    body.className = "opus-todo-create-body";
+
+    const ticketField = document.createElement("label");
+    ticketField.className = "opus-todo-form-field";
+    const ticketLabel = document.createElement("span");
+    ticketLabel.innerHTML = `티켓 <b class="opus-todo-form-required">필수</b>`;
+    const ticketSelect = document.createElement("select");
+    const emptyOption = document.createElement("option");
+    emptyOption.value = "";
+    emptyOption.textContent = "티켓을 선택하세요";
+    ticketSelect.appendChild(emptyOption);
+    [...pages]
+        .sort((left, right) => String(left.page.id || "").localeCompare(String(right.page.id || ""), "ko", { numeric: true }))
+        .forEach(item => {
+            const option = document.createElement("option");
+            option.value = item.page.file.path;
+            const detail = [item.page.id || item.page.file.name, item.page.status].filter(Boolean).join(" · ");
+            option.textContent = detail;
+            option.selected = preselectedItem?.page?.file?.path === item.page.file.path;
+            ticketSelect.appendChild(option);
+        });
+    ticketField.append(ticketLabel, ticketSelect);
+
+    const contentField = document.createElement("label");
+    contentField.className = "opus-todo-form-field";
+    const contentLabel = document.createElement("span");
+    contentLabel.innerHTML = `할 일 <b class="opus-todo-form-required">필수</b>`;
+    const contentInput = document.createElement("textarea");
+    contentInput.placeholder = "처리할 내용을 입력하세요.";
+    contentField.append(contentLabel, contentInput);
+
+    const dateField = document.createElement("label");
+    dateField.className = "opus-todo-form-field";
+    const dateLabel = document.createElement("span");
+    dateLabel.textContent = "만료일 (선택)";
+    const dateInput = document.createElement("input");
+    dateInput.type = "date";
+    dateField.append(dateLabel, dateInput);
+
+    const statusField = document.createElement("label");
+    statusField.className = "opus-todo-form-field";
+    const statusLabel = document.createElement("span");
+    statusLabel.textContent = "시작 상태";
+    const statusSelect = document.createElement("select");
+    TODO_STATUSES.forEach(status => {
+        const option = document.createElement("option");
+        option.value = status.key;
+        option.textContent = `${status.icon} ${status.label}`;
+        statusSelect.appendChild(option);
+    });
+    statusField.append(statusLabel, statusSelect);
+
+    body.append(ticketField, contentField, dateField, statusField);
+
+    const actions = document.createElement("div");
+    actions.className = "opus-todo-create-actions";
+    const cancelButton = document.createElement("button");
+    cancelButton.className = "opus-note-action-button";
+    cancelButton.textContent = "취소";
+    const saveButton = document.createElement("button");
+    saveButton.className = "opus-note-action-button primary";
+    saveButton.textContent = "To-Do 추가";
+    actions.append(cancelButton, saveButton);
+
+    modal.append(header, body, actions);
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+
+    const close = () => {
+        document.removeEventListener("keydown", keyHandler);
+        backdrop.remove();
+    };
+    const keyHandler = event => {
+        if (event.key === "Escape") close();
+        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") saveButton.click();
+    };
+    closeButton.addEventListener("click", close);
+    cancelButton.addEventListener("click", close);
+    backdrop.addEventListener("click", event => { if (event.target === backdrop) close(); });
+    document.addEventListener("keydown", keyHandler);
+
+    saveButton.addEventListener("click", async () => {
+        const selectedItem = pages.find(item => item.page.file.path === ticketSelect.value);
+        if (!selectedItem) {
+            new Notice("티켓을 반드시 선택해 주세요.");
+            ticketSelect.focus();
+            return;
+        }
+        if (!contentInput.value.trim()) {
+            new Notice("할 일을 입력해 주세요.");
+            contentInput.focus();
+            return;
+        }
+        saveButton.disabled = true;
+        saveButton.textContent = "추가 중…";
+        try {
+            await addTodo(selectedItem, contentInput.value, dateInput.value, statusSelect.value);
+            new Notice(`${selectedItem.page.id || selectedItem.page.file.name}에 To-Do를 추가했습니다.`);
+            close();
+            if (activeView === "todo") renderTodoBoard();
+        } catch (error) {
+            new Notice(`To-Do 추가 실패: ${error?.message || error}`);
+            saveButton.disabled = false;
+            saveButton.textContent = "To-Do 추가";
+        }
+    });
+
+    window.setTimeout(() => {
+        if (preselectedItem) contentInput.focus();
+        else ticketSelect.focus();
+    }, 30);
+}
+
+function openTicketTodoListModal(item) {
+    const ticketId = String(item.page.id || item.page.file.name || "");
+    let tasks = [...(item.todos || [])]
+        .sort((left, right) => String(right.dateTime || "").localeCompare(String(left.dateTime || "")));
+    let selectedTask = tasks[0] || null;
+    const backdrop = document.createElement("div");
+    backdrop.className = "opus-modal-backdrop";
+    const modal = document.createElement("div");
+    modal.className = "opus-note-modal opus-ticket-todo-modal";
+    const header = document.createElement("div");
+    header.className = "opus-note-header";
+    const title = document.createElement("h4");
+    title.className = "opus-note-title";
+    title.textContent = `☑ ${ticketId} To-Do 목록`;
+    const closeButton = document.createElement("button");
+    closeButton.className = "opus-note-close";
+    closeButton.textContent = "×";
+    header.append(title, closeButton);
+    const layout = document.createElement("div");
+    layout.className = "opus-ticket-todo-layout";
+    const listPane = document.createElement("div");
+    listPane.className = "opus-ticket-todo-list-pane";
+    const detailPane = document.createElement("div");
+    detailPane.className = "opus-ticket-todo-detail-pane";
+    layout.append(listPane, detailPane);
+    modal.append(header, layout);
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+
+    const close = () => {
+        document.removeEventListener("keydown", keyHandler);
+        backdrop.remove();
+    };
+    const keyHandler = event => { if (event.key === "Escape") close(); };
+    closeButton.addEventListener("click", close);
+    backdrop.addEventListener("click", event => { if (event.target === backdrop) close(); });
+    document.addEventListener("keydown", keyHandler);
+
+    const appendLinkedText = (container, value) => {
+        const text = String(value || "");
+        const pattern = /https?:\/\/[^\s<>()]+/gi;
+        let offset = 0;
+        for (const match of text.matchAll(pattern)) {
+            if (match.index > offset) container.appendChild(document.createTextNode(text.slice(offset, match.index)));
+            const url = match[0].replace(/[.,;!?]+$/, "");
+            const link = document.createElement("a");
+            link.href = url;
+            link.textContent = url;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            container.appendChild(link);
+            const trailing = match[0].slice(url.length);
+            if (trailing) container.appendChild(document.createTextNode(trailing));
+            offset = match.index + match[0].length;
+        }
+        if (offset < text.length) container.appendChild(document.createTextNode(text.slice(offset)));
+    };
+
+    const detailItem = (label, value) => {
+        const field = document.createElement("div");
+        field.className = "opus-todo-detail-item";
+        const name = document.createElement("span");
+        name.textContent = label;
+        const content = document.createElement("strong");
+        content.textContent = value || "—";
+        field.append(name, content);
+        return field;
+    };
+
+    const refreshTasks = async preferredId => {
+        item.todos = await readTodos(item.page);
+        tasks = [...(item.todos || [])]
+            .sort((left, right) => String(right.dateTime || "").localeCompare(String(left.dateTime || "")));
+        selectedTask = tasks.find(task => task.id === preferredId) || tasks[0] || null;
+        todoItems = pages.flatMap(pageItem => pageItem.todos || []);
+        renderList();
+        renderDetail();
+        if (activeView === "todo") renderTodoBoard();
+        else renderTable();
+    };
+
+    const renderList = () => {
+        listPane.innerHTML = "";
+        const activeCount = tasks.filter(task => task.status !== "done").length;
+        const summary = document.createElement("div");
+        summary.className = "opus-ticket-todo-list-summary";
+        summary.textContent = `전체 ${tasks.length}개 · 미완료 ${activeCount}개`;
+        listPane.appendChild(summary);
+        if (!tasks.length) {
+            const empty = document.createElement("div");
+            empty.className = "opus-ticket-todo-detail-empty";
+            empty.textContent = "등록된 To-Do가 없습니다.";
+            listPane.appendChild(empty);
+            return;
+        }
+        tasks.forEach(task => {
+            const button = document.createElement("button");
+            button.className = `opus-ticket-todo-list-item${task.id === selectedTask?.id ? " selected" : ""}`;
+            const heading = document.createElement("div");
+            heading.className = "opus-ticket-todo-list-heading";
+            const status = TODO_STATUSES.find(option => option.key === task.status);
+            const statusIcon = document.createElement("span");
+            statusIcon.textContent = status?.icon || "○";
+            statusIcon.title = status?.label || task.status;
+            const date = document.createElement("span");
+            date.className = "opus-ticket-todo-list-date";
+            date.textContent = task.dueDate ? `기한 ${task.dueDate}` : task.dateTime;
+            heading.append(statusIcon, date);
+            const text = document.createElement("div");
+            text.className = "opus-ticket-todo-list-text";
+            text.textContent = task.text;
+            button.append(heading, text);
+            button.addEventListener("click", () => {
+                selectedTask = task;
+                renderList();
+                renderDetail();
+            });
+            listPane.appendChild(button);
+        });
+    };
+
+    const renderDetail = () => {
+        detailPane.innerHTML = "";
+        if (!selectedTask) {
+            const empty = document.createElement("div");
+            empty.className = "opus-ticket-todo-detail-empty";
+            empty.textContent = "왼쪽에서 확인할 To-Do를 선택하세요.";
+            detailPane.appendChild(empty);
+            return;
+        }
+        const description = document.createElement("div");
+        description.className = "opus-ticket-todo-detail-text";
+        appendLinkedText(description, selectedTask.text);
+        const grid = document.createElement("div");
+        grid.className = "opus-todo-detail-grid";
+        grid.style.marginTop = "12px";
+        const statusLabel = TODO_STATUSES.find(status => status.key === selectedTask.status)?.label || selectedTask.status;
+        grid.append(
+            detailItem("상태", statusLabel),
+            detailItem("등록일", selectedTask.dateTime),
+            detailItem("완료 예정일", selectedTask.dueDate),
+            detailItem("완료일", selectedTask.completedAt)
+        );
+        const actions = document.createElement("div");
+        actions.className = "opus-ticket-todo-detail-actions";
+        const copyButton = document.createElement("button");
+        copyButton.className = "opus-note-action-button";
+        copyButton.textContent = "내용 복사";
+        copyButton.addEventListener("click", async () => {
+            try {
+                await navigator.clipboard.writeText(String(selectedTask.text || ""));
+                new Notice("To-Do 내용을 복사했습니다.");
+            } catch (error) {
+                new Notice(`복사 실패: ${error?.message || error}`);
+            }
+        });
+        const openButton = document.createElement("button");
+        openButton.className = "opus-note-action-button";
+        openButton.textContent = "원본 티켓 열기";
+        openButton.addEventListener("click", async () => {
+            close();
+            await openTodoTicket(selectedTask);
+        });
+        const editButton = document.createElement("button");
+        editButton.className = "opus-note-action-button primary";
+        editButton.textContent = "수정하기";
+        editButton.addEventListener("click", () => {
+            const selectedId = selectedTask.id;
+            openTodoDetailModal(selectedTask, () => refreshTasks(selectedId));
+        });
+        actions.append(copyButton, openButton, editButton);
+        detailPane.append(description, grid, actions);
+    };
+
+    renderList();
+    renderDetail();
+}
+
+function openTodoDetailModal(task, afterSaved = null) {
+    const sharedPlugin = app.plugins.getPlugin("servicenow-manage");
+    if (typeof sharedPlugin?.openTodoDetailEntryModal === "function") {
+        try {
+            sharedPlugin.openTodoDetailEntryModal(task, async updatedTask => {
+                Object.assign(task, updatedTask || {});
+                const item = pages.find(pageItem => String(pageItem.page.id || "") === task.ticketId);
+                if (item) item.todos = await readTodos(item.page);
+                todoItems = pages.flatMap(pageItem => pageItem.todos || []);
+                if (activeView === "todo") renderTodoBoard();
+                else renderTable();
+                if (typeof afterSaved === "function") await afterSaved(updatedTask);
+            });
+            return;
+        } catch (error) {
+            console.error("[업무현황] 공용 To-Do 상세 팝업 열기 실패, 내장 팝업으로 전환", error);
+        }
+    }
+    let editing = false;
+    const backdrop = document.createElement("div");
+    backdrop.className = "opus-modal-backdrop";
+    const modal = document.createElement("div");
+    modal.className = "opus-note-modal opus-todo-create-modal";
+    const header = document.createElement("div");
+    header.className = "opus-note-header";
+    const title = document.createElement("h4");
+    title.className = "opus-note-title";
+    title.textContent = `☑ ${task.ticketId} To-Do`;
+    const closeButton = document.createElement("button");
+    closeButton.className = "opus-note-close";
+    closeButton.textContent = "×";
+    header.append(title, closeButton);
+    const body = document.createElement("div");
+    body.className = "opus-todo-create-body";
+    const actions = document.createElement("div");
+    actions.className = "opus-todo-create-actions";
+    modal.append(header, body, actions);
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+
+    const close = () => {
+        document.removeEventListener("keydown", keyHandler);
+        backdrop.remove();
+    };
+    const keyHandler = event => {
+        if (event.key === "Escape") close();
+    };
+    closeButton.addEventListener("click", close);
+    backdrop.addEventListener("click", event => { if (event.target === backdrop) close(); });
+    document.addEventListener("keydown", keyHandler);
+
+    const detailItem = (label, value) => {
+        const item = document.createElement("div");
+        item.className = "opus-todo-detail-item";
+        const labelEl = document.createElement("span");
+        labelEl.textContent = label;
+        const valueEl = document.createElement("strong");
+        valueEl.textContent = value || "—";
+        item.append(labelEl, valueEl);
+        return item;
+    };
+
+    const render = () => {
+        body.innerHTML = "";
+        actions.innerHTML = "";
+        if (!editing) {
+            const description = document.createElement("div");
+            description.className = "opus-todo-detail-description";
+            description.textContent = task.text;
+            const grid = document.createElement("div");
+            grid.className = "opus-todo-detail-grid";
+            const statusLabel = TODO_STATUSES.find(status => status.key === task.status)?.label || task.status;
+            grid.append(
+                detailItem("티켓", task.ticketId),
+                detailItem("상태", statusLabel),
+                detailItem("등록일", task.dateTime),
+                detailItem("완료 예정일", task.dueDate),
+                detailItem("완료일", task.completedAt)
+            );
+            body.append(description, grid);
+
+            const openButton = document.createElement("button");
+            openButton.className = "opus-note-action-button";
+            openButton.textContent = "원본 티켓 열기";
+            openButton.addEventListener("click", async () => {
+                close();
+                await openTodoTicket(task);
+            });
+            const editButton = document.createElement("button");
+            editButton.className = "opus-note-action-button primary";
+            editButton.textContent = "수정하기";
+            editButton.addEventListener("click", () => { editing = true; render(); });
+            actions.append(openButton, editButton);
+            return;
+        }
+
+        const contentField = document.createElement("label");
+        contentField.className = "opus-todo-form-field";
+        const contentLabel = document.createElement("span");
+        contentLabel.textContent = "할 일";
+        const contentInput = document.createElement("textarea");
+        contentInput.value = task.text;
+        contentField.append(contentLabel, contentInput);
+
+        const dateField = document.createElement("label");
+        dateField.className = "opus-todo-form-field";
+        const dateLabel = document.createElement("span");
+        dateLabel.textContent = "완료 예정일";
+        const dateInput = document.createElement("input");
+        dateInput.type = "date";
+        dateInput.value = task.dueDate || "";
+        dateField.append(dateLabel, dateInput);
+
+        const statusField = document.createElement("label");
+        statusField.className = "opus-todo-form-field";
+        const statusLabel = document.createElement("span");
+        statusLabel.textContent = "상태";
+        const statusSelect = document.createElement("select");
+        TODO_STATUSES.forEach(status => {
+            const option = document.createElement("option");
+            option.value = status.key;
+            option.textContent = `${status.icon} ${status.label}`;
+            option.selected = status.key === task.status;
+            statusSelect.appendChild(option);
+        });
+        statusField.append(statusLabel, statusSelect);
+        body.append(contentField, dateField, statusField);
+
+        const cancelButton = document.createElement("button");
+        cancelButton.className = "opus-note-action-button";
+        cancelButton.textContent = "취소";
+        cancelButton.addEventListener("click", () => { editing = false; render(); });
+        const saveButton = document.createElement("button");
+        saveButton.className = "opus-note-action-button primary";
+        saveButton.textContent = "저장";
+        saveButton.addEventListener("click", async () => {
+            if (!contentInput.value.trim()) return new Notice("할 일을 입력해 주세요.");
+            saveButton.disabled = true;
+            saveButton.textContent = "저장 중…";
+            try {
+                await updateTodoDetails(task, {
+                    text: contentInput.value,
+                    dueDate: dateInput.value,
+                    status: statusSelect.value
+                });
+                editing = false;
+                renderTodoBoard();
+                render();
+                if (typeof afterSaved === "function") await afterSaved(task);
+                new Notice(`${task.ticketId} To-Do를 수정했습니다.`);
+            } catch (error) {
+                new Notice(`To-Do 수정 실패: ${error?.message || error}`);
+                saveButton.disabled = false;
+                saveButton.textContent = "저장";
+            }
+        });
+        actions.append(cancelButton, saveButton);
+        window.setTimeout(() => contentInput.focus(), 20);
+    };
+
+    render();
+}
+
+function openWorkLogModal(item) {
+    let viewMode = "latest";
+    let allSortDirection = "desc";
+
+    let addFormOpen =
+        item.workLogs.length === 0;
+
+    const backdrop =
+        document.createElement("div");
+
+    backdrop.className =
+        "opus-modal-backdrop";
+
+    const modal =
+        document.createElement("div");
+
+    modal.className =
+        "opus-note-modal";
+
+    const header =
+        document.createElement("div");
+
+    header.className =
+        "opus-note-header";
+
+    const modalTitle =
+        document.createElement("h4");
+
+    modalTitle.className =
+        "opus-note-title";
+
+    modalTitle.textContent =
+        `📝 ${item.page.id ?? item.page.file.name} 작업 일지`;
+
+    const closeButton =
+        document.createElement(
+            "button"
+        );
+
+    closeButton.className =
+        "opus-note-close";
+
+    closeButton.textContent = "×";
+
+    header.appendChild(modalTitle);
+    header.appendChild(closeButton);
+
+    const noteToolbar =
+        document.createElement("div");
+
+    noteToolbar.className =
+        "opus-note-toolbar";
+
+    const viewOptions =
+        document.createElement("div");
+
+    viewOptions.className =
+        "opus-note-view-options";
+
+    const latestButton =
+        document.createElement(
+            "button"
+        );
+
+    latestButton.className =
+        "opus-note-view-button";
+
+    latestButton.textContent =
+        "최근 작업";
+
+    const allButton =
+        document.createElement(
+            "button"
+        );
+
+    allButton.className =
+        "opus-note-view-button";
+
+    allButton.textContent =
+        "전체 작업";
+
+    const sortButton =
+        document.createElement("button");
+
+    sortButton.className =
+        "opus-note-view-button opus-work-log-sort";
+
+    sortButton.title =
+        "전체 작업 정렬 순서 변경";
+
+    viewOptions.appendChild(
+        latestButton
+    );
+
+    viewOptions.appendChild(
+        allButton
+    );
+
+    viewOptions.appendChild(
+        sortButton
+    );
+
+    noteToolbar.appendChild(
+        viewOptions
+    );
+
+    const body =
+        document.createElement("div");
+
+    body.className =
+        "opus-note-body";
+
+    const addArea =
+        document.createElement("div");
+
+    addArea.className =
+        "opus-add-log-area";
+
+    const addTime =
+        document.createElement("div");
+
+    addTime.className =
+        "opus-add-log-time";
+
+    const addInput =
+        document.createElement(
+            "textarea"
+        );
+
+    addInput.className =
+        "opus-add-log-input";
+
+    addInput.placeholder =
+        "새 작업 내용을 입력하세요.";
+
+    const addActions =
+        document.createElement("div");
+
+    addActions.className =
+        "opus-add-log-actions";
+
+    const cancelAddButton =
+        document.createElement(
+            "button"
+        );
+
+    cancelAddButton.className =
+        "opus-note-action-button";
+
+    cancelAddButton.textContent =
+        "취소";
+
+    const saveAddButton =
+        document.createElement(
+            "button"
+        );
+
+    saveAddButton.className =
+        "opus-note-action-button primary";
+
+    saveAddButton.textContent =
+        "추가";
+
+    addActions.appendChild(
+        cancelAddButton
+    );
+
+    addActions.appendChild(
+        saveAddButton
+    );
+
+    addArea.appendChild(addTime);
+    addArea.appendChild(addInput);
+    addArea.appendChild(addActions);
+
+    const footer =
+        document.createElement("div");
+
+    footer.className =
+        "opus-note-footer";
+
+    const footerLeft =
+        document.createElement("div");
+
+    footerLeft.className =
+        "opus-note-footer-left";
+
+    const footerRight =
+        document.createElement("div");
+
+    footerRight.className =
+        "opus-note-footer-right";
+
+    const addButton =
+        document.createElement(
+            "button"
+        );
+
+    addButton.className =
+        "opus-note-action-button primary";
+
+    addButton.textContent =
+        "＋ 새 작업 추가";
+
+    const openNoteButton =
+        document.createElement(
+            "button"
+        );
+
+    openNoteButton.className =
+        "opus-note-action-button";
+
+    openNoteButton.textContent =
+        "원본 노트 열기";
+
+    footerLeft.appendChild(addButton);
+    footerRight.appendChild(
+        openNoteButton
+    );
+
+    footer.appendChild(footerLeft);
+    footer.appendChild(footerRight);
+
+    modal.appendChild(header);
+    modal.appendChild(noteToolbar);
+    modal.appendChild(body);
+    modal.appendChild(addArea);
+    modal.appendChild(footer);
+
+    backdrop.appendChild(modal);
+
+    document.body.appendChild(
+        backdrop
+    );
+
+    function renderWorkLogBody() {
+        body.innerHTML = "";
+
+        latestButton.classList.toggle(
+            "active",
+            viewMode === "latest"
+        );
+
+        allButton.classList.toggle(
+            "active",
+            viewMode === "all"
+        );
+
+        sortButton.classList.toggle(
+            "hidden",
+            viewMode !== "all"
+        );
+
+        sortButton.textContent =
+            allSortDirection === "desc"
+                ? "최신순"
+                : "오래된순";
+
+        const logs =
+            viewMode === "latest"
+                ? (
+                    item.latestWorkLog
+                        ? [
+                            item.latestWorkLog
+                        ]
+                        : []
+                )
+                : [...item.workLogs]
+                    .sort(
+                        (left, right) => {
+                            const result =
+                                String(
+                                    allSortDirection === "desc" ? right.dateTime : left.dateTime
+                                ).localeCompare(
+                                    String(
+                                        allSortDirection === "desc" ? left.dateTime : right.dateTime
+                                    )
+                                );
+
+                            if (result !== 0) {
+                                return result;
+                            }
+
+                            return allSortDirection === "desc"
+                                ? right.index - left.index
+                                : left.index - right.index;
+                        }
+                    );
+
+        if (logs.length === 0) {
+            const empty =
+                document.createElement(
+                    "div"
+                );
+
+            empty.className =
+                "opus-no-work-log";
+
+            empty.textContent =
+                "작성된 작업 일지가 없습니다.";
+
+            body.appendChild(empty);
+
+            return;
+        }
+
+        const list =
+            document.createElement(
+                "div"
+            );
+
+        list.className =
+            "opus-work-log-list";
+
+        for (const log of logs) {
+            list.appendChild(
+                createWorkLogEntryElement(
+                    log,
+                    item.page.file.path
+                )
+            );
+        }
+
+        body.appendChild(list);
+    }
+
+    function renderAddArea() {
+        addArea.classList.toggle(
+            "hidden",
+            !addFormOpen
+        );
+
+        addTime.textContent =
+            `현재 시각: ${formatDateTime()}`;
+
+        if (addFormOpen) {
+            setTimeout(
+                () => addInput.focus(),
+                0
+            );
+        }
+    }
+
+    function closeModal() {
+        document.removeEventListener(
+            "keydown",
+            escapeKeyHandler
+        );
+
+        backdrop.remove();
+    }
+
+    function escapeKeyHandler(event) {
+        if (event.key === "Escape") {
+            closeModal();
+        }
+
+        if (
+            event.ctrlKey
+            && event.key === "Enter"
+            && addFormOpen
+        ) {
+            saveAddButton.click();
+        }
+    }
+
+    latestButton.addEventListener(
+        "click",
+        () => {
+            viewMode = "latest";
+            renderWorkLogBody();
+        }
+    );
+
+    allButton.addEventListener(
+        "click",
+        () => {
+            viewMode = "all";
+            renderWorkLogBody();
+        }
+    );
+
+    sortButton.addEventListener(
+        "click",
+        () => {
+            allSortDirection =
+                allSortDirection === "desc"
+                    ? "asc"
+                    : "desc";
+            renderWorkLogBody();
+        }
+    );
+
+    addButton.addEventListener(
+        "click",
+        () => {
+            addFormOpen = true;
+            addInput.value = "";
+
+            renderAddArea();
+        }
+    );
+
+    cancelAddButton.addEventListener(
+        "click",
+        () => {
+            addFormOpen = false;
+            addInput.value = "";
+
+            renderAddArea();
+        }
+    );
+
+    saveAddButton.addEventListener(
+        "click",
+        async () => {
+            const content =
+                addInput.value.trim();
+
+            if (!content) {
+                new Notice(
+                    "작업 내용을 입력해 주세요."
+                );
+
+                addInput.focus();
+
+                return;
+            }
+
+            saveAddButton.disabled = true;
+            saveAddButton.textContent =
+                "저장 중...";
+
+            try {
+                await addWorkLog(
+                    item,
+                    content
+                );
+
+                addInput.value = "";
+                addFormOpen = false;
+                viewMode = "latest";
+
+                renderAddArea();
+                renderWorkLogBody();
+                renderTable();
+
+                new Notice(
+                    "작업 일지가 추가되었습니다."
+                );
+            } catch (error) {
+                console.error(
+                    "[전체 업무 현황] 작업 일지 저장 실패",
+                    error
+                );
+
+                new Notice(
+                    error?.message
+                    ?? "작업 일지를 저장하지 못했습니다."
+                );
+            } finally {
+                saveAddButton.disabled =
+                    false;
+
+                saveAddButton.textContent =
+                    "추가";
+            }
+        }
+    );
+
+    openNoteButton.addEventListener(
+        "click",
+        async () => {
+            closeModal();
+
+            await app.workspace
+                .openLinkText(
+                    item.page.file.path,
+                    "",
+                    false
+                );
+        }
+    );
+
+    closeButton.addEventListener(
+        "click",
+        closeModal
+    );
+
+    backdrop.addEventListener(
+        "click",
+        event => {
+            if (
+                event.target
+                === backdrop
+            ) {
+                closeModal();
+            }
+        }
+    );
+
+    document.addEventListener(
+        "keydown",
+        escapeKeyHandler
+    );
+
+    renderWorkLogBody();
+    renderAddArea();
+}
+
+
+// ================================================================
+// 26. 테이블 헤더
+// ================================================================
+
+function createHeaderHtml(column) {
+    const sortIndex =
+        activeSorts.findIndex(
+            rule =>
+                rule.columnKey
+                === column.key
+        );
+
+    const sortRule =
+        sortIndex >= 0
+            ? activeSorts[sortIndex]
+            : null;
+
+    const sortBadge = sortRule
+        ? `
+            <span class="opus-header-sort-badge">
+                ${
+                    sortRule.direction
+                        === "asc"
+                        ? "↑"
+                        : "↓"
+                }
+
+                ${
+                    activeSorts.length > 1
+                        ? `
+                            <span class="opus-header-sort-priority">
+                                ${sortIndex + 1}
+                            </span>
+                        `
+                        : ""
+                }
+            </span>
+        `
+        : "";
+
+    const headerClasses = [];
+
+    if (column.type === "external") {
+        headerClasses.push(
+            "opus-link-header"
+        );
+    }
+
+    if (
+        column.type
+        === "documentIcon"
+    ) {
+        headerClasses.push(
+            "opus-document-header"
+        );
+    }
+
+    return `
+        <th
+            class="${headerClasses.join(" ")}"
+            data-column-key="${escapeAttribute(column.key)}"
+            draggable="true"
+        >
+            <span class="opus-header-content">
+                <span class="opus-header-label">
+                    ${escapeHtml(column.label)}
+                </span>
+
+                ${sortBadge}
+            </span>
+
+            <span
+                class="opus-resize-handle"
+                data-resize-key="${escapeAttribute(column.key)}"
+                title="드래그하여 컬럼 너비 조절"
+            ></span>
+        </th>
+    `;
+}
+
+
+// ================================================================
+// 27. 컬럼 리사이즈
+// ================================================================
+
+function bindColumnResize(table) {
+    table
+        .querySelectorAll(
+            "[data-resize-key]"
+        )
+        .forEach(handle => {
+            handle.addEventListener(
+                "mousedown",
+                event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+
+                    const key =
+                        handle.dataset
+                            .resizeKey;
+
+                    const columnElement =
+                        table.querySelector(
+                            `col[data-col-key="${CSS.escape(key)}"]`
+                        );
+
+                    const headerCell =
+                        handle.closest("th");
+
+                    if (
+                        !columnElement
+                        || !headerCell
+                    ) {
+                        return;
+                    }
+
+                    const startX =
+                        event.clientX;
+
+                    const startWidth =
+                        headerCell
+                            .getBoundingClientRect()
+                            .width;
+
+                    handle.classList.add(
+                        "resizing"
+                    );
+
+                    document.body.style.cursor =
+                        "col-resize";
+
+                    document.body.style.userSelect =
+                        "none";
+
+                    function mouseMove(
+                        moveEvent
+                    ) {
+                        const delta =
+                            moveEvent.clientX
+                            - startX;
+
+                        const newWidth =
+                            Math.min(
+                                600,
+                                Math.max(
+                                    42,
+                                    Math.round(
+                                        startWidth
+                                        + delta
+                                    )
+                                )
+                            );
+
+                        columnElement.style.width =
+                            `${newWidth}px`;
+
+                        settings.columnWidths[
+                            key
+                        ] = newWidth;
+                    }
+
+                    function mouseUp() {
+                        handle.classList.remove(
+                            "resizing"
+                        );
+
+                        document.body.style.cursor =
+                            "";
+
+                        document.body.style.userSelect =
+                            "";
+
+                        document.removeEventListener(
+                            "mousemove",
+                            mouseMove
+                        );
+
+                        document.removeEventListener(
+                            "mouseup",
+                            mouseUp
+                        );
+
+                        saveSettings();
+                    }
+
+                    document.addEventListener(
+                        "mousemove",
+                        mouseMove
+                    );
+
+                    document.addEventListener(
+                        "mouseup",
+                        mouseUp
+                    );
+                }
+            );
+        });
+}
+
+function bindColumnReorder(table) {
+    const headers = Array.from(table.querySelectorAll("th[data-column-key]"));
+    let draggedKey = "";
+
+    headers.forEach(header => {
+        header.addEventListener("dragstart", event => {
+            if (event.target.closest(".opus-resize-handle")) {
+                event.preventDefault();
+                return;
+            }
+            draggedKey = header.dataset.columnKey || "";
+            header.classList.add("dragging");
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", draggedKey);
+        });
+        header.addEventListener("dragend", () => {
+            header.classList.remove("dragging");
+            headers.forEach(item => item.classList.remove("drag-over"));
+            draggedKey = "";
+        });
+        header.addEventListener("dragover", event => {
+            if (!draggedKey || draggedKey === header.dataset.columnKey) return;
+            event.preventDefault();
+            header.classList.add("drag-over");
+        });
+        header.addEventListener("dragleave", () => header.classList.remove("drag-over"));
+        header.addEventListener("drop", event => {
+            event.preventDefault();
+            header.classList.remove("drag-over");
+            const targetKey = header.dataset.columnKey || "";
+            if (!draggedKey || !targetKey || draggedKey === targetKey) return;
+            const nextOrder = settings.columnOrder.filter(key => key !== draggedKey);
+            const targetIndex = nextOrder.indexOf(targetKey);
+            const bounds = header.getBoundingClientRect();
+            const insertAfter = event.clientX > bounds.left + bounds.width / 2;
+            nextOrder.splice(targetIndex + (insertAfter ? 1 : 0), 0, draggedKey);
+            settings.columnOrder = nextOrder;
+            settings.visibleColumns = nextOrder.filter(key => settings.visibleColumns.includes(key));
+            saveSettings();
+            renderTable();
+        });
+    });
+}
+
+
+// ================================================================
+// 28. 테이블 렌더링
+// ================================================================
+
+function renderTable() {
+    const visibleColumns =
+        getVisibleColumns();
+
+    const filteredItems =
+        pages.filter(item => {
+            if (
+                !matchesGlobalSearch(item)
+            ) {
+                return false;
+            }
+
+            return activeFilters.every(
+                filter =>
+                    matchesFilter(
+                        item,
+                        filter
+                    )
+            );
+        });
+
+    const sortedItems =
+        sortItems(filteredItems);
+
+    summary.textContent =
+        `전체 ${pages.length}건 · 표시 ${sortedItems.length}건`;
+
+    if (sortedItems.length === 0) {
+        tableArea.innerHTML = `
+            <div class="opus-empty-result">
+                검색 또는 필터 조건에 해당하는 업무가 없습니다.
+            </div>
+        `;
+
+        return;
+    }
+
+    const colGroupHtml =
+        visibleColumns
+            .map(column => {
+                const width =
+                    settings.columnWidths[
+                        column.key
+                    ]
+                    ?? DEFAULT_COLUMN_WIDTHS[
+                        column.key
+                    ]
+                    ?? 100;
+
+                return `
+                    <col
+                        data-col-key="${escapeAttribute(column.key)}"
+                        style="width:${width}px"
+                    >
+                `;
+            })
+            .join("");
+
+    const headerHtml =
+        visibleColumns
+            .map(createHeaderHtml)
+            .join("");
+
+    const bodyHtml =
+        sortedItems
+            .map(
+                (item, rowIndex) => {
+                    const cells =
+                        visibleColumns
+                            .map(column => {
+                                const classes =
+                                    [];
+
+                                if (
+                                    column.type
+                                    === "external"
+                                ) {
+                                    classes.push(
+                                        "opus-link-cell"
+                                    );
+                                }
+
+                                if (
+                                    column.type
+                                    === "documentIcon"
+                                ) {
+                                    classes.push(
+                                        "opus-document-cell"
+                                    );
+                                }
+
+                                return `
+                                    <td class="${classes.join(" ")}">
+                                        <div class="opus-cell-content">
+                                            ${
+                                                formatCell(
+                                                    column,
+                                                    item,
+                                                    rowIndex
+                                                )
+                                            }
+                                        </div>
+                                    </td>
+                                `;
+                            })
+                            .join("");
+
+                    return `
+                        <tr>
+                            ${cells}
+                        </tr>
+                    `;
+                }
+            )
+            .join("");
+
+    tableArea.innerHTML = `
+        <div class="opus-table-scroll">
+            <table
+                class="opus-table"
+                style="--opus-row-height:${settings.rowHeight}px"
+            >
+                <colgroup>
+                    ${colGroupHtml}
+                </colgroup>
+
+                <thead>
+                    <tr>
+                        ${headerHtml}
+                    </tr>
+                </thead>
+
+                <tbody>
+                    ${bodyHtml}
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    const table =
+        tableArea.querySelector(
+            ".opus-table"
+        );
+
+    if (!table) {
+        return;
+    }
+
+    bindColumnResize(table);
+    bindColumnReorder(table);
+
+    tableArea
+        .querySelectorAll(
+            "[data-inline-date-index]"
+        )
+        .forEach(input => {
+            input.addEventListener(
+                "click",
+                event => event.stopPropagation()
+            );
+            input.addEventListener(
+                "change",
+                async event => {
+                    const rowIndex = Number(
+                        input.dataset.inlineDateIndex
+                    );
+                    const field =
+                        input.dataset.inlineDateField;
+                    const item = sortedItems[rowIndex];
+                    const file = item?.page?.file?.path
+                        ? app.vault.getAbstractFileByPath(
+                            item.page.file.path
+                        )
+                        : null;
+                    if (!file || !field) return;
+                    input.disabled = true;
+                    try {
+                        await app.fileManager
+                            .processFrontMatter(
+                                file,
+                                frontmatter => {
+                                    frontmatter[field] =
+                                        event.target.value || "";
+                                }
+                            );
+                        new Notice(
+                            `${item.page.id || file.basename} ${field}을 저장했습니다.`
+                        );
+                    } catch (error) {
+                        new Notice(
+                            `${field} 저장 실패: ${error?.message || error}`
+                        );
+                    } finally {
+                        input.disabled = false;
+                    }
+                }
+            );
+        });
+
+    tableArea
+        .querySelectorAll(
+            "[data-last-checked-today-index]"
+        )
+        .forEach(button => {
+            button.addEventListener(
+                "click",
+                async event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const rowIndex = Number(
+                        button.dataset.lastCheckedTodayIndex
+                    );
+                    const item = sortedItems[rowIndex];
+                    const file = item?.page?.file?.path
+                        ? app.vault.getAbstractFileByPath(item.page.file.path)
+                        : null;
+                    if (!file) return;
+                    const today = formatDateTime().slice(0, 10);
+                    button.disabled = true;
+                    try {
+                        await app.fileManager.processFrontMatter(
+                            file,
+                            frontmatter => {
+                                frontmatter["마지막확인"] = today;
+                            }
+                        );
+                        const input = button.parentElement?.querySelector(".opus-inline-date");
+                        if (input) input.value = today;
+                        new Notice(`${item.page.id || file.basename} 마지막확인을 오늘로 저장했습니다.`);
+                    } catch (error) {
+                        new Notice(`마지막확인 저장 실패: ${error?.message || error}`);
+                    } finally {
+                        button.disabled = false;
+                    }
+                }
+            );
+        });
+
+    tableArea
+        .querySelectorAll(
+            "[data-inline-priority-index]"
+        )
+        .forEach(select => {
+            select.addEventListener(
+                "click",
+                event => event.stopPropagation()
+            );
+            select.addEventListener(
+                "change",
+                async event => {
+                    const rowIndex = Number(
+                        select.dataset.inlinePriorityIndex
+                    );
+                    const item = sortedItems[rowIndex];
+                    const file = item?.page?.file?.path
+                        ? app.vault.getAbstractFileByPath(
+                            item.page.file.path
+                        )
+                        : null;
+                    if (!file) return;
+                    select.disabled = true;
+                    try {
+                        await app.fileManager
+                            .processFrontMatter(
+                                file,
+                                frontmatter => {
+                                    frontmatter.priority =
+                                        event.target.value || "";
+                                }
+                            );
+                        new Notice(
+                            `${item.page.id || file.basename} Priority를 ${event.target.value || "미지정"}(으)로 저장했습니다.`
+                        );
+                    } catch (error) {
+                        new Notice(
+                            `Priority 저장 실패: ${error?.message || error}`
+                        );
+                    } finally {
+                        select.disabled = false;
+                    }
+                }
+            );
+        });
+
+    tableArea
+        .querySelectorAll(
+            "[data-work-log-index]"
+        )
+        .forEach(button => {
+            button.addEventListener(
+                "click",
+                () => {
+                    const rowIndex =
+                        Number(
+                            button.dataset
+                                .workLogIndex
+                        );
+
+                    const item =
+                        sortedItems[
+                            rowIndex
+                        ];
+
+                    if (item) {
+                        openWorkLogModal(
+                            item
+                        );
+                    }
+                }
+            );
+        });
+
+}
+
+function handleTodoQuickAddClick(event) {
+    const button = event.target?.closest?.("[data-todo-ticket-id]");
+    if (!button || !tableArea.contains(button)) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    const ticketId = String(button.dataset.todoTicketId || "");
+    const item = pages.find(pageItem =>
+        String(pageItem.page.id || pageItem.page.file.name) === ticketId
+    );
+    if (!item) {
+        new Notice(`${ticketId || "선택한"} 티켓 노트를 찾을 수 없습니다.`);
+        return true;
+    }
+    openTodoCreateModal(item);
+    return true;
+}
+
+function handleTodoListClick(event) {
+    const button = event.target?.closest?.("[data-todo-list-ticket-id]");
+    if (!button || !tableArea.contains(button)) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    const ticketId = String(button.dataset.todoListTicketId || "");
+    const item = pages.find(pageItem =>
+        String(pageItem.page.id || pageItem.page.file.name) === ticketId
+    );
+    if (!item) {
+        new Notice(`${ticketId || "선택한"} 티켓 노트를 찾을 수 없습니다.`);
+        return true;
+    }
+    openTicketTodoListModal(item);
+    return true;
+}
+
+tableArea.addEventListener("click", handleTodoListClick);
+tableArea.addEventListener("click", handleTodoQuickAddClick);
+
+
+// ================================================================
+// 28-1. To-Do 칸반 보드 렌더링
+// ================================================================
+
+const TODO_STATUSES = [
+    { key: "pending", label: "진행 전", icon: "○" },
+    { key: "in-progress", label: "진행 중", icon: "◐" },
+    { key: "done", label: "완료", icon: "✓" }
+];
+
+const TODO_PAGE_SIZE = 10;
+const todoVisibleLimits = Object.fromEntries(
+    TODO_STATUSES.map(status => [status.key, TODO_PAGE_SIZE])
+);
+let todoSearchTimer = null;
+
+function resetTodoVisibleLimits() {
+    for (const status of TODO_STATUSES) {
+        todoVisibleLimits[status.key] = TODO_PAGE_SIZE;
+    }
+}
+
+async function openTodoTicket(task) {
+    const file = app.vault.getAbstractFileByPath(task.filePath);
+    if (file) await app.workspace.getLeaf(false).openFile(file);
+}
+
+async function changeTodoStatus(task, nextStatus, sourceElement = null) {
+    if (!task || task.status === nextStatus) return;
+    if (sourceElement) sourceElement.disabled = true;
+    try {
+        await updateTodoStatus(task, nextStatus);
+        renderTodoBoard();
+        const label = TODO_STATUSES.find(status => status.key === nextStatus)?.label || nextStatus;
+        new Notice(`${task.ticketId} 할 일을 '${label}' 상태로 변경했습니다.`);
+    } catch (error) {
+        new Notice(`할 일 상태 변경 실패: ${error?.message || error}`);
+        if (sourceElement) sourceElement.disabled = false;
+    }
+}
+
+function createTodoCard(task, showTicket) {
+    const card = document.createElement("article");
+    card.className = "opus-todo-card";
+    const dueInfo = todoDueInfo(task);
+    if (dueInfo?.tone === "overdue") card.classList.add("overdue");
+    card.draggable = true;
+    card.dataset.todoId = task.id;
+
+    if (showTicket) {
+        const ticket = document.createElement("div");
+        ticket.className = "opus-todo-card-ticket";
+        ticket.textContent = task.ticketId;
+        ticket.title = "티켓 노트 열기";
+        ticket.addEventListener("click", event => {
+            event.stopPropagation();
+            openTodoTicket(task);
+        });
+        card.appendChild(ticket);
+    }
+
+    const text = document.createElement("div");
+    text.className = "opus-todo-card-text";
+    text.textContent = task.text;
+    card.appendChild(text);
+
+    const footer = document.createElement("div");
+    footer.className = "opus-todo-card-footer";
+    const date = document.createElement("span");
+    date.className = "opus-todo-card-date";
+    date.textContent = task.dateTime || "날짜 없음";
+    const timing = document.createElement("div");
+    timing.className = "opus-todo-card-timing";
+    timing.appendChild(date);
+    if (dueInfo) {
+        const due = document.createElement("span");
+        due.className = `opus-todo-due-badge ${dueInfo.tone}`;
+        due.textContent = dueInfo.label;
+        due.title = `만료일 ${task.dueDate}`;
+        timing.appendChild(due);
+    }
+    if (task.completedAt) {
+        const completed = document.createElement("span");
+        completed.className = "opus-todo-completed-badge";
+        completed.textContent = `✓ 완료 ${task.completedAt.slice(5)}`;
+        completed.title = `완료일 ${task.completedAt}`;
+        timing.appendChild(completed);
+    }
+    footer.appendChild(timing);
+
+    const select = document.createElement("select");
+    select.className = "opus-todo-status-select";
+    for (const status of TODO_STATUSES) {
+        const option = document.createElement("option");
+        option.value = status.key;
+        option.textContent = status.label;
+        option.selected = task.status === status.key;
+        select.appendChild(option);
+    }
+    select.addEventListener("click", event => event.stopPropagation());
+    select.addEventListener("change", event => {
+        event.stopPropagation();
+        changeTodoStatus(task, event.target.value, select);
+    });
+    footer.appendChild(select);
+    card.appendChild(footer);
+
+    card.addEventListener("dragstart", event => {
+        card.dataset.dragged = "true";
+        card.classList.add("dragging");
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", task.id);
+    });
+    card.addEventListener("dragend", () => {
+        card.classList.remove("dragging");
+        window.setTimeout(() => { delete card.dataset.dragged; }, 0);
+    });
+    card.addEventListener("click", event => {
+        if (card.dataset.dragged === "true") return;
+        if (event.target.closest("select, button, a")) return;
+        openTodoDetailModal(task);
+    });
+    return card;
+}
+
+function renderTodoBoard() {
+    todoBoardArea.innerHTML = "";
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "opus-todo-board-toolbar";
+    const boardFilters = document.createElement("div");
+    boardFilters.className = "opus-todo-board-filters";
+    const guide = document.createElement("span");
+    guide.className = "opus-todo-board-guide";
+    guide.textContent = "카드를 눌러 상세 내용을 확인하세요.";
+
+    const search = document.createElement("input");
+    search.className = "opus-todo-search";
+    search.type = "search";
+    search.placeholder = "티켓 번호 또는 할 일 검색";
+    search.value = settings.todoSearchKeyword || "";
+    search.addEventListener("input", () => {
+        settings.todoSearchKeyword = search.value;
+        const cursor = search.selectionStart;
+        if (todoSearchTimer) window.clearTimeout(todoSearchTimer);
+        todoSearchTimer = window.setTimeout(() => {
+            saveSettings();
+            resetTodoVisibleLimits();
+            renderTodoBoard();
+            window.setTimeout(() => {
+                const next = todoBoardArea.querySelector(".opus-todo-search");
+                next?.focus();
+                next?.setSelectionRange(cursor, cursor);
+            }, 0);
+        }, 140);
+    });
+
+    const quickView = document.createElement("select");
+    quickView.className = "opus-todo-quick-view";
+    [
+        ["all", "전체"],
+        ["open", "미완료"],
+        ["today", "오늘까지"],
+        ["overdue", "기한 지남"],
+        ["done", "완료"]
+    ].forEach(([value, label]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        option.selected = settings.todoQuickView === value;
+        quickView.appendChild(option);
+    });
+    quickView.addEventListener("change", () => {
+        settings.todoQuickView = quickView.value;
+        saveSettings();
+        resetTodoVisibleLimits();
+        renderTodoBoard();
+    });
+    boardFilters.append(search, quickView, guide);
+    toolbar.appendChild(boardFilters);
+
+    const boardActions = document.createElement("div");
+    boardActions.className = "opus-todo-board-actions";
+
+    const addButton = document.createElement("button");
+    addButton.className = "opus-todo-add-button";
+    addButton.textContent = "＋ 새 To-Do";
+    addButton.addEventListener("click", () => openTodoCreateModal());
+    boardActions.appendChild(addButton);
+
+    const groupToggle = document.createElement("label");
+    groupToggle.className = "opus-todo-group-toggle";
+    const groupCheckbox = document.createElement("input");
+    groupCheckbox.type = "checkbox";
+    groupCheckbox.checked = settings.todoGroupByTicket;
+    groupCheckbox.addEventListener("change", () => {
+        settings.todoGroupByTicket = groupCheckbox.checked;
+        saveSettings();
+        renderTodoBoard();
+    });
+    groupToggle.appendChild(groupCheckbox);
+    groupToggle.appendChild(document.createTextNode("티켓별로 구분"));
+    boardActions.appendChild(groupToggle);
+    toolbar.appendChild(boardActions);
+    todoBoardArea.appendChild(toolbar);
+
+    const today = formatDateTime().slice(0, 10);
+    const needle = String(settings.todoSearchKeyword || "").trim().toLowerCase();
+    const searchActive = needle.length > 0;
+    const quickFilter = settings.todoQuickView || "all";
+    const filteredTodoItems = todoItems.filter(task => {
+        const matchesSearch = !needle || [task.ticketId, task.text, task.dueDate, task.completedAt]
+            .some(value => String(value || "").toLowerCase().includes(needle));
+        if (!matchesSearch) return false;
+        if (quickFilter === "open") return task.status !== "done";
+        if (quickFilter === "today") return task.status !== "done" && task.dueDate && task.dueDate <= today;
+        if (quickFilter === "overdue") return task.status !== "done" && task.dueDate && task.dueDate < today;
+        if (quickFilter === "done") return task.status === "done";
+        return true;
+    });
+
+    const board = document.createElement("div");
+    board.className = "opus-todo-board";
+
+    for (const status of TODO_STATUSES) {
+        const tasks = filteredTodoItems
+            .filter(task => task.status === status.key)
+            .sort((left, right) => {
+                if (status.key === "done") {
+                    return String(right.completedAt || right.dateTime || "")
+                        .localeCompare(String(left.completedAt || left.dateTime || ""));
+                }
+                const leftDue = left.dueDate || "9999-12-31";
+                const rightDue = right.dueDate || "9999-12-31";
+                return leftDue.localeCompare(rightDue)
+                     || String(right.dateTime || "").localeCompare(String(left.dateTime || ""));
+            });
+        const visibleLimit = Number(todoVisibleLimits[status.key] || TODO_PAGE_SIZE);
+        const visibleTasks = searchActive ? tasks : tasks.slice(0, visibleLimit);
+        const column = document.createElement("section");
+        column.className = "opus-todo-column";
+        column.dataset.todoStatus = status.key;
+
+        const header = document.createElement("div");
+        header.className = "opus-todo-column-header";
+        const label = document.createElement("span");
+        label.textContent = `${status.icon} ${status.label}`;
+        const count = document.createElement("span");
+        count.className = "opus-todo-count";
+        count.textContent = String(tasks.length);
+        header.append(label, count);
+        column.appendChild(header);
+
+        if (tasks.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "opus-todo-empty";
+            empty.textContent = "할 일이 없습니다.";
+            column.appendChild(empty);
+        } else if (settings.todoGroupByTicket) {
+            const groups = new Map();
+            for (const task of visibleTasks) {
+                if (!groups.has(task.ticketId)) groups.set(task.ticketId, []);
+                groups.get(task.ticketId).push(task);
+            }
+            for (const [ticketId, ticketTasks] of groups) {
+                const group = document.createElement("div");
+                group.className = "opus-todo-ticket-group";
+                const heading = document.createElement("div");
+                heading.className = "opus-todo-ticket-heading";
+                heading.textContent = `${ticketId} · ${ticketTasks.length}개`;
+                heading.title = "티켓 노트 열기";
+                heading.style.cursor = "pointer";
+                heading.addEventListener("click", () => openTodoTicket(ticketTasks[0]));
+                group.appendChild(heading);
+                ticketTasks.forEach(task => group.appendChild(createTodoCard(task, false)));
+                column.appendChild(group);
+            }
+        } else {
+            visibleTasks.forEach(task => column.appendChild(createTodoCard(task, true)));
+        }
+
+        if (!searchActive && visibleTasks.length < tasks.length) {
+            const remaining = tasks.length - visibleTasks.length;
+            const increment = Math.min(TODO_PAGE_SIZE, remaining);
+            const loadMore = document.createElement("button");
+            loadMore.className = "opus-todo-load-more";
+            loadMore.textContent = `${increment}개 더 보기 · ${remaining}개 남음`;
+            loadMore.addEventListener("click", () => {
+                todoVisibleLimits[status.key] = visibleLimit + TODO_PAGE_SIZE;
+                renderTodoBoard();
+            });
+            column.appendChild(loadMore);
+        }
+
+        column.addEventListener("dragover", event => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+            column.classList.add("drag-over");
+        });
+        column.addEventListener("dragleave", event => {
+            if (!column.contains(event.relatedTarget)) column.classList.remove("drag-over");
+        });
+        column.addEventListener("drop", event => {
+            event.preventDefault();
+            column.classList.remove("drag-over");
+            const id = event.dataTransfer.getData("text/plain");
+            const task = todoItems.find(item => item.id === id);
+            if (task) changeTodoStatus(task, status.key);
+        });
+        board.appendChild(column);
+    }
+
+    todoBoardArea.appendChild(board);
+    const counts = Object.fromEntries(TODO_STATUSES.map(status => [
+        status.key,
+        filteredTodoItems.filter(task => task.status === status.key).length
+    ]));
+    const resultLabel = filteredTodoItems.length === todoItems.length
+        ? `전체 ${todoItems.length}개`
+        : `검색 ${filteredTodoItems.length}개 / 전체 ${todoItems.length}개`;
+    summary.textContent = `${resultLabel} · 진행 전 ${counts.pending} · 진행 중 ${counts["in-progress"]} · 완료 ${counts.done}`;
+}
+
+
+// ================================================================
+// 29. 전체 렌더링
+// ================================================================
+
+function renderAll() {
+    const tableMode = activeView === "table";
+
+    tableViewButton.classList.toggle("active", tableMode);
+    todoViewButton.classList.toggle("active", !tableMode);
+    title.textContent = tableMode ? "📋 전체 업무 현황" : "✅ To-Do 보드";
+    actions.classList.toggle("opus-hidden", !tableMode);
+    const showControlBar =
+        tableMode
+        && (
+            (settings.showAppliedFilters !== false && activeFilters.length > 0)
+            || (settings.showAppliedSorts !== false && activeSorts.length > 0)
+        );
+
+    controlBar.classList.toggle("opus-hidden", !showControlBar);
+    tableArea.classList.toggle("opus-hidden", !tableMode);
+    todoBoardArea.classList.toggle("opus-hidden", tableMode);
+
+    if (!tableMode) {
+        sortMenuOpen = false;
+        filterMenuOpen = false;
+        fieldMenuOpen = false;
+    }
+
+    sortButton.classList.toggle(
+        "active",
+        sortMenuOpen
+        || activeSorts.length > 0
+    );
+
+    filterButton.classList.toggle(
+        "active",
+        filterMenuOpen
+        || activeFilters.length > 0
+    );
+
+    fieldButton.classList.toggle(
+        "active",
+        fieldMenuOpen
+        || settings.visibleColumns.length
+            < columns.length
+    );
+
+    sortMenu.style.display =
+        sortMenuOpen
+            ? "block"
+            : "none";
+
+    filterMenu.style.display =
+        filterMenuOpen
+            ? "block"
+            : "none";
+
+    fieldMenu.style.display =
+        fieldMenuOpen
+            ? "block"
+            : "none";
+
+    if (tableMode) {
+        renderSortMenu();
+        renderFilterMenu();
+        renderFieldMenu();
+        renderControlBar();
+        renderTable();
+    } else {
+        sortMenu.style.display = "none";
+        filterMenu.style.display = "none";
+        fieldMenu.style.display = "none";
+        renderTodoBoard();
+    }
+}
+
+
+// ================================================================
+// 30. 이벤트
+// ================================================================
+
+let searchTimer = null;
+
+tableViewButton.addEventListener("click", () => {
+    activeView = "table";
+    settings.activeView = activeView;
+    saveSettings();
+    renderAll();
+});
+
+todoViewButton.addEventListener("click", () => {
+    activeView = "todo";
+    settings.activeView = activeView;
+    saveSettings();
+    renderAll();
+});
+
+searchInput.addEventListener(
+    "input",
+    event => {
+        searchKeyword =
+            event.target.value;
+
+        settings.searchKeyword =
+            searchKeyword;
+
+        saveSettings();
+
+        clearTimeout(searchTimer);
+
+        searchTimer = setTimeout(
+            () => {
+                renderTable();
+            },
+            120
+        );
+    }
+);
+
+statusRefreshButton.addEventListener(
+    "click",
+    async () => {
+        const plugin =
+            app.plugins?.plugins?.[
+                "servicenow-manage"
+            ];
+
+        if (
+            typeof plugin?.syncAllTicketStatuses
+            !== "function"
+        ) {
+            new Notice(
+                "ServiceNow Manage 플러그인을 켜 주세요."
+            );
+            return;
+        }
+
+        statusRefreshButton.disabled = true;
+        statusRefreshButton.textContent =
+            "상태 갱신 중…";
+
+        try {
+            await plugin.syncAllTicketStatuses({
+                notify: true
+            });
+        } finally {
+            statusRefreshButton.disabled = false;
+            statusRefreshButton.textContent =
+                "↻ 상태 전체 갱신";
+        }
+    }
+);
+
+sortButton.addEventListener(
+    "click",
+    event => {
+        event.stopPropagation();
+
+        sortMenuOpen =
+            !sortMenuOpen;
+
+        filterMenuOpen = false;
+        fieldMenuOpen = false;
+
+        renderAll();
+    }
+);
+
+filterButton.addEventListener(
+    "click",
+    event => {
+        event.stopPropagation();
+
+        filterMenuOpen =
+            !filterMenuOpen;
+
+        sortMenuOpen = false;
+        fieldMenuOpen = false;
+
+        renderAll();
+    }
+);
+
+fieldButton.addEventListener(
+    "click",
+    event => {
+        event.stopPropagation();
+
+        fieldMenuOpen =
+            !fieldMenuOpen;
+
+        sortMenuOpen = false;
+        filterMenuOpen = false;
+
+        renderAll();
+    }
+);
+
+sortMenu.addEventListener(
+    "click",
+    event =>
+        event.stopPropagation()
+);
+
+filterMenu.addEventListener(
+    "click",
+    event =>
+        event.stopPropagation()
+);
+
+fieldMenu.addEventListener(
+    "click",
+    event =>
+        event.stopPropagation()
+);
+
+function outsideClickHandler(event) {
+    if (
+        (
+            sortMenuOpen
+            || filterMenuOpen
+            || fieldMenuOpen
+        )
+        && !toolbar.contains(
+            event.target
+        )
+    ) {
+        sortMenuOpen = false;
+        filterMenuOpen = false;
+        fieldMenuOpen = false;
+
+        renderAll();
+    }
+}
+
+document.addEventListener(
+    "click",
+    outsideClickHandler
+);
+
+
+// ================================================================
+// 31. 최초 렌더링
+// ================================================================
+
+renderAll();
+})();

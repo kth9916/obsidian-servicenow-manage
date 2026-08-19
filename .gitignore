@@ -1,0 +1,14 @@
+node_modules/
+coverage/
+.env
+.env.*
+data.json
+client_secret_*.json
+credentials*.json
+organization-pack.json
+*.servicenow-manage.json
+*.zip
+.DS_Store
+Thumbs.db
+.obsidian/
+backups/

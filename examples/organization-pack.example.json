@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "packId": "example-operations",
+  "version": "1.0.0",
+  "name": "Example ServiceNow operations workflow",
+  "description": "A credential-free example for another organization.",
+  "features": {
+    "statusGuides": true,
+    "aiPrompt": true,
+    "slaRules": true,
+    "documentAutomation": false
+  },
+  "roleDescription": "ServiceNow ticket coordinator",
+  "states": {
+      "CR": ["New", "Assess", "Authorize", "Scheduled", "Implement", "Review", "Closed"],
+      "SR": ["New", "Open", "In Progress", "Pending", "Resolved", "Closed"]
+  },
+  "statusGuides": {
+      "CR": {
+        "Assess": {
+          "meaning": "The change is being reviewed for scope and impact.",
+          "next": "Confirm the owner and required evidence.",
+          "owner": "Change coordinator",
+          "target": "Follow the organization's approved SLA.",
+          "actions": ["Confirm scope", "Record open questions", "Track the next review date"]
+        }
+      },
+      "SR": {
+        "In Progress": {
+          "meaning": "The request is assigned and being handled.",
+          "next": "Track progress and blockers.",
+          "owner": "Request coordinator",
+          "target": "Follow the organization's approved SLA.",
+          "actions": ["Confirm the assignee", "Record blockers", "Track the expected response date"]
+        }
+      }
+  },
+  "slaRules": {
+    "CR": {},
+    "SR": {}
+  },
+  "promptTemplate": "Use the appropriate CR or SR template. Analyze working notes chronologically, distinguish verified facts from assumptions, and provide the next actions.",
+  "analysisTemplates": {
+    "CR": "# CR analysis template\n\n## Current state\n\n## Confirmed facts\n\n## Next actions\n",
+    "SR": "# SR analysis template\n\n## Current state\n\n## Confirmed facts\n\n## Next actions\n"
+  }
+}

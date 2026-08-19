@@ -1,0 +1,16 @@
+{
+  "name": "obsidian-servicenow-manage",
+  "version": "2.0.0",
+  "description": "ServiceNow ticket notes, work notes, document links, and task dashboards for Obsidian.",
+  "author": "thkim9916 <thkim9916@cyberlogitec.com>",
+  "type": "commonjs",
+  "scripts": {
+    "embed:dashboard": "node scripts/embed-dashboard.mjs",
+    "security:audit": "node scripts/community-security-audit.mjs",
+    "release:check": "node scripts/community-release-check.mjs",
+    "test": "node scripts/run-tests.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

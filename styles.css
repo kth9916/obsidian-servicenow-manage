@@ -1,0 +1,986 @@
+.clt-sn-root {
+  --clt-sn-border: var(--background-modifier-border);
+  --clt-sn-panel: var(--background-secondary);
+  margin: 0.75rem 0;
+}
+
+.clt-sn-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.clt-sn-heading h3 {
+  margin: 0 0 0.25rem;
+}
+
+.clt-sn-sync-status,
+.clt-sn-count {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.clt-sn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.clt-sn-summary {
+  background: var(--clt-sn-panel);
+  border: 1px solid var(--clt-sn-border);
+  border-radius: var(--radius-m);
+  margin-bottom: 1rem;
+  padding: 0.9rem 1rem;
+}
+
+.clt-sn-summary-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  text-transform: uppercase;
+}
+
+.clt-sn-summary-title {
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+  margin: 0.2rem 0 0.5rem;
+}
+
+.clt-sn-summary pre,
+.clt-sn-content {
+  background: transparent;
+  font-family: var(--font-text);
+  margin: 0;
+  overflow-wrap: anywhere;
+  padding: 0;
+  white-space: pre-wrap;
+}
+
+.clt-sn-filters {
+  align-items: end;
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: minmax(14rem, 1fr) auto auto auto auto auto;
+  margin-bottom: 0.75rem;
+}
+
+.clt-sn-filters input,
+.clt-sn-filters select {
+  width: 100%;
+}
+
+.clt-sn-date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.clt-sn-date-field span {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.clt-sn-count {
+  margin-bottom: 0.5rem;
+  text-align: right;
+}
+
+.clt-sn-card {
+  border: 1px solid var(--clt-sn-border);
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: var(--radius-s);
+  margin-bottom: 0.7rem;
+  padding: 0.8rem 0.9rem;
+}
+
+.clt-sn-field-change {
+  border-left-color: var(--color-orange);
+}
+
+.clt-sn-attachment {
+  border-left-color: var(--color-green);
+}
+
+.clt-sn-card-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.clt-sn-time,
+.clt-sn-author {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.clt-sn-badge {
+  background: var(--background-modifier-hover);
+  border-radius: 999px;
+  font-size: var(--font-ui-smaller);
+  padding: 0.1rem 0.45rem;
+}
+
+.clt-sn-empty {
+  background: var(--clt-sn-panel);
+  border-radius: var(--radius-m);
+  color: var(--text-muted);
+  padding: 1rem;
+  text-align: center;
+}
+
+.clt-sn-translation {
+  color: var(--text-normal);
+}
+
+.clt-sn-original {
+  border-top: 1px dashed var(--clt-sn-border);
+  margin-top: 0.65rem;
+  padding-top: 0.5rem;
+}
+
+.clt-sn-translation-missing {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-top: 0.45rem;
+}
+
+.clt-sn-summary-section + .clt-sn-summary-section {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.clt-sn-description-header {
+  align-items: center;
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.clt-sn-collapse-button,
+.clt-sn-original-button {
+  font-size: var(--font-ui-smaller);
+  padding: 3px 9px;
+}
+
+.clt-sn-description-body {
+  margin-top: 10px;
+}
+
+.clt-sn-original-button {
+  margin-top: 8px;
+}
+
+.clt-sn-original-content {
+  border-left: 3px solid var(--background-modifier-border-focus);
+  margin-top: 8px;
+  opacity: 0.82;
+  padding-left: 12px;
+}
+
+.clt-sn-token-input {
+  box-sizing: border-box;
+  margin: 0.5rem 0;
+  width: 100%;
+}
+
+.clt-sn-token-status {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  min-height: 1.5rem;
+}
+
+.clt-sn-ticket-status {
+  display: block;
+  margin: 8px 0 16px;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+
+.clt-ticket-status-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.clt-ai-prompt-details {
+  border-top: 1px dashed var(--background-modifier-border);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.clt-ai-prompt-details > summary {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+}
+
+.clt-ai-prompt-toolbar {
+  display: flex;
+  justify-content: flex-start;
+  margin: 10px 0 6px;
+}
+
+.clt-ai-prompt-content {
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  max-height: 520px;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
+.clt-ticket-summary {
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 10px;
+  padding: 4px 4px 12px;
+}
+
+.clt-ticket-summary-title {
+  font-weight: var(--font-semibold);
+  margin: 4px 0 10px;
+}
+
+.clt-ticket-summary details {
+  border-top: 1px dashed var(--background-modifier-border);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.clt-ticket-summary details > summary {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+}
+
+.clt-ticket-summary pre {
+  background: var(--background-primary-alt);
+  border-radius: 6px;
+  margin: 8px 0 0;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
+.clt-sn-attachment-preview {
+  margin: 10px 0;
+}
+
+.clt-sn-attachment-preview img {
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  display: block;
+  height: auto;
+  max-height: 720px;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.clt-sn-attachment-loading {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.clt-ticket-section-heading {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.clt-ticket-section-add {
+  font-size: var(--font-ui-smaller);
+  margin-left: 2px;
+  padding: 3px 9px;
+}
+
+.clt-ticket-heading-action {
+  align-items: center;
+  display: flex;
+  min-height: 32px;
+  justify-content: flex-start;
+  margin: -4px 0 16px;
+  overflow: visible;
+  position: relative;
+  z-index: 5;
+}
+
+.clt-ticket-heading-action-mounted {
+  display: none;
+}
+
+.clt-ticket-section-heading .clt-ticket-section-add {
+  flex: 0 0 auto;
+  margin-left: 2px;
+}
+
+.clt-ticket-heading-action .clt-ticket-section-add {
+  position: relative;
+  z-index: 6;
+}
+
+.clt-ticket-entry-time {
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-small);
+  margin-bottom: 8px;
+}
+
+.clt-ticket-entry-input {
+  box-sizing: border-box;
+  min-height: 96px;
+  resize: vertical;
+  width: 100%;
+}
+
+.clt-todo-entry-modal {
+  width: min(560px, 94vw);
+}
+
+.clt-todo-ticket-picker,
+.clt-todo-entry-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.clt-todo-entry-form {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.clt-todo-field-label {
+  color: var(--text-muted);
+  display: block;
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  margin-bottom: 5px;
+}
+
+.clt-todo-ticket-search,
+.clt-todo-entry-field input,
+.clt-todo-entry-field select {
+  box-sizing: border-box;
+  min-height: 36px;
+  width: 100%;
+}
+
+.clt-todo-ticket-result-info {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+.clt-todo-ticket-results {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  max-height: 210px;
+  overflow-y: auto;
+  padding: 5px;
+}
+
+.clt-todo-ticket-option {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  box-shadow: none;
+  color: var(--text-normal);
+  display: block;
+  height: auto;
+  margin: 2px 0;
+  padding: 8px 9px;
+  text-align: left;
+  width: 100%;
+}
+
+.clt-todo-ticket-option:hover {
+  background: var(--background-modifier-hover);
+}
+
+.clt-todo-ticket-option.selected {
+  background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
+  border-color: var(--interactive-accent);
+}
+
+.clt-todo-ticket-option-heading {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+}
+
+.clt-todo-ticket-option-id {
+  color: var(--interactive-accent);
+  font-family: var(--font-monospace);
+  font-weight: var(--font-semibold);
+}
+
+.clt-todo-ticket-option-status {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.clt-todo-ticket-option-title {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clt-todo-ticket-empty {
+  color: var(--text-muted);
+  padding: 18px 8px;
+  text-align: center;
+}
+
+.clt-todo-entry-field {
+  display: block;
+  flex: 1 1 0;
+}
+
+.clt-todo-entry-row {
+  display: flex;
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .clt-todo-entry-row {
+    flex-direction: column;
+  }
+}
+
+.clt-ticket-todo-list,
+.clt-ticket-note-render ul.contains-task-list {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  list-style: none;
+  margin-left: 0;
+  padding: 8px;
+}
+
+.clt-ticket-todo-list .task-list-item,
+.clt-ticket-note-render ul.contains-task-list .task-list-item {
+  align-items: flex-start;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border-hover);
+  border-radius: 7px;
+  display: flex;
+  gap: 8px;
+  margin: 5px 0;
+  padding: 8px 10px;
+}
+
+.clt-ticket-todo-list .task-list-item-checkbox,
+.clt-ticket-note-render ul.contains-task-list .task-list-item-checkbox {
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+
+.clt-ticket-todo-list .clt-ticket-todo-clickable,
+.clt-ticket-note-render ul.contains-task-list .clt-ticket-todo-clickable {
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+  user-select: text;
+}
+
+.clt-ticket-todo-list .clt-ticket-todo-clickable:hover,
+.clt-ticket-note-render ul.contains-task-list .clt-ticket-todo-clickable:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 7%, var(--background-primary));
+  border-color: var(--interactive-accent);
+}
+
+.clt-ticket-todo-clickable a,
+.clt-ticket-todo-clickable code {
+  cursor: text;
+  user-select: text;
+}
+
+.clt-todo-detail-modal {
+  width: min(680px, 94vw);
+}
+
+.clt-todo-modal-title {
+  align-items: center;
+  display: inline-flex;
+  gap: 9px;
+}
+
+.clt-todo-modal-icon {
+  align-items: center;
+  background: color-mix(in srgb, var(--interactive-accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 45%, transparent);
+  border-radius: 999px;
+  color: var(--interactive-accent);
+  display: inline-flex;
+  font-size: 14px;
+  height: 25px;
+  justify-content: center;
+  width: 25px;
+}
+
+.clt-todo-detail-modal textarea {
+  min-height: 116px;
+  resize: vertical;
+}
+
+.clt-todo-readonly-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.clt-todo-readonly-item {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  padding: 9px 11px;
+}
+
+.clt-todo-readonly-item > span {
+  color: var(--text-muted);
+  display: block;
+  font-size: var(--font-ui-smaller);
+  margin-bottom: 3px;
+}
+
+.clt-ticket-todo-source-hidden {
+  display: none !important;
+}
+
+/* Live Preview keeps task metadata in the editor DOM. Hide only task-line comments. */
+.markdown-source-view.mod-cm6 .HyperMD-task-line .cm-comment {
+  display: none;
+}
+
+.clt-ticket-mini-todo-board {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 10px 0 20px;
+}
+
+.clt-ticket-mini-column {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 11px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.clt-ticket-mini-column-heading {
+  align-items: center;
+  border-bottom: 1px solid var(--background-modifier-border);
+  display: flex;
+  font-size: var(--font-ui-small);
+  font-weight: 650;
+  gap: 7px;
+  padding: 9px 10px;
+}
+
+.clt-ticket-mini-status-icon {
+  color: var(--interactive-accent);
+}
+
+.clt-ticket-mini-count {
+  background: var(--background-primary);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-left: auto;
+  min-width: 22px;
+  padding: 1px 6px;
+  text-align: center;
+}
+
+.clt-ticket-mini-column-body {
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+}
+
+.clt-ticket-mini-card {
+  background: var(--background-primary) !important;
+  border: 1px solid var(--background-modifier-border-hover) !important;
+  border-radius: 9px !important;
+  box-shadow: none !important;
+  color: var(--text-normal) !important;
+  cursor: pointer;
+  height: auto !important;
+  min-height: 72px;
+  padding: 9px 10px !important;
+  text-align: left;
+  white-space: normal;
+  width: 100%;
+}
+
+.clt-ticket-mini-card:hover {
+  border-color: var(--interactive-accent) !important;
+  transform: translateY(-1px);
+}
+
+.clt-ticket-mini-card-text {
+  line-height: 1.42;
+  overflow-wrap: anywhere;
+}
+
+.clt-ticket-mini-card-meta {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  font-size: var(--font-ui-smaller);
+  gap: 8px;
+  justify-content: space-between;
+  margin-top: 9px;
+}
+
+.clt-ticket-mini-card-action {
+  color: var(--interactive-accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.clt-ticket-mini-empty {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  padding: 14px 4px;
+  text-align: center;
+}
+
+.clt-todo-detail-description {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  user-select: text;
+  white-space: pre-wrap;
+}
+
+.clt-todo-detail-link {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  user-select: text;
+}
+
+.clt-todo-detail-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.clt-todo-detail-item {
+  background: var(--background-secondary);
+  border-radius: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.clt-todo-detail-item > span {
+  color: var(--text-muted);
+  display: block;
+  font-size: var(--font-ui-smaller);
+  margin-bottom: 3px;
+}
+
+.clt-todo-detail-item > strong {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .clt-ticket-mini-todo-board,
+  .clt-todo-readonly-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .clt-todo-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.clt-sn-translate-button,
+.clt-sn-translate-button:hover {
+  background-image: none !important;
+  text-decoration: none !important;
+}
+
+.clt-sn-translate-button::before,
+.clt-sn-translate-button::after {
+  content: none !important;
+  display: none !important;
+}
+
+.clt-sn-ticket-status-value {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.clt-sn-document-section {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.clt-sn-document-candidate {
+  align-items: flex-start;
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 6px;
+}
+
+.clt-sn-document-candidate:hover {
+  background: var(--background-modifier-hover);
+}
+
+.clt-sn-document-candidate-body {
+  min-width: 0;
+}
+
+.clt-sn-document-candidate-meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-top: 2px;
+}
+
+.clt-sn-document-candidate-url {
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  overflow-wrap: anywhere;
+}
+
+.clt-sn-document-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.clt-status-guide-button {
+  border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
+}
+
+.clt-status-guide-modal {
+  width: min(720px, 94vw);
+}
+
+.clt-status-guide-heading {
+  align-items: center;
+  border-bottom: 1px solid var(--background-modifier-border);
+  display: flex;
+  gap: 9px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+}
+
+.clt-status-guide-heading > strong {
+  font-size: var(--font-ui-medium);
+}
+
+.clt-status-guide-category {
+  border-radius: 999px;
+  color: white;
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  padding: 3px 8px;
+}
+
+.clt-status-guide-category.cr {
+  background: var(--color-purple);
+}
+
+.clt-status-guide-category.sr {
+  background: var(--color-blue);
+}
+
+.clt-status-guide-meaning {
+  background: var(--background-secondary);
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: 7px;
+  line-height: 1.55;
+  padding: 10px 12px;
+}
+
+.clt-status-guide-overview {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 12px 0 16px;
+}
+
+.clt-status-guide-overview-card {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.clt-status-guide-overview-card > span {
+  color: var(--text-muted);
+  display: block;
+  font-size: var(--font-ui-smaller);
+  margin-bottom: 4px;
+}
+
+.clt-status-guide-overview-card > strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.clt-status-guide-checklist {
+  list-style: none;
+  margin-left: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 0 3px 0 0;
+}
+
+.clt-status-guide-checklist > li {
+  align-items: flex-start;
+  background: var(--background-secondary);
+  border-radius: 7px;
+  display: flex;
+  gap: 8px;
+  line-height: 1.45;
+  margin: 5px 0;
+  padding: 8px 10px;
+}
+
+.clt-status-guide-check {
+  color: var(--interactive-accent);
+  flex: 0 0 auto;
+}
+
+.clt-status-guide-alert {
+  background: color-mix(in srgb, var(--color-orange) 10%, var(--background-primary));
+  border: 1px solid color-mix(in srgb, var(--color-orange) 40%, var(--background-modifier-border));
+  border-radius: 8px;
+  color: var(--text-normal);
+  line-height: 1.45;
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+
+.clt-status-guide-empty {
+  color: var(--text-muted);
+  padding: 28px 6px;
+  text-align: center;
+}
+
+.snm-setup-modal {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.snm-setup-progress {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  margin: -6px 0 18px;
+}
+
+.snm-setup-note,
+.snm-setup-status {
+  background: var(--background-secondary);
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: 6px;
+  line-height: 1.5;
+  margin: 14px 0;
+  padding: 10px 12px;
+}
+
+.snm-setup-status {
+  border-left-color: var(--color-blue);
+}
+
+.snm-setup-inline-actions,
+.snm-setup-footer,
+.snm-setup-navigation {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.snm-setup-inline-actions {
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.snm-setup-inline-actions > span {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  overflow-wrap: anywhere;
+}
+
+.snm-setup-json-input {
+  box-sizing: border-box;
+  font-family: var(--font-monospace);
+  min-height: 120px;
+  resize: vertical;
+  width: 100%;
+}
+
+.snm-setup-footer {
+  border-top: 1px solid var(--background-modifier-border);
+  justify-content: space-between;
+  margin-top: 20px;
+  padding-top: 14px;
+}
+
+.snm-setup-summary {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.snm-setup-summary-row {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 150px minmax(0, 1fr);
+  padding: 10px 12px;
+}
+
+.snm-setup-summary-row + .snm-setup-summary-row {
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.snm-setup-summary-row > span {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .clt-sn-header {
+    flex-direction: column;
+  }
+
+  .clt-sn-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .clt-sn-filters input[type="search"] {
+    grid-column: 1 / -1;
+  }
+
+  .clt-status-guide-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .snm-setup-summary-row {
+    grid-template-columns: 1fr;
+  }
+}
