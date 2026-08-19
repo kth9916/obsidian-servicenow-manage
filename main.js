@@ -333,7 +333,7 @@ function upgradeDashboardRuntime(markdown, bundledDashboard) {
   const current = String(markdown || "");
   const bundled = String(bundledDashboard || "");
   if (!current || !bundled) return current;
-  const hasCurrentRuntime = current.includes('const DASHBOARD_RUNTIME_VERSION = "2.1.0";');
+  const hasCurrentRuntime = current.includes('const DASHBOARD_RUNTIME_VERSION = "2.2.0";');
   const sharedPluginDeclarations = current.match(/const\s+sharedPlugin\s*=/g) || [];
   if (hasCurrentRuntime && sharedPluginDeclarations.length <= 2) return current;
   const currentStart = current.indexOf("```dataviewjs");
