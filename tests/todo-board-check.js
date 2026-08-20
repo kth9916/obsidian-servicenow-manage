@@ -22,7 +22,7 @@ let markdown = [
   "## ✅ To-Do",
   "",
   "- [ ] 2026-08-13 09:00 : 첫 번째 작업",
-  "- [ ] 2026-08-13 09:10 : 진행 작업 <!-- clt-todo:in-progress --> <!-- clt-todo-due:2026-08-12 --> <!-- clt-todo-due:2026-08-12 -->",
+  "- [ ] 2026-08-13 09:10 : 진행 작업 <!-- clt-todo:in-progress --> <!-- clt-todo-due:2026-08-12T14:30 --> <!-- clt-todo-due:2026-08-12T14:30 -->",
   "- [x] 2026-08-13 09:20 : 완료 작업",
   "",
   "## 다음 섹션"
@@ -30,7 +30,7 @@ let markdown = [
 const page = { id: "CR0000000", file: { path: "ServiceNow/티켓/CR0000000/CR0000000.md", name: "CR0000000" } };
 let todos = extractTodos(markdown, page);
 if (todos.map(todo => todo.status).join(",") !== "pending,in-progress,done") throw new Error("Three To-Do states were not parsed");
-if (todos[1].dueDate !== "2026-08-12" || todos[1].text.includes("clt-todo-due")) throw new Error("To-Do due date was not parsed cleanly");
+if (todos[1].dueDate !== "2026-08-12T14:30" || todos[1].text.includes("clt-todo-due")) throw new Error("To-Do due date/time was not parsed cleanly");
 const withNewTodo = appendTodoToMarkdown(markdown, "2026-08-13 10:00", "새 만료 작업", "2026-08-20", "pending");
 if (!withNewTodo.includes("새 만료 작업 <!-- clt-todo-due:2026-08-20 -->")) throw new Error("Due date marker was not saved");
 
@@ -50,9 +50,9 @@ eval(loadFunction("updateTodoStatus"));
   todos = extractTodos(markdown, page);
   await updateTodoStatus(todos[1], "done");
   if (!markdown.includes("- [x] 2026-08-13 09:10 : 진행 작업")) throw new Error("Completed checkbox was not saved");
-  if (!markdown.includes("<!-- clt-todo-due:2026-08-12 -->")) throw new Error("Status change removed the due date");
+  if (!markdown.includes("<!-- clt-todo-due:2026-08-12T14:30 -->")) throw new Error("Status change removed the due date/time");
   if (!markdown.includes("<!-- clt-todo-completed:")) throw new Error("Completion timestamp was not saved");
-  if ((markdown.match(/clt-todo-due:2026-08-12/g) || []).length !== 1) throw new Error("Duplicate due-date markers were not normalized");
+  if ((markdown.match(/clt-todo-due:2026-08-12T14:30/g) || []).length !== 1) throw new Error("Duplicate due-date markers were not normalized");
   todos = extractTodos(markdown, page);
   if (!todos[1].completedAt) throw new Error("Completion timestamp was not parsed");
   await updateTodoDetails(todos[1], { text: "수정된 완료 작업", dueDate: "2026-08-22", status: "in-progress" });

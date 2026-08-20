@@ -43,7 +43,7 @@ const DEFAULT_ROW_HEIGHT = 29;
 const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
 
 // 플러그인이 관리하는 업무현황 실행 영역의 버전입니다.
-const DASHBOARD_RUNTIME_VERSION = "2.3.0";
+const DASHBOARD_RUNTIME_VERSION = "2.4.0";
 
 // 업무현황에서 숨길 완료 상태입니다. 상태를 추가하거나 다시 보이게 하려면 이 목록만 수정하세요.
 const EXCLUDED_STATUSES = new Set([
@@ -1113,11 +1113,11 @@ function extractTodos(markdown, page) {
         if (!match) continue;
         const completed = match[2].toLowerCase() === "x";
         const markedProgress = /<!--\s*clt-todo:in-progress\s*-->/i.test(match[3]);
-        const dueDate = match[3].match(/<!--\s*clt-todo-due:(\d{4}-\d{2}-\d{2})\s*-->/i)?.[1] || "";
+        const dueDate = match[3].match(/<!--\s*clt-todo-due:(\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?)\s*-->/i)?.[1] || "";
         const completedAt = match[3].match(/<!--\s*clt-todo-completed:([^>]+?)\s*-->/i)?.[1]?.trim() || "";
         const rawContent = match[3]
             .replace(/\s*<!--\s*clt-todo:(?:pending|in-progress|done)\s*-->\s*/gi, " ")
-            .replace(/\s*<!--\s*clt-todo-due:\d{4}-\d{2}-\d{2}\s*-->\s*/gi, " ")
+            .replace(/\s*<!--\s*clt-todo-due:\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?\s*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-completed:[^>]+-->\s*/gi, " ")
             .trim();
         const dateTime = rawContent.match(/\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?/)?.[0] || "";
@@ -1159,6 +1159,26 @@ async function updateTodoStatus(task, nextStatus) {
     return updateTodoDetails(task, { status: nextStatus });
 }
 
+async function deleteTodo(task) {
+    const file = app.vault.getAbstractFileByPath(task.filePath);
+    if (!file) throw new Error("원본 티켓 노트를 찾을 수 없습니다.");
+    let deleted = false;
+    await app.vault.process(file, markdown => {
+        const section = findTodoSection(markdown);
+        if (!section) throw new Error("To-Do 섹션을 찾을 수 없습니다.");
+        const taskLines = [];
+        for (let index = section.headingLineIndex + 1; index < section.sectionEndLineIndex; index += 1) {
+            if (/^\s*[-*+]\s+\[[ xX]\]\s+/.test(section.lines[index])) taskLines.push(index);
+        }
+        const targetLine = taskLines[task.taskIndex];
+        if (!Number.isInteger(targetLine)) throw new Error("삭제할 할 일 위치가 변경되었습니다. 업무현황을 다시 열어 주세요.");
+        section.lines.splice(targetLine, 1);
+        deleted = true;
+        return section.lines.join("\n");
+    });
+    if (!deleted) throw new Error("삭제할 To-Do를 찾을 수 없습니다.");
+}
+
 async function updateTodoDetails(task, changes = {}) {
     const nextStatus = changes.status ?? task.status;
     if (!["pending", "in-progress", "done"].includes(nextStatus)) return;
@@ -1181,7 +1201,7 @@ async function updateTodoDetails(task, changes = {}) {
         if (!match) throw new Error("할 일 형식을 확인할 수 없습니다.");
         const cleanContent = match[3]
             .replace(/\s*<!--\s*clt-todo:(?:pending|in-progress|done)\s*-->\s*/gi, " ")
-            .replace(/\s*<!--\s*clt-todo-due:\d{4}-\d{2}-\d{2}\s*-->\s*/gi, " ")
+            .replace(/\s*<!--\s*clt-todo-due:\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?\s*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-completed:[^>]+-->\s*/gi, " ")
             .trim();
         const originalDateTime = cleanContent.match(/\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?/)?.[0] || task.dateTime || formatDateTime();
@@ -1251,7 +1271,7 @@ function todoDueInfo(task) {
     if (!task?.dueDate) return null;
     const todayText = formatDateTime().slice(0, 10);
     const today = new Date(`${todayText}T00:00:00`);
-    const due = new Date(`${task.dueDate}T00:00:00`);
+    const due = new Date(task.dueDate.includes("T") ? task.dueDate : `${task.dueDate}T00:00:00`);
     if (Number.isNaN(due.getTime())) return null;
     const difference = Math.round((due.getTime() - today.getTime()) / 86400000);
     if (task.status === "done") return { label: `✓ ${task.dueDate}`, tone: "done", difference };
@@ -1382,6 +1402,8 @@ async function addWorkLog(
                 dateTime.slice(0, 10);
         }
     );
+
+    item.page["마지막확인"] = dateTime.slice(0, 10);
 
     item.workLogs =
         await readWorkLogs(item.page);
@@ -3160,6 +3182,50 @@ tr:last-child td {
     box-shadow: var(--shadow-l);
 }
 
+.markdown-preview-sizer:has(.opus-dashboard),
+.markdown-preview-section:has(.opus-dashboard) {
+    max-width: none !important;
+    width: 100% !important;
+}
+
+.opus-worklog-ticket-summary {
+    margin: 12px 14px 4px;
+    padding: 14px 16px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 10px;
+    background: var(--background-secondary);
+    white-space: pre-wrap;
+}
+
+.opus-worklog-ticket-summary-label {
+    margin-bottom: 5px;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+}
+
+.opus-worklog-ticket-description {
+    margin-top: 10px;
+    border-top: 1px solid var(--background-modifier-border);
+    padding-top: 8px;
+}
+
+.opus-worklog-ticket-description summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.opus-worklog-ticket-description > div {
+    margin-top: 8px;
+    line-height: 1.55;
+}
+
+.opus-worklog-ticket-status {
+    margin-top: 10px;
+    color: var(--text-muted);
+    font-size: 0.86rem;
+}
+
 .opus-note-header {
     display: flex;
     justify-content: space-between;
@@ -3371,6 +3437,12 @@ tr:last-child td {
     background:
         var(--interactive-accent);
     color: var(--text-on-accent);
+}
+
+.opus-note-action-button.danger {
+    margin-right: auto;
+    color: var(--text-error);
+    border-color: color-mix(in srgb, var(--text-error) 40%, var(--background-modifier-border));
 }
 
 .opus-note-action-button:disabled {
@@ -5662,7 +5734,7 @@ function openTodoCreateModal(preselectedItem = null) {
     const dateLabel = document.createElement("span");
     dateLabel.textContent = "만료일 (선택)";
     const dateInput = document.createElement("input");
-    dateInput.type = "date";
+    dateInput.type = "datetime-local";
     dateField.append(dateLabel, dateInput);
 
     const statusField = document.createElement("label");
@@ -6026,7 +6098,7 @@ function openTodoDetailModal(task, afterSaved = null) {
         const dateLabel = document.createElement("span");
         dateLabel.textContent = "완료 예정일";
         const dateInput = document.createElement("input");
-        dateInput.type = "date";
+        dateInput.type = "datetime-local";
         dateInput.value = task.dueDate || "";
         dateField.append(dateLabel, dateInput);
 
@@ -6073,7 +6145,24 @@ function openTodoDetailModal(task, afterSaved = null) {
                 saveButton.textContent = "저장";
             }
         });
-        actions.append(cancelButton, saveButton);
+        const deleteButton = document.createElement("button");
+        deleteButton.className = "opus-note-action-button danger";
+        deleteButton.textContent = "삭제";
+        deleteButton.addEventListener("click", async () => {
+            if (!window.confirm(`${task.ticketId}의 이 To-Do를 삭제하시겠습니까?\n\n${task.text || ""}`)) return;
+            deleteButton.disabled = true;
+            try {
+                await deleteTodo(task);
+                if (typeof afterSaved === "function") await afterSaved({ ...task, deleted: true });
+                new Notice(`${task.ticketId} To-Do를 삭제했습니다.`);
+                close();
+                renderTodoBoard();
+            } catch (error) {
+                new Notice(`To-Do 삭제 실패: ${error?.message || error}`);
+                deleteButton.disabled = false;
+            }
+        });
+        actions.append(deleteButton, cancelButton, saveButton);
         window.setTimeout(() => contentInput.focus(), 20);
     };
 
@@ -6126,6 +6215,48 @@ function openWorkLogModal(item) {
 
     header.appendChild(modalTitle);
     header.appendChild(closeButton);
+
+    const sharedPlugin = app.plugins.getPlugin("servicenow-manage");
+    const ticketId = String(item.page.id ?? item.page.file.name ?? "");
+    const pluginTicket = sharedPlugin?.data?.tickets?.[ticketId] || {};
+    const summaryCard = document.createElement("div");
+    summaryCard.className = "opus-worklog-ticket-summary";
+    const summaryLabel = document.createElement("div");
+    summaryLabel.className = "opus-worklog-ticket-summary-label";
+    summaryLabel.textContent = "SHORT DESCRIPTION";
+    const summaryTitle = document.createElement("strong");
+    summaryTitle.textContent = pluginTicket.shortDescription
+        || item.page.short_description
+        || item.page["Short Description"]
+        || "(Short Description 없음)";
+    summaryCard.append(summaryLabel, summaryTitle);
+    const descriptionText = String(pluginTicket.description || item.page.description || "").trim();
+    if (descriptionText) {
+        const details = document.createElement("details");
+        details.className = "opus-worklog-ticket-description";
+        const summary = document.createElement("summary");
+        summary.textContent = "Description 펼치기";
+        const description = document.createElement("div");
+        description.textContent = descriptionText;
+        details.append(summary, description);
+        summaryCard.appendChild(details);
+    }
+    const translatedShort = pluginTicket.translations?.shortDescription?.ko || "";
+    const translatedDescription = pluginTicket.translations?.description?.ko || "";
+    if (translatedShort || translatedDescription) {
+        const translated = document.createElement("details");
+        translated.className = "opus-worklog-ticket-description";
+        const translatedSummary = document.createElement("summary");
+        translatedSummary.textContent = "한국어 번역 펼치기";
+        const translatedBody = document.createElement("div");
+        translatedBody.textContent = [translatedShort, translatedDescription].filter(Boolean).join("\n\n");
+        translated.append(translatedSummary, translatedBody);
+        summaryCard.appendChild(translated);
+    }
+    const statusLine = document.createElement("div");
+    statusLine.className = "opus-worklog-ticket-status";
+    statusLine.textContent = `ServiceNow 상태: ${pluginTicket.state || item.page.status || "—"}`;
+    summaryCard.appendChild(statusLine);
 
     const noteToolbar =
         document.createElement("div");
@@ -6304,6 +6435,7 @@ function openWorkLogModal(item) {
     footer.appendChild(footerRight);
 
     modal.appendChild(header);
+    modal.appendChild(summaryCard);
     modal.appendChild(noteToolbar);
     modal.appendChild(body);
     modal.appendChild(addArea);
@@ -7692,8 +7824,8 @@ function renderTodoBoard() {
             .some(value => String(value || "").toLowerCase().includes(needle));
         if (!matchesSearch) return false;
         if (quickFilter === "open") return task.status !== "done";
-        if (quickFilter === "today") return task.status !== "done" && task.dueDate && task.dueDate <= today;
-        if (quickFilter === "overdue") return task.status !== "done" && task.dueDate && task.dueDate < today;
+        if (quickFilter === "today") return task.status !== "done" && task.dueDate && task.dueDate.slice(0, 10) <= today;
+        if (quickFilter === "overdue") return task.status !== "done" && task.dueDate && task.dueDate.slice(0, 10) < today;
         if (quickFilter === "done") return task.status === "done";
         return true;
     });

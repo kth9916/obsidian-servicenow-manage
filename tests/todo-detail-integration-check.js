@@ -13,6 +13,8 @@ const requiredMainMarkers = [
   "openTodoDetailEntryModal(task, onSaved = null)",
   "async readTodoTasks(ticketId)",
   "async updateTodoTaskDetails(task, changes = {})",
+  "async deleteTodoTask(task)",
+  "composeTodoDueValue(date, time)",
   "this.registerMarkdownPostProcessor(async (el, ctx) =>",
   "this.registerDomEvent(document, \"click\", (event) =>",
   "async handleLivePreviewTodoClick(event)",
@@ -26,6 +28,12 @@ const requiredMainMarkers = [
 ];
 for (const marker of requiredMainMarkers) {
   if (!main.includes(marker)) throw new Error(`Missing shared To-Do detail marker: ${marker}`);
+}
+if (!main.includes('text: "삭제", cls: "mod-warning clt-todo-delete-button"')) {
+  throw new Error("To-Do delete action is missing");
+}
+if (!styles.includes(".clt-todo-due-fields") || !styles.includes(".clt-todo-delete-button")) {
+  throw new Error("To-Do due-time or delete styling is missing");
 }
 
 if (!dashboard.includes('sharedPlugin.openTodoDetailEntryModal(task')) {

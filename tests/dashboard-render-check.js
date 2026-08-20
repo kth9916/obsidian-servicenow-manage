@@ -36,5 +36,9 @@ if (!dashboard.includes("tasks.slice(0, visibleLimit)")) throw new Error("To-Do 
 if (!dashboard.includes("searchActive ? tasks")) throw new Error("Search results do not bypass pagination");
 if (!dashboard.includes("}, 140);")) throw new Error("To-Do search rendering is not debounced");
 if (!dashboard.includes(".opus-todo-load-more {")) throw new Error("To-Do load-more UI is missing");
+if (!dashboard.includes(".markdown-preview-sizer:has(.opus-dashboard)")) throw new Error("Dashboard readable-line-length override is missing");
+if (!dashboard.includes('summaryCard.className = "opus-worklog-ticket-summary"')) throw new Error("Work-log ticket summary is missing");
+if (!dashboard.includes('item.page["마지막확인"] = dateTime.slice(0, 10)')) throw new Error("Work-log last-checked live refresh is missing");
+if (!dashboard.includes("async function deleteTodo(task)")) throw new Error("Dashboard To-Do delete fallback is missing");
 
 console.log("Dashboard rendered UI checks passed");

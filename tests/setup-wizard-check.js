@@ -20,9 +20,22 @@ for (const marker of [
   if (!main.includes(marker)) throw new Error(`Missing setup wizard marker: ${marker}`);
 }
 
+for (const marker of [
+  'const steps = ["시작", "필수 플러그인", "ServiceNow", "Google Drive", "업무가이드팩", "완료"]',
+  "renderDependencies(contentEl)",
+  "openDataviewSetup()",
+  "Enable JavaScript Queries",
+  "await this.saveCurrentStep()",
+  "this.googleJsonValue.trim()",
+  "this.organizationPackValue.trim()",
+  "브라우저 OAuth PKCE 로그인"
+]) {
+  if (!main.includes(marker)) throw new Error(`Missing improved setup marker: ${marker}`);
+}
+
 if (/업무자료 팩|조직 업무자료/.test(main)) throw new Error("Legacy work-guide-pack labels remain in the UI");
 
-for (const marker of [".snm-setup-modal", ".snm-setup-footer", ".snm-setup-summary"]) {
+for (const marker of [".snm-setup-modal", ".snm-setup-footer", ".snm-setup-summary", ".snm-setup-dependency-card"]) {
   if (!styles.includes(marker)) throw new Error(`Missing setup wizard style: ${marker}`);
 }
 

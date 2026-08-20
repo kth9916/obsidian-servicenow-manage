@@ -5,7 +5,7 @@ const root = path.resolve(__dirname, "..");
 const dashboard = fs.readFileSync(path.join(root, "resources", "업무현황.md"), "utf8");
 
 const required = [
-  'const DASHBOARD_RUNTIME_VERSION = "2.3.0";',
+  'const DASHBOARD_RUNTIME_VERSION = "2.4.0";',
   'exportButton.textContent = "Jira 용 Export";',
   "function openJiraExportModal()",
   "function buildJiraExportPayload(tasks, fields)",
