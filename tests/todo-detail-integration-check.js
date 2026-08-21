@@ -53,5 +53,8 @@ if (!styles.includes(".clt-ticket-mini-todo-board") || !styles.includes(".clt-ti
   throw new Error("Ticket-note mini To-Do board styling is missing");
 }
 if (main.includes('text: "수정하기", cls: "mod-cta"')) throw new Error("Legacy two-step edit button remains");
+if (!main.includes('cls: "clt-ticket-mini-card-due"')) throw new Error("Ticket mini-board due-date class is missing");
+if (!styles.includes("display: block !important")) throw new Error("Ticket mini-board block layout guard is missing");
+if (!styles.includes(".clt-ticket-mini-card-due")) throw new Error("Ticket mini-board due-date wrapping style is missing");
 
 console.log("Shared To-Do detail integration checks passed");

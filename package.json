@@ -1,6 +1,6 @@
 {
   "name": "obsidian-servicenow-manage",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "description": "ServiceNow ticket notes, work notes, document links, and task dashboards for Obsidian.",
   "author": "thkim9916 <thkim9916@cyberlogitec.com>",
   "type": "commonjs",

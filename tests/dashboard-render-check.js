@@ -31,13 +31,22 @@ if (!dashboard.includes('data-todo-list-ticket-id="${escapeAttribute(page.id || 
 if (!dashboard.includes("function handleTodoQuickAddClick(")) throw new Error("Delegated To-Do quick-add click handler is missing");
 if (dashboard.includes("data-todo-add-index=")) throw new Error("Legacy row-index To-Do quick-add remains");
 if (!dashboard.includes("const TODO_PAGE_SIZE = 10;")) throw new Error("To-Do page size is missing");
+if (!dashboard.includes("todoCollapsedColumns: []")) throw new Error("To-Do collapsed-column defaults are missing");
+if (!dashboard.includes('toggle.className = "opus-todo-column-toggle"')) throw new Error("To-Do column collapse control is missing");
+if (!dashboard.includes('dateFilter.className = "opus-todo-date-filter"')) throw new Error("To-Do date range filter is missing");
+if (!dashboard.includes('settings.todoDateBasis === "completed"')) throw new Error("To-Do date basis filtering is missing");
 if (!dashboard.includes("todoVisibleLimits[status.key]")) throw new Error("Independent To-Do column limits are missing");
 if (!dashboard.includes("tasks.slice(0, visibleLimit)")) throw new Error("To-Do cards are not rendered in bounded batches");
 if (!dashboard.includes("searchActive ? tasks")) throw new Error("Search results do not bypass pagination");
 if (!dashboard.includes("}, 140);")) throw new Error("To-Do search rendering is not debounced");
 if (!dashboard.includes(".opus-todo-load-more {")) throw new Error("To-Do load-more UI is missing");
+if (!dashboard.includes('details.className = "opus-filter-multi-select"')) throw new Error("Multi-value select filter is missing");
+if (!dashboard.includes('!filterValues.includes(normalizedValue)')) throw new Error("Multi-value not-equals filtering is missing");
+if (dashboard.includes("const EXCLUDED_STATUSES")) throw new Error("Hard-coded closed status exclusion remains");
 if (!dashboard.includes(".markdown-preview-sizer:has(.opus-dashboard)")) throw new Error("Dashboard readable-line-length override is missing");
 if (!dashboard.includes('summaryCard.className = "opus-worklog-ticket-summary"')) throw new Error("Work-log ticket summary is missing");
+if (!dashboard.includes("max-height: min(400px, 46vh)")) throw new Error("Work-log summary height guard is missing");
+if (!dashboard.includes("max-height: min(260px, 30vh)")) throw new Error("Expanded work-log description scroll guard is missing");
 if (!dashboard.includes('item.page["마지막확인"] = dateTime.slice(0, 10)')) throw new Error("Work-log last-checked live refresh is missing");
 if (!dashboard.includes("async function deleteTodo(task)")) throw new Error("Dashboard To-Do delete fallback is missing");
 

@@ -21,7 +21,7 @@ for (const marker of [
 }
 
 for (const marker of [
-  'const steps = ["시작", "필수 플러그인", "ServiceNow", "Google Drive", "업무가이드팩", "완료"]',
+  'const steps = ["시작", "화면 설정", "필수 플러그인", "ServiceNow", "Google Drive", "업무가이드팩", "완료"]',
   "renderDependencies(contentEl)",
   "openDataviewSetup()",
   "Enable JavaScript Queries",

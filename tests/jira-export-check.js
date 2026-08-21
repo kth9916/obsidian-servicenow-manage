@@ -48,5 +48,20 @@ if (!dashboard.includes("pluginTicket?.shortDescription") || !dashboard.includes
 if (!dashboard.includes("page?.status")) {
   throw new Error("Phase is not populated from the ServiceNow ticket state");
 }
+if (!dashboard.includes('row.className = "opus-jira-export-task-row"')) {
+  throw new Error("Compact Jira task row is missing");
+}
+if (!dashboard.includes('more.textContent = "더 보기"')) {
+  throw new Error("Jira task expand control is missing");
+}
+if (!dashboard.includes("-webkit-line-clamp: 2")) {
+  throw new Error("Jira task preview clamp is missing");
+}
+if (!dashboard.includes('data-jira-field="${escapeAttribute(field.key)}"')) {
+  throw new Error("Jira preview field sizing hooks are missing");
+}
+if (!dashboard.includes('.opus-jira-export-preview [data-jira-field="ticket"]')) {
+  throw new Error("Jira preview Ticket No. minimum width is missing");
+}
 
 console.log("Jira export checks passed");

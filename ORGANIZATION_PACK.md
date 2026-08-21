@@ -49,7 +49,7 @@ Recommended feature flags:
 }
 ```
 
-`states.CR` and `states.SR` are top-level arrays. `statusGuides.CR` and `statusGuides.SR` are top-level objects keyed by the exact ServiceNow state value. A guide may contain `meaning`, `next`, `owner`, `target`, and `actions`.
+`states.CR` and `states.SR` are top-level arrays. `statusGuides.CR` and `statusGuides.SR` are top-level objects keyed by the exact ServiceNow state value. A guide may contain `meaning`, `next`, `owner`, `target`, `actions`, `alert`, and `workNoteTemplates`. `workNoteTemplates` is an optional array whose items contain `title`, `content`, and an optional `note`; the status guide displays each template with its own copy button.
 
 ## Distribution
 

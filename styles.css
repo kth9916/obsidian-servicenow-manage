@@ -658,6 +658,8 @@
   box-shadow: none !important;
   color: var(--text-normal) !important;
   cursor: pointer;
+  display: block !important;
+  box-sizing: border-box;
   height: auto !important;
   min-height: 72px;
   padding: 9px 10px !important;
@@ -684,6 +686,12 @@
   gap: 8px;
   justify-content: space-between;
   margin-top: 9px;
+}
+
+.clt-ticket-mini-card-due {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
 }
 
 .clt-ticket-mini-card-action {
@@ -916,6 +924,43 @@
   line-height: 1.45;
   margin-top: 12px;
   padding: 10px 12px;
+}
+
+.clt-status-guide-templates {
+  display: grid;
+  gap: 10px;
+}
+
+.clt-status-guide-template {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.clt-status-guide-template-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.clt-status-guide-template pre {
+  background: var(--background-primary);
+  border-radius: 6px;
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
+.clt-status-guide-template-note {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.45;
+  margin-top: 8px;
 }
 
 .clt-status-guide-empty {

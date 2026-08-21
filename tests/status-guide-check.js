@@ -18,8 +18,11 @@ if (!main.includes("openCurrentStatusGuide(ticketId)")) throw new Error("Current
 if (!main.includes('guideButton.hidden = !this.organizationFeatureEnabled("statusGuides")')) throw new Error("Status guide UI gate is missing");
 if (!main.includes("this.organizationPack?.statusGuides?.[category]")) throw new Error("Organization-pack status guide lookup is missing");
 if (!main.includes("체크리스트 복사")) throw new Error("Guide checklist copy action is missing");
+if (!main.includes("this.guide.workNoteTemplates")) throw new Error("Guide Working Note template lookup is missing");
+if (!main.includes('text: "문구 복사"')) throw new Error("Guide Working Note copy action is missing");
 if (!styles.includes(".clt-status-guide-modal") || !styles.includes(".clt-status-guide-checklist")) {
   throw new Error("Status guide modal styling is missing");
 }
+if (!styles.includes(".clt-status-guide-template")) throw new Error("Guide Working Note template styling is missing");
 
 console.log("CR/SR current status guide checks passed");
