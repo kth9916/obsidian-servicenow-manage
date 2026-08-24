@@ -9,7 +9,7 @@ const required = [
   "opus-ticket-todo-list-pane",
   "opus-ticket-todo-detail-pane",
   "appendLinkedText(description, selectedTask.text)",
-  "navigator.clipboard.writeText(String(selectedTask.text || \"\"))",
+  "navigator.clipboard.writeText([selectedTask.text, selectedTask.details]",
   "openTodoDetailModal(selectedTask, () => refreshTasks(selectedId))",
   "function handleTodoListClick(event)",
   'tableArea.addEventListener("click", handleTodoListClick)'

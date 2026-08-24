@@ -77,6 +77,11 @@ eval(loadFunction("updateTodoStatus"));
   if (!source.includes('app.plugins.getPlugin("servicenow-manage")') || !source.includes("openTodoEntryModal")) {
     throw new Error("Shared searchable To-Do modal integration is missing");
   }
+  if (!source.includes('function openTodoCreateModal(preselectedItem = null, preselectedStatus = "pending")')
+      || !source.includes('quickAdd.className = "opus-todo-column-add"')
+      || !source.includes("openTodoCreateModal(null, status.key)")) {
+    throw new Error("Status-column quick-add integration is missing");
+  }
   console.log("To-Do board checks passed");
 })().catch(error => {
   console.error(error);

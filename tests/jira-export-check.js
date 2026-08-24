@@ -5,7 +5,7 @@ const root = path.resolve(__dirname, "..");
 const dashboard = fs.readFileSync(path.join(root, "resources", "업무현황.md"), "utf8");
 
 const required = [
-  'const DASHBOARD_RUNTIME_VERSION = "2.4.0";',
+  'const DASHBOARD_RUNTIME_VERSION = "2.6.1";',
   'exportButton.textContent = "Jira 용 Export";',
   "function openJiraExportModal()",
   "function buildJiraExportPayload(tasks, fields)",
@@ -24,6 +24,10 @@ const required = [
   'startInput.type = "date"',
   'endInput.type = "date"',
   'document.createTextNode("완료 태스크 제외")',
+  'document.createTextNode("같은 티켓끼리 하나로 묶기")',
+  "function collapseJiraTasksByTicket(tasks)",
+  'label: "To-Do 제목"',
+  'label: "To-Do 상세 내용"',
   "function matchesExportFilters(task)",
   'excludeCompleted && task.status === "done"',
   '"text/html"',
@@ -54,6 +58,21 @@ if (!dashboard.includes('row.className = "opus-jira-export-task-row"')) {
 if (!dashboard.includes('more.textContent = "더 보기"')) {
   throw new Error("Jira task expand control is missing");
 }
+if (!dashboard.includes('ticketToggle.className = "opus-jira-export-ticket-toggle"')
+    || !dashboard.includes('taskChildren.className = "opus-jira-export-ticket-tasks"')
+    || !dashboard.includes("const expandedTicketIds = new Set()")
+    || !dashboard.includes('chevron.textContent = expanded ? "▼" : "▶"')) {
+  throw new Error("Collapsible Jira ticket task groups are missing");
+}
+if (!dashboard.includes(".opus-jira-export-ticket-tasks.is-collapsed")) {
+  throw new Error("Collapsed Jira ticket group styling is missing");
+}
+if (!dashboard.includes("overflow-y: scroll") || !dashboard.includes("scrollbar-gutter: stable")) {
+  throw new Error("Dedicated Jira ticket list scrollbar is missing");
+}
+if (!dashboard.includes("height: auto !important") || !dashboard.includes("overflow: visible !important")) {
+  throw new Error("Expanded Jira ticket groups can still be clipped");
+}
 if (!dashboard.includes("-webkit-line-clamp: 2")) {
   throw new Error("Jira task preview clamp is missing");
 }
@@ -62,6 +81,21 @@ if (!dashboard.includes('data-jira-field="${escapeAttribute(field.key)}"')) {
 }
 if (!dashboard.includes('.opus-jira-export-preview [data-jira-field="ticket"]')) {
   throw new Error("Jira preview Ticket No. minimum width is missing");
+}
+if (!dashboard.includes("width: min(1580px, 98vw)")) throw new Error("Jira Export modal width was not expanded");
+
+const collapseStart = dashboard.indexOf("function collapseJiraTasksByTicket(");
+const collapseEnd = dashboard.indexOf("\nasync function copyJiraExportPayload", collapseStart);
+if (collapseStart < 0 || collapseEnd < 0) throw new Error("Jira ticket grouping function was not found");
+const collapse = Function(`${dashboard.slice(collapseStart, collapseEnd)}; return collapseJiraTasksByTicket;`)();
+const grouped = collapse([
+  { ticketId: "CR1", status: "done", text: "첫 번째", details: "상세 A", dueDate: "2026-08-24" },
+  { ticketId: "CR1", status: "in-progress", text: "두 번째", details: "상세 B", dueDate: "2026-08-25" },
+  { ticketId: "SR1", status: "pending", text: "세 번째", details: "" }
+]);
+if (grouped.length !== 2) throw new Error("Same-ticket Jira rows were not collapsed");
+if (grouped[0].status !== "in-progress" || !grouped[0].text.includes("첫 번째") || !grouped[0].details.includes("상세 B")) {
+  throw new Error("Grouped Jira row did not preserve task titles, details, or mixed status");
 }
 
 console.log("Jira export checks passed");

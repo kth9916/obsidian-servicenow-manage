@@ -94,13 +94,13 @@ if (isLocalBsWikiLink("https://docs.google.com/document/d/abc/edit", "ServiceNow
 if (!isImageAttachment("screen.PNG", "") || !isImageAttachment("unknown", "image/jpeg") || isImageAttachment("report.pdf", "application/pdf")) throw new Error("Image attachment classification failed");
 if (serviceNowAttachmentId({ url: "https://your-instance.service-now.com/sys_attachment.do?sys_id=abc123&view=true" }) !== "abc123") throw new Error("Cached attachment ID was not recovered");
 const bsOnly = adaptPromptToAvailableDocuments("첨부한 BS, FS, DS, UT를 분석해줘. 추가로 BS를 한글로 번역해서 문서로 만들고 링크해줘.", ["BS"]);
-if (!bsOnly.includes("BS 문서를 분석해 주세요") || !bsOnly.includes("‘BS-한글’ 필드") || !bsOnly.includes("현재 상태 한 줄 요약")) throw new Error("BS-only prompt was not adapted");
+if (!bsOnly.includes("BS 문서를 분석해 주세요") || !bsOnly.includes("‘BS-한글’ 필드") || !bsOnly.includes("현재 상태 한 줄 요약") || !bsOnly.includes("시각 문서 번역본") || !bsOnly.includes(".pdf")) throw new Error("BS-only prompt was not adapted");
 const utOnly = adaptPromptToAvailableDocuments("첨부한 BS, FS, DS, UT를 분석해줘. 추가로 BS를 한글로 번역해서 문서로 만들고 링크해줘.", ["UT"]);
 if (!utOnly.includes("UT 문서를 분석해 주세요") || utOnly.includes("‘BS-한글’ 필드")) throw new Error("Non-BS prompt retained BS instruction");
 const noDocs = adaptPromptToAvailableDocuments("SR_TEMPLATE.md 기준으로 진행해줘.", []);
 if (!noDocs.includes("Working Notes를 중점적으로") || !noDocs.includes("현재 상태 한 줄 요약")) throw new Error("No-document instructions are missing");
 const translatedBs = adaptPromptToAvailableDocuments("CR_TEMPLATE.md 기준으로 진행해줘.", ["BS"], true);
-if (!translatedBs.includes("기존 BS-한글 번역본") || translatedBs.includes("파일명을 ‘<티켓번호>")) throw new Error("Existing BS translation was not respected");
+if (!translatedBs.includes("기존 BS-한글 번역본") || !translatedBs.includes("Markdown/`.docx.md` 요약본") || !translatedBs.includes("페이지 단위로 비교")) throw new Error("Existing BS translation was not validated");
 const environment = buildAiEnvironmentInstructions("SR", {
   templatePath: "C:\\Vault\\ServiceNow\\지침\\SR_TEMPLATE.md",
   ticketPath: "C:\\Vault\\ServiceNow\\티켓\\SR0000000\\SR0000000.md",

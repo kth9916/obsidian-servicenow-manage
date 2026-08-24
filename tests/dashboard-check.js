@@ -43,7 +43,7 @@ const DEFAULT_ROW_HEIGHT = 29;
 const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
 
 // 플러그인이 관리하는 업무현황 실행 영역의 버전입니다.
-const DASHBOARD_RUNTIME_VERSION = "2.4.0";
+const DASHBOARD_RUNTIME_VERSION = "2.6.1";
 
 const DEFAULT_COLUMN_WIDTHS = {
     file: 52,
@@ -1136,10 +1136,14 @@ function extractTodos(markdown, page) {
         const markedProgress = /<!--\s*clt-todo:in-progress\s*-->/i.test(match[3]);
         const dueDate = match[3].match(/<!--\s*clt-todo-due:(\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?)\s*-->/i)?.[1] || "";
         const completedAt = match[3].match(/<!--\s*clt-todo-completed:([^>]+?)\s*-->/i)?.[1]?.trim() || "";
+        let details = "";
+        try { details = decodeURIComponent(match[3].match(/<!--\s*clt-todo-detail:([^>]*)\s*-->/i)?.[1]?.trim() || ""); }
+        catch (_) { details = match[3].match(/<!--\s*clt-todo-detail:([^>]*)\s*-->/i)?.[1]?.trim() || ""; }
         const rawContent = match[3]
             .replace(/\s*<!--\s*clt-todo:(?:pending|in-progress|done)\s*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-due:\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?\s*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-completed:[^>]+-->\s*/gi, " ")
+            .replace(/\s*<!--\s*clt-todo-detail:[^>]*-->\s*/gi, " ")
             .trim();
         const dateTime = rawContent.match(/\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?/)?.[0] || "";
         const text = stripMarkdown(rawContent)
@@ -1157,6 +1161,7 @@ function extractTodos(markdown, page) {
             dateTime,
             dueDate,
             completedAt,
+            details,
             text: text || rawContent,
             rawContent,
             status: completed ? "done" : markedProgress ? "in-progress" : "pending"
@@ -1239,6 +1244,7 @@ async function updateTodoDetails(task, changes = {}) {
             .replace(/\s*<!--\s*clt-todo:(?:pending|in-progress|done)\s*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-due:\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?\s*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-completed:[^>]+-->\s*/gi, " ")
+            .replace(/\s*<!--\s*clt-todo-detail:[^>]*-->\s*/gi, " ")
             .trim();
         const originalDateTime = cleanContent.match(/\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?/)?.[0] || task.dateTime || formatDateTime();
         const originalText = stripMarkdown(cleanContent)
@@ -1247,28 +1253,32 @@ async function updateTodoDetails(task, changes = {}) {
             .trim();
         const nextText = String(changes.text ?? originalText).replace(/\r?\n+/g, " ").trim();
         const nextDueDate = String(changes.dueDate ?? task.dueDate ?? "").trim();
+        const nextDetails = String(changes.details ?? task.details ?? "").trim();
         const nextCompletedAt = completionTimestamp;
         const checkbox = nextStatus === "done" ? "x" : " ";
         const statusMarker = nextStatus === "in-progress" ? " <!-- clt-todo:in-progress -->" : "";
         const dueMarker = nextDueDate ? ` <!-- clt-todo-due:${nextDueDate} -->` : "";
         const completedMarker = nextCompletedAt ? ` <!-- clt-todo-completed:${nextCompletedAt} -->` : "";
-        section.lines[targetLine] = `${match[1]}${match[2]} [${checkbox}] ${originalDateTime} : ${nextText}${statusMarker}${dueMarker}${completedMarker}`;
+        const detailMarker = nextDetails ? ` <!-- clt-todo-detail:${encodeURIComponent(nextDetails)} -->` : "";
+        section.lines[targetLine] = `${match[1]}${match[2]} [${checkbox}] ${originalDateTime} : ${nextText}${statusMarker}${dueMarker}${completedMarker}${detailMarker}`;
         return section.lines.join("\n");
     });
     await touchTodoLastChecked(file);
     task.status = nextStatus;
     task.text = String(changes.text ?? task.text).trim();
     task.dueDate = String(changes.dueDate ?? task.dueDate ?? "").trim();
+    task.details = String(changes.details ?? task.details ?? "").trim();
     task.completedAt = completionTimestamp;
 }
 
-function appendTodoToMarkdown(markdown, dateTime, content, dueDate = "", status = "pending") {
+function appendTodoToMarkdown(markdown, dateTime, content, dueDate = "", status = "pending", details = "") {
     const normalizedContent = String(content || "").replace(/\r?\n+/g, " ").trim();
     const checkbox = status === "done" ? "x" : " ";
     const statusMarker = status === "in-progress" ? " <!-- clt-todo:in-progress -->" : "";
     const dueMarker = dueDate ? ` <!-- clt-todo-due:${dueDate} -->` : "";
     const completedMarker = status === "done" ? ` <!-- clt-todo-completed:${formatDateTime()} -->` : "";
-    const newEntry = `- [${checkbox}] ${dateTime} : ${normalizedContent}${statusMarker}${dueMarker}${completedMarker}`;
+    const detailMarker = String(details || "").trim() ? ` <!-- clt-todo-detail:${encodeURIComponent(String(details).trim())} -->` : "";
+    const newEntry = `- [${checkbox}] ${dateTime} : ${normalizedContent}${statusMarker}${dueMarker}${completedMarker}${detailMarker}`;
     const section = findTodoSection(markdown);
     if (!section) {
         return [markdown.trimEnd(), "", "## ✅ To-Do", "", newEntry, ""].join("\n");
@@ -1285,7 +1295,7 @@ function appendTodoToMarkdown(markdown, dateTime, content, dueDate = "", status 
     return lines.join("\n");
 }
 
-async function addTodo(item, content, dueDate = "", status = "pending") {
+async function addTodo(item, content, dueDate = "", status = "pending", details = "") {
     const normalizedContent = String(content || "").trim();
     if (!item?.page?.file?.path) throw new Error("티켓을 선택해 주세요.");
     if (!normalizedContent) throw new Error("할 일을 입력해 주세요.");
@@ -1297,7 +1307,8 @@ async function addTodo(item, content, dueDate = "", status = "pending") {
         dateTime,
         normalizedContent,
         dueDate,
-        status
+        status,
+        details
     ));
     const today = await touchTodoLastChecked(file);
     item.page["마지막확인"] = today;
@@ -1331,7 +1342,7 @@ function todoDueInfo(task, nowValue = new Date()) {
             const elapsed = Math.abs(dayDifference);
             return { label: `⏰ ${elapsed === 1 ? "어제 마감" : `${elapsed}일 지남`}`, tone: "overdue", difference: dayDifference };
         }
-        if (dayDifference === 0) return { label: "⏳ 오늘", tone: "today", difference: dayDifference };
+        if (dayDifference === 0) return { label: "⏳ 오늘", tone: "urgent", difference: dayDifference };
         if (dayDifference === 1) return { label: "⌛ 내일", tone: "soon", difference: dayDifference };
         return { label: `⌛ ${dateText}까지 · ${dayDifference}일 남음`, tone: dayDifference <= 3 ? "soon" : "future", difference: dayDifference };
     }
@@ -1352,7 +1363,7 @@ function todoDueInfo(task, nowValue = new Date()) {
     }
     return {
         label: `${dayDifference === 0 ? "⏳" : "⌛"} ${calendarText} ${timeText}까지 · ${relativeTime(remainingMinutes)} 남음`,
-        tone: dayDifference === 0 ? "today" : dayDifference <= 3 ? "soon" : "future",
+        tone: remainingMinutes <= 1440 ? "urgent" : remainingMinutes <= 4320 ? "soon" : "future",
         difference: dayDifference
     };
 }
@@ -2473,6 +2484,29 @@ tr:last-child td {
     color: var(--text-normal);
 }
 
+.opus-todo-column-add {
+    display: block;
+    width: 100%;
+    min-height: 36px;
+    margin-top: 9px;
+    padding: 8px 10px;
+    border: 1px dashed var(--background-modifier-border);
+    border-radius: 8px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.opus-todo-column-add:hover {
+    border-color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+    color: var(--interactive-accent);
+}
+
 .opus-todo-ticket-group + .opus-todo-ticket-group {
     margin-top: 12px;
 }
@@ -2515,6 +2549,21 @@ tr:last-child td {
     box-shadow: inset 3px 0 0 var(--color-red), 0 1px 2px rgb(0 0 0 / 8%);
 }
 
+.opus-todo-card.urgent {
+    border-color: var(--color-orange);
+    box-shadow: inset 3px 0 0 var(--color-orange), 0 1px 2px rgb(0 0 0 / 8%);
+}
+
+.opus-todo-card.soon {
+    border-color: var(--color-yellow);
+    box-shadow: inset 3px 0 0 var(--color-yellow), 0 1px 2px rgb(0 0 0 / 8%);
+}
+
+.opus-todo-card.done {
+    border-color: color-mix(in srgb, var(--color-green) 58%, var(--background-modifier-border));
+    box-shadow: inset 3px 0 0 var(--color-green), 0 1px 2px rgb(0 0 0 / 8%);
+}
+
 .opus-todo-card-ticket {
     margin-bottom: 5px;
     color: var(--interactive-accent);
@@ -2527,6 +2576,18 @@ tr:last-child td {
     margin-bottom: 7px;
     overflow-wrap: anywhere;
     line-height: 1.45;
+}
+
+.opus-todo-card-detail {
+    color: var(--text-muted);
+    display: -webkit-box;
+    font-size: 11.5px;
+    line-height: 1.4;
+    margin: -2px 0 8px;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
 }
 
 .opus-todo-card-footer {
@@ -2568,10 +2629,16 @@ tr:last-child td {
     color: var(--color-red);
 }
 
-.opus-todo-due-badge.today,
-.opus-todo-due-badge.soon {
+.opus-todo-due-badge.urgent {
     border-color: color-mix(in srgb, var(--color-orange) 45%, transparent);
+    background: color-mix(in srgb, var(--color-orange) 10%, var(--background-primary));
     color: var(--color-orange);
+}
+
+.opus-todo-due-badge.soon {
+    border-color: color-mix(in srgb, var(--color-yellow) 55%, transparent);
+    background: color-mix(in srgb, var(--color-yellow) 10%, var(--background-primary));
+    color: color-mix(in srgb, var(--color-yellow) 72%, var(--text-normal));
 }
 
 .opus-todo-due-badge.done {
@@ -2830,6 +2897,18 @@ tr:last-child td {
     user-select: text;
 }
 
+.opus-ticket-todo-detail-secondary {
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    margin-top: 10px;
+}
+
+.opus-ticket-todo-detail-secondary > strong {
+    color: var(--text-normal);
+    display: block;
+    margin-bottom: 6px;
+}
+
 .opus-ticket-todo-detail-actions {
     display: flex;
     flex-wrap: wrap;
@@ -2843,15 +2922,15 @@ tr:last-child td {
 }
 
 .opus-note-modal.opus-jira-export-modal {
-    width: min(1320px, 96vw);
-    max-width: 96vw;
-    height: min(840px, 92vh);
-    max-height: 92vh;
+    width: min(1580px, 98vw);
+    max-width: 98vw;
+    height: min(900px, 94vh);
+    max-height: 94vh;
 }
 
 .opus-jira-export-body {
     display: grid;
-    grid-template-columns: minmax(290px, 1fr) minmax(230px, 0.8fr) minmax(420px, 1.4fr);
+    grid-template-columns: minmax(330px, 1fr) minmax(250px, 0.75fr) minmax(520px, 1.65fr);
     gap: 12px;
     padding: 14px 16px;
     flex: 1;
@@ -2934,30 +3013,76 @@ tr:last-child td {
     flex: 1;
     min-height: 0;
     overflow-x: hidden;
-    overflow-y: auto;
-    padding-right: 4px;
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+    padding-right: 8px;
 }
 
 .opus-jira-export-ticket {
+    display: block;
+    flex: 0 0 auto;
+    height: auto !important;
+    max-height: none !important;
     min-width: 0;
-    overflow: hidden;
+    overflow: visible !important;
     padding: 7px 8px;
     border: 1px solid var(--background-modifier-border);
     border-radius: 6px;
     background: var(--background-primary);
 }
 
-.opus-jira-export-ticket > label,
+.opus-jira-export-ticket-header,
 .opus-jira-export-task {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 6px;
     min-width: 0;
 }
 
-.opus-jira-export-ticket > label {
+.opus-jira-export-ticket-header {
     font-weight: 600;
     font-size: 12.5px;
+}
+
+.opus-jira-export-ticket-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+    padding: 2px 0;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: var(--text-normal);
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+}
+
+.opus-jira-export-ticket-toggle:hover {
+    background: transparent !important;
+    box-shadow: none !important;
+    color: var(--interactive-accent);
+}
+
+.opus-jira-export-ticket-chevron {
+    width: 12px;
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
+.opus-jira-export-ticket-tasks {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    max-height: none;
+    min-width: 0;
+    overflow: visible;
+}
+
+.opus-jira-export-ticket-tasks.is-collapsed {
+    display: none;
 }
 
 .opus-jira-export-task {
@@ -3095,6 +3220,12 @@ tr:last-child td {
 .opus-jira-export-preview [data-jira-field="status"] {
     min-width: 90px;
     white-space: nowrap;
+}
+
+.opus-jira-export-preview [data-jira-field="todo"],
+.opus-jira-export-preview [data-jira-field="todoDetails"] {
+    min-width: 240px;
+    max-width: 380px;
 }
 
 .opus-jira-export-preview th {
@@ -5959,7 +6090,7 @@ function createWorkLogEntryElement(
     return entry;
 }
 
-function openTodoCreateModal(preselectedItem = null) {
+function openTodoCreateModal(preselectedItem = null, preselectedStatus = "pending") {
     const sharedPlugin = app.plugins.getPlugin("servicenow-manage");
     if (typeof sharedPlugin?.openTodoEntryModal === "function") {
         try {
@@ -5971,7 +6102,8 @@ function openTodoCreateModal(preselectedItem = null) {
                     todoItems = pages.flatMap(pageItem => pageItem.todos || []);
                     if (activeView === "todo") renderTodoBoard();
                     else renderTable();
-                }
+                },
+                preselectedStatus
             );
             return;
         } catch (error) {
@@ -6043,6 +6175,7 @@ function openTodoCreateModal(preselectedItem = null) {
         const option = document.createElement("option");
         option.value = status.key;
         option.textContent = `${status.icon} ${status.label}`;
+        option.selected = status.key === preselectedStatus;
         statusSelect.appendChild(option);
     });
     statusField.append(statusLabel, statusSelect);
@@ -6241,6 +6374,13 @@ function openTicketTodoListModal(item) {
         const description = document.createElement("div");
         description.className = "opus-ticket-todo-detail-text";
         appendLinkedText(description, selectedTask.text);
+        const detailDescription = document.createElement("div");
+        detailDescription.className = "opus-ticket-todo-detail-text opus-ticket-todo-detail-secondary";
+        const detailLabel = document.createElement("strong");
+        detailLabel.textContent = "상세 내용";
+        const detailBody = document.createElement("div");
+        appendLinkedText(detailBody, selectedTask.details || "등록된 상세 내용이 없습니다.");
+        detailDescription.append(detailLabel, detailBody);
         const grid = document.createElement("div");
         grid.className = "opus-todo-detail-grid";
         grid.style.marginTop = "12px";
@@ -6258,7 +6398,7 @@ function openTicketTodoListModal(item) {
         copyButton.textContent = "내용 복사";
         copyButton.addEventListener("click", async () => {
             try {
-                await navigator.clipboard.writeText(String(selectedTask.text || ""));
+                await navigator.clipboard.writeText([selectedTask.text, selectedTask.details].filter(Boolean).join("\n\n"));
                 new Notice("To-Do 내용을 복사했습니다.");
             } catch (error) {
                 new Notice(`복사 실패: ${error?.message || error}`);
@@ -6279,7 +6419,7 @@ function openTicketTodoListModal(item) {
             openTodoDetailModal(selectedTask, () => refreshTasks(selectedId));
         });
         actions.append(copyButton, openButton, editButton);
-        detailPane.append(description, grid, actions);
+        detailPane.append(description, detailDescription, grid, actions);
     };
 
     renderList();
@@ -7665,7 +7805,7 @@ function createTodoCard(task, showTicket) {
     const card = document.createElement("article");
     card.className = "opus-todo-card";
     const dueInfo = todoDueInfo(task);
-    if (dueInfo?.tone === "overdue") card.classList.add("overdue");
+    if (["overdue", "urgent", "soon", "done"].includes(dueInfo?.tone)) card.classList.add(dueInfo.tone);
     card.draggable = true;
     card.dataset.todoId = task.id;
 
@@ -7685,6 +7825,12 @@ function createTodoCard(task, showTicket) {
     text.className = "opus-todo-card-text";
     text.textContent = task.text;
     card.appendChild(text);
+    if (task.details) {
+        const detail = document.createElement("div");
+        detail.className = "opus-todo-card-detail";
+        detail.textContent = task.details;
+        card.appendChild(detail);
+    }
 
     const footer = document.createElement("div");
     footer.className = "opus-todo-card-footer";
@@ -7760,7 +7906,8 @@ const JIRA_EXPORT_FIELDS = [
     },
     { key: "phase", label: "Phase", default: true, value: (_task, page) => page?.status ?? "" },
     { key: "status", label: "Status", default: true, value: task => JIRA_EXPORT_STATUS[task.status] || task.status },
-    { key: "todo", label: "To-Do", value: task => task.text },
+    { key: "todo", label: "To-Do 제목", value: task => task.text },
+    { key: "todoDetails", label: "To-Do 상세 내용", value: task => task.details || "" },
     { key: "dueDate", label: "Due date", value: task => task.dueDate },
     { key: "createdAt", label: "To-Do 등록일", value: task => task.dateTime },
     { key: "completedAt", label: "To-Do 완료일", value: task => task.completedAt },
@@ -7797,6 +7944,32 @@ function buildJiraExportPayload(tasks, fields) {
     };
 }
 
+function collapseJiraTasksByTicket(tasks) {
+    const groups = new Map();
+    tasks.forEach(task => {
+        if (!groups.has(task.ticketId)) groups.set(task.ticketId, []);
+        groups.get(task.ticketId).push(task);
+    });
+    return [...groups.values()].map(group => {
+        const statuses = new Set(group.map(task => task.status));
+        const status = statuses.size === 1
+            ? group[0].status
+            : statuses.has("in-progress")
+                ? "in-progress"
+                : statuses.has("pending") ? "pending" : "done";
+        return {
+            ...group[0],
+            status,
+            text: group.map(task => task.text).filter(Boolean).map(text => `• ${text}`).join("\n"),
+            details: group.map(task => task.details).filter(Boolean).map(text => `• ${text}`).join("\n"),
+            dueDate: [...new Set(group.map(task => task.dueDate).filter(Boolean))].join("\n"),
+            dateTime: [...new Set(group.map(task => task.dateTime).filter(Boolean))].join("\n"),
+            completedAt: [...new Set(group.map(task => task.completedAt).filter(Boolean))].join("\n"),
+            groupedTaskCount: group.length
+        };
+    });
+}
+
 async function copyJiraExportPayload(payload) {
     if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
         await navigator.clipboard.write([new ClipboardItem({
@@ -7817,6 +7990,8 @@ function openJiraExportModal() {
     let endDate = "";
     let dateBasis = "activity";
     let excludeCompleted = false;
+    let collapseSameTicket = true;
+    const expandedTicketIds = new Set();
     const backdrop = document.createElement("div");
     backdrop.className = "opus-modal-backdrop";
     const modal = document.createElement("div");
@@ -7876,7 +8051,13 @@ function openJiraExportModal() {
     const completedCheckbox = document.createElement("input");
     completedCheckbox.type = "checkbox";
     completedToggle.append(completedCheckbox, document.createTextNode("완료 태스크 제외"));
-    filters.append(basisLabel, dateRange, completedToggle);
+    const collapseToggle = document.createElement("label");
+    collapseToggle.className = "opus-jira-export-completed-toggle";
+    const collapseCheckbox = document.createElement("input");
+    collapseCheckbox.type = "checkbox";
+    collapseCheckbox.checked = true;
+    collapseToggle.append(collapseCheckbox, document.createTextNode("같은 티켓끼리 하나로 묶기"));
+    filters.append(basisLabel, dateRange, completedToggle, collapseToggle);
     const taskList = document.createElement("div");
     taskList.className = "opus-jira-export-task-list";
     taskPanel.append(taskSearch, filters, taskList);
@@ -7915,7 +8096,7 @@ function openJiraExportModal() {
     }
     function matchesExportFilters(task) {
         const needle = keyword.trim().toLowerCase();
-        if (needle && ![task.ticketId, task.text].some(value => String(value || "").toLowerCase().includes(needle))) return false;
+        if (needle && ![task.ticketId, task.text, task.details].some(value => String(value || "").toLowerCase().includes(needle))) return false;
         if (excludeCompleted && task.status === "done") return false;
         const date = taskDate(task);
         if (startDate && (!date || date < startDate)) return false;
@@ -7923,10 +8104,14 @@ function openJiraExportModal() {
         return true;
     }
     const selectedTasks = () => todoItems.filter(task => selectedTaskIds.has(task.id) && matchesExportFilters(task));
+    const exportTasks = () => collapseSameTicket ? collapseJiraTasksByTicket(selectedTasks()) : selectedTasks();
     function renderPreview() {
-        const tasks = selectedTasks();
+        const selected = selectedTasks();
+        const tasks = exportTasks();
         const fields = orderedFields();
-        summary.textContent = `선택 ${tasks.length}개 · 필드 ${fields.length}개`;
+        summary.textContent = collapseSameTicket
+            ? `선택 ${selected.length}개 · 티켓 ${tasks.length}건으로 묶음 · 필드 ${fields.length}개`
+            : `선택 ${tasks.length}개 · 필드 ${fields.length}개`;
         copyButton.disabled = !tasks.length || !fields.length;
         preview.innerHTML = tasks.length && fields.length
             ? buildJiraExportPayload(tasks.slice(0, 30), fields).html
@@ -7967,13 +8152,34 @@ function openJiraExportModal() {
         for (const [ticketId, tasks] of groups) {
             const group = document.createElement("div");
             group.className = "opus-jira-export-ticket";
-            const ticketLabel = document.createElement("label");
+            const ticketHeader = document.createElement("div");
+            ticketHeader.className = "opus-jira-export-ticket-header";
             const ticketCheckbox = document.createElement("input");
             ticketCheckbox.type = "checkbox";
+            ticketCheckbox.title = `${ticketId} To-Do 전체 선택`;
+            const ticketToggle = document.createElement("button");
+            ticketToggle.type = "button";
+            ticketToggle.className = "opus-jira-export-ticket-toggle";
+            const chevron = document.createElement("span");
+            chevron.className = "opus-jira-export-ticket-chevron";
             const ticketText = document.createElement("span");
             ticketText.textContent = `${ticketId} · ${tasks.length}개`;
-            ticketLabel.append(ticketCheckbox, ticketText);
-            group.appendChild(ticketLabel);
+            ticketToggle.append(chevron, ticketText);
+            ticketHeader.append(ticketCheckbox, ticketToggle);
+            group.appendChild(ticketHeader);
+            const taskChildren = document.createElement("div");
+            taskChildren.className = "opus-jira-export-ticket-tasks";
+            const syncExpanded = () => {
+                const expanded = expandedTicketIds.has(ticketId);
+                taskChildren.classList.toggle("is-collapsed", !expanded);
+                chevron.textContent = expanded ? "▼" : "▶";
+                ticketToggle.setAttribute("aria-expanded", String(expanded));
+                ticketToggle.title = expanded ? `${ticketId} To-Do 접기` : `${ticketId} To-Do 펼치기`;
+            };
+            ticketToggle.addEventListener("click", () => {
+                expandedTicketIds.has(ticketId) ? expandedTicketIds.delete(ticketId) : expandedTicketIds.add(ticketId);
+                syncExpanded();
+            });
             const children = [];
             const syncTicket = () => {
                 ticketCheckbox.checked = tasks.every(task => selectedTaskIds.has(task.id));
@@ -8005,10 +8211,12 @@ function openJiraExportModal() {
                     });
                     row.appendChild(more);
                 }
-                group.appendChild(row);
+                taskChildren.appendChild(row);
             });
             ticketCheckbox.addEventListener("change", () => { tasks.forEach(task => ticketCheckbox.checked ? selectedTaskIds.add(task.id) : selectedTaskIds.delete(task.id)); children.forEach(box => { box.checked = ticketCheckbox.checked; }); ticketCheckbox.indeterminate = false; renderPreview(); });
             syncTicket();
+            syncExpanded();
+            group.appendChild(taskChildren);
             taskList.appendChild(group);
         }
         if (!groups.size) taskList.innerHTML = '<div class="opus-jira-export-empty">검색 결과가 없습니다.</div>';
@@ -8024,9 +8232,10 @@ function openJiraExportModal() {
     startInput.addEventListener("change", () => { startDate = startInput.value; renderTasks(); renderPreview(); });
     endInput.addEventListener("change", () => { endDate = endInput.value; renderTasks(); renderPreview(); });
     completedCheckbox.addEventListener("change", () => { excludeCompleted = completedCheckbox.checked; renderTasks(); renderPreview(); });
+    collapseCheckbox.addEventListener("change", () => { collapseSameTicket = collapseCheckbox.checked; renderPreview(); });
     copyButton.addEventListener("click", async () => {
         try {
-            const payload = buildJiraExportPayload(selectedTasks(), orderedFields());
+            const payload = buildJiraExportPayload(exportTasks(), orderedFields());
             await copyJiraExportPayload(payload);
             new Notice(`Jira 표 ${payload.rows.length}건을 복사했습니다.`);
         } catch (error) {
@@ -8287,6 +8496,18 @@ function renderTodoBoard() {
             });
             column.appendChild(loadMore);
         }
+
+        const quickAdd = document.createElement("button");
+        quickAdd.type = "button";
+        quickAdd.className = "opus-todo-column-add";
+        quickAdd.textContent = "＋ To-Do 추가";
+        quickAdd.title = `${status.label} 상태로 새 To-Do 추가`;
+        quickAdd.addEventListener("click", event => {
+            event.preventDefault();
+            event.stopPropagation();
+            openTodoCreateModal(null, status.key);
+        });
+        column.appendChild(quickAdd);
 
         column.addEventListener("dragover", event => {
             event.preventDefault();

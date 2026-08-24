@@ -9,13 +9,18 @@ const dashboard = fs.readFileSync(path.join(root, "resources", "업무현황.md"
 const requiredMainMarkers = [
   "class TodoDetailEntryModal extends Modal",
   "stripCltTodoMetadata(value)",
-  "navigator.clipboard.writeText(String(content.value || \"\"))",
+  "encodeTodoDetail(value)",
+  "decodeTodoDetail(value)",
+  "clt-todo-detail:",
+  "details: detail.value",
   "openTodoDetailEntryModal(task, onSaved = null)",
   "async readTodoTasks(ticketId)",
   "async updateTodoTaskDetails(task, changes = {})",
   "async deleteTodoTask(task)",
   "composeTodoDueValue(date, time)",
   "this.registerMarkdownPostProcessor(async (el, ctx) =>",
+  "this.rootTicketIdFromFile(file) || this.rootTicketIdFromPathStructure(file)",
+  "window.setTimeout(() => mountTodoBoards(), 120)",
   "this.registerDomEvent(document, \"click\", (event) =>",
   "async handleLivePreviewTodoClick(event)",
   ".markdown-source-view.mod-cm6 .HyperMD-task-line",
@@ -56,5 +61,7 @@ if (main.includes('text: "수정하기", cls: "mod-cta"')) throw new Error("Lega
 if (!main.includes('cls: "clt-ticket-mini-card-due"')) throw new Error("Ticket mini-board due-date class is missing");
 if (!styles.includes("display: block !important")) throw new Error("Ticket mini-board block layout guard is missing");
 if (!styles.includes(".clt-ticket-mini-card-due")) throw new Error("Ticket mini-board due-date wrapping style is missing");
+if (!styles.includes(".clt-ticket-mini-card-detail")) throw new Error("Ticket mini-board detail preview styling is missing");
+if (!dashboard.includes('key: "todoDetails"')) throw new Error("Dashboard/Jira To-Do detail field is missing");
 
 console.log("Shared To-Do detail integration checks passed");

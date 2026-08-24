@@ -620,6 +620,16 @@
   overflow: hidden;
 }
 
+.clt-ticket-mini-column.drag-over {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+}
+
+.clt-ticket-mini-column.is-updating {
+  opacity: 0.65;
+  pointer-events: none;
+}
+
 .clt-ticket-mini-column-heading {
   align-items: center;
   border-bottom: 1px solid var(--background-modifier-border);
@@ -673,9 +683,51 @@
   transform: translateY(-1px);
 }
 
+.clt-ticket-mini-card.dragging {
+  cursor: grabbing;
+  opacity: 0.45;
+  transform: scale(0.98);
+}
+
+.clt-ticket-mini-card.overdue {
+  border-color: var(--color-red);
+  box-shadow: inset 3px 0 0 var(--color-red), 0 1px 2px rgb(0 0 0 / 8%);
+}
+
+.clt-ticket-mini-card.urgent {
+  border-color: var(--color-orange);
+  box-shadow: inset 3px 0 0 var(--color-orange), 0 1px 2px rgb(0 0 0 / 8%);
+}
+
+.clt-ticket-mini-card.soon {
+  border-color: var(--color-yellow);
+  box-shadow: inset 3px 0 0 var(--color-yellow), 0 1px 2px rgb(0 0 0 / 8%);
+}
+
+.clt-ticket-mini-card.done {
+  border-color: color-mix(in srgb, var(--color-green) 58%, var(--background-modifier-border));
+  box-shadow: inset 3px 0 0 var(--color-green), 0 1px 2px rgb(0 0 0 / 8%);
+}
+
 .clt-ticket-mini-card-text {
   line-height: 1.42;
   overflow-wrap: anywhere;
+}
+
+.clt-ticket-mini-card-detail {
+  color: var(--text-muted);
+  display: -webkit-box;
+  font-size: var(--font-ui-smaller);
+  line-height: 1.4;
+  margin-top: 6px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.clt-todo-detail-input {
+  min-height: 100px;
 }
 
 .clt-ticket-mini-card-meta {
@@ -705,6 +757,24 @@
   font-size: var(--font-ui-smaller);
   padding: 14px 4px;
   text-align: center;
+}
+
+.clt-ticket-mini-add {
+  background: transparent;
+  border: 1px dashed var(--background-modifier-border);
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-smaller);
+  margin-top: 8px;
+  min-height: 34px;
+  width: 100%;
+}
+
+.clt-ticket-mini-add:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+  color: var(--interactive-accent);
 }
 
 .clt-todo-detail-description {
