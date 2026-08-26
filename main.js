@@ -541,19 +541,19 @@ function upgradeDashboardRuntime(markdown, bundledDashboard) {
   const sharedPluginDeclarations = current.match(/const\s+sharedPlugin\s*=/g) || [];
   if (hasCurrentRuntime && sharedPluginDeclarations.length <= 2) return current;
   const currentStart = current.indexOf("```dataviewjs");
-  const currentEnd = current.lastIndexOf("\n```");
+  const currentEnd = current.lastIndexOf("```");
   const bundledStart = bundled.indexOf("```dataviewjs");
-  const bundledEnd = bundled.lastIndexOf("\n```");
-  if (currentStart < 0 || currentEnd < currentStart || bundledStart < 0 || bundledEnd < bundledStart) {
+  const bundledEnd = bundled.lastIndexOf("```");
+  if (currentStart < 0 || currentEnd <= currentStart || bundledStart < 0 || bundledEnd <= bundledStart) {
     return current;
   }
-  const bundledBlock = bundled.slice(bundledStart, bundledEnd + 4);
-  return `${current.slice(0, currentStart)}${bundledBlock}${current.slice(currentEnd + 4)}`;
+  const bundledBlock = bundled.slice(bundledStart, bundledEnd + 3);
+  return `${current.slice(0, currentStart)}${bundledBlock}${current.slice(currentEnd + 3)}`;
 }
 
 function upgradeDashboardPopupFieldGrid(markdown) {
   let next = String(markdown || "");
-  if (!next || next.includes(".opus-popup-field-grid")) return next;
+  if (!next || next.includes('const DASHBOARD_RUNTIME_VERSION = "2.6.6";') || next.includes(".opus-popup-field-grid")) return next;
   next = next
     .replace(`.opus-filter-panel {\n    right: 0;\n    width: 260px;\n}`, `.opus-filter-panel {\n    right: 0;\n    width: min(760px, calc(100vw - 70px));\n    max-height: min(560px, 72vh);\n    overflow-y: auto;\n}`)
     .replace(`.opus-sort-panel {\n    right: 35px;\n    width: 260px;\n}`, `.opus-sort-panel {\n    right: 35px;\n    width: min(760px, calc(100vw - 70px));\n    max-height: min(560px, 72vh);\n    overflow-y: auto;\n}`)
@@ -573,7 +573,7 @@ function upgradeDashboardPopupFieldGrid(markdown) {
 function upgradeDashboardTodoCreation(markdown, bundledDashboard) {
   let current = upgradeDashboardPopupFieldGrid(String(markdown || ""));
   const bundled = String(bundledDashboard || "");
-  if (!current || !bundled || current.includes("function openTodoCreateModal(")) return current;
+  if (!current || !bundled || current.includes('const DASHBOARD_RUNTIME_VERSION = "2.6.6";') || current.includes("function openTodoCreateModal(")) return current;
   if (!current.includes("const ROOT_FOLDER") || !current.includes("전체 업무 현황")) return current;
 
   const slice = (source, startMarker, endMarker) => {
@@ -628,7 +628,7 @@ function upgradeDashboardTodoCreation(markdown, bundledDashboard) {
 function upgradeDashboardControlVisibility(markdown, bundledDashboard) {
   let current = String(markdown || "");
   const bundled = String(bundledDashboard || "");
-  if (!current || !bundled || current.includes("showAppliedControls:")) return current;
+  if (!current || !bundled || current.includes('const DASHBOARD_RUNTIME_VERSION = "2.6.6";') || current.includes("showAppliedControls:")) return current;
   if (!current.includes("const ROOT_FOLDER") || !current.includes("전체 업무 현황")) return current;
 
   const slice = (source, startMarker, endMarker) => {
@@ -685,7 +685,7 @@ function upgradeDashboardControlVisibility(markdown, bundledDashboard) {
 function upgradeDashboardTodoDetails(markdown, bundledDashboard) {
   let current = String(markdown || "");
   const bundled = String(bundledDashboard || "");
-  if (!current || !bundled) return current;
+  if (!current || !bundled || current.includes('const DASHBOARD_RUNTIME_VERSION = "2.6.6";')) return current;
   if (
     current.includes("function openTodoDetailModal(")
     && current.includes("clt-todo-completed:")
@@ -738,7 +738,7 @@ function upgradeDashboardTodoDetails(markdown, bundledDashboard) {
 function upgradeDashboardTodoSummaryColumn(markdown, bundledDashboard) {
   let current = String(markdown || "");
   const bundled = String(bundledDashboard || "");
-  if (!current || !bundled || current.includes('key: "todoSummary"')) return current;
+  if (!current || !bundled || current.includes('const DASHBOARD_RUNTIME_VERSION = "2.6.6";') || current.includes('key: "todoSummary"')) return current;
   if (!current.includes("const ROOT_FOLDER") || !current.includes("전체 업무 현황")) return current;
 
   const slice = (source, startMarker, endMarker) => {
@@ -779,7 +779,7 @@ function upgradeDashboardTodoSummaryColumn(markdown, bundledDashboard) {
 function upgradeDashboardSharedTodoModal(markdown, bundledDashboard) {
   let current = String(markdown || "");
   const bundled = String(bundledDashboard || "");
-  if (!current || !bundled || current.includes('app.plugins.getPlugin("servicenow-manage")')) return current;
+  if (!current || !bundled || current.includes('const DASHBOARD_RUNTIME_VERSION = "2.6.6";') || current.includes('app.plugins.getPlugin("servicenow-manage")')) return current;
   const marker = "function openTodoCreateModal(preselectedItem = null) {\n";
   const bundledStart = bundled.indexOf(marker);
   const bundledBodyStart = bundledStart >= 0 ? bundledStart + marker.length : -1;
@@ -793,7 +793,7 @@ function upgradeDashboardSharedTodoModal(markdown, bundledDashboard) {
 function upgradeDashboardFieldOrdering(markdown, bundledDashboard) {
   let current = String(markdown || "");
   const bundled = String(bundledDashboard || "");
-  if (!current || !bundled) return current;
+  if (!current || !bundled || current.includes('const DASHBOARD_RUNTIME_VERSION = "2.6.6";')) return current;
   if (!current.includes("const ROOT_FOLDER") || !current.includes("전체 업무 현황")) return current;
   if (
     current.includes("columnOrder:")
@@ -878,7 +878,8 @@ function upgradeDashboardFieldOrdering(markdown, bundledDashboard) {
 function upgradeDashboardTodoPagination(markdown, bundledDashboard) {
   let current = String(markdown || "");
   const bundled = String(bundledDashboard || "");
-  if (!current || !bundled || current.includes("const TODO_PAGE_SIZE = 10;")) return current;
+  if (!current || !bundled || current.includes('const DASHBOARD_RUNTIME_VERSION = "2.6.6";')) return current;
+  if (!current.includes("const TODO_PAGE_SIZE = 10;")) return current;
   if (!current.includes("const TODO_STATUSES = [") || !current.includes("function renderAll()")) return current;
 
   const slice = (source, startMarker, endMarker) => {
@@ -3101,6 +3102,29 @@ class WorkNotesSettingTab extends PluginSettingTab {
       .setButtonText(dataview ? "Dataview 설정 열기" : "Dataview 설치하기")
       .onClick(() => this.plugin.openDataviewSetup()));
 
+    new Setting(containerEl)
+      .setName("업무현황 대시보드 템플릿")
+      .setDesc("업무현황.md의 코드를 플러그인 최신 런타임(v2.6.6: Short Description, QA 완료일정, 최근 작업일지 컬럼 포함)으로 갱신합니다.")
+      .addButton((button) => button
+        .setButtonText("대시보드 템플릿 갱신")
+        .onClick(async () => {
+          button.setDisabled(true);
+          button.setButtonText("갱신 중…");
+          try {
+            const updated = await this.plugin.forceUpgradeDashboard();
+            if (updated) {
+              new Notice("업무현황 대시보드를 최신 버전(v2.6.6)으로 갱신했습니다.", 6000);
+            } else {
+              new Notice("업무현황 대시보드가 이미 최신 버전(v2.6.6)입니다.", 5000);
+            }
+          } catch (error) {
+            new Notice(`업무현황 갱신 실패: ${error.message || error}`, 8000);
+          } finally {
+            button.setDisabled(false);
+            button.setButtonText("대시보드 템플릿 갱신");
+          }
+        }));
+
     const cachedYears = Object.keys(this.plugin.settings.holidayCache || {}).sort();
     const cachedCount = cachedYears.reduce(
       (count, year) => count + (this.plugin.settings.holidayCache?.[year]?.length || 0),
@@ -3376,7 +3400,24 @@ class CltServiceNowWorkNotes extends Plugin {
       if (status) this.knownStatus.set(file.path, String(status));
     });
 
-    this.app.workspace.onLayoutReady(async () => {
+    this.addCommand({
+      id: "force-refresh-dashboard",
+      name: "업무현황 대시보드를 최신 버전(v2.6.6)으로 갱신",
+      callback: async () => {
+        try {
+          const updated = await this.forceUpgradeDashboard();
+          if (updated) {
+            new Notice("업무현황 대시보드를 최신 버전(v2.6.6)으로 갱신했습니다.", 6000);
+          } else {
+            new Notice("업무현황 대시보드가 이미 최신 버전(v2.6.6)입니다.", 5000);
+          }
+        } catch (error) {
+          new Notice(`업무현황 갱신 실패: ${error.message || error}`, 8000);
+        }
+      }
+    });
+
+    const initLayout = async () => {
       await this.ensureWorkspaceScaffold();
       await this.normalizeTodoMetadataOnce();
       await this.linkExistingLocalBsDocuments();
@@ -3399,7 +3440,13 @@ class CltServiceNowWorkNotes extends Plugin {
       if (Number(this.settings.setupWizardVersion || 0) < FIRST_RUN_SETUP_VERSION) {
         window.setTimeout(() => this.openSetupWizard(), 600);
       }
-    });
+    };
+
+    if (this.app.workspace.layoutReady) {
+      void initLayout();
+    } else {
+      this.app.workspace.onLayoutReady(initLayout);
+    }
     this.registerInterval(window.setInterval(() => this.automationTick(), 60 * 1000));
   }
 
@@ -3648,6 +3695,21 @@ class CltServiceNowWorkNotes extends Plugin {
       dashboard,
       (markdown) => upgradeDashboardRuntime(markdown, configured)
     );
+  }
+
+  async forceUpgradeDashboard() {
+    const dashboard = this.app.vault.getAbstractFileByPath(this.dashboardPath());
+    if (!(dashboard instanceof TFile)) throw new Error(`${this.dashboardPath()} 파일을 찾을 수 없습니다.`);
+    const bundled = await this.readBundledDashboard();
+    if (!bundled) throw new Error("내장 업무현황 템플릿을 읽을 수 없습니다.");
+    const configured = bundled.replaceAll("__SERVICENOW_ROOT_FOLDER__", this.rootFolder());
+    let updated = false;
+    await this.app.vault.process(dashboard, (markdown) => {
+      const next = upgradeDashboardRuntime(markdown, configured);
+      if (next !== markdown) updated = true;
+      return next;
+    });
+    return updated;
   }
 
   async ensureDashboardPopupFieldGrid() {
