@@ -1,4 +1,4 @@
-﻿const {
+const {
   MarkdownRenderChild,
   MarkdownRenderer,
   Modal,
@@ -236,6 +236,7 @@ const DEFAULT_SETTINGS = {
   googleTokenExpiresAt: 0,
   googleConnectedAt: "",
   googleDriveContentAccess: false,
+  googleGrantedScopes: "",
   organizationFeaturesEnabled: false,
   enableDocumentAutomation: false,
   changeRequestTable: "change_request",
@@ -2542,14 +2543,33 @@ class FirstRunSetupModal extends Modal {
 
   renderGoogle(contentEl) {
     const ready = Boolean(this.plugin.settings.googleClientId && this.plugin.getSecret(GOOGLE_CLIENT_SECRET_KEY));
+    const googleConnected = Boolean(this.plugin.getSecret(GOOGLE_REFRESH_TOKEN_KEY) || this.plugin.getSecret(GOOGLE_ACCESS_TOKEN_KEY));
+    const permissionInfo = this.plugin.getGooglePermissionInfo();
+
     contentEl.createEl("p", {
       text: "Google Drive 문서 검색을 사용할 때만 등록하세요. Desktop OAuth JSON 파일을 선택하거나 JSON 원문을 붙여넣을 수 있습니다."
     });
     if (ready) {
       const card = contentEl.createDiv({ cls: "snm-setup-dependency-card" });
-      card.createEl("strong", { text: `Google OAuth JSON 등록됨 · ${this.plugin.settings.googleClientId}` });
-      card.createEl("p", { text: "OAuth JSON이 성공적으로 등록되었습니다. 티켓 생성 시 Google Drive 문서 자동 검색을 사용할 수 있습니다." });
+      const heading = card.createEl("strong", { text: `Google OAuth JSON 등록됨 · ${this.plugin.settings.googleClientId}` });
+      if (googleConnected && permissionInfo.badge) {
+        heading.createSpan({
+          cls: permissionInfo.hasDownloadPermission ? "snm-scope-badge is-valid" : "snm-scope-badge is-warning",
+          text: permissionInfo.badge
+        });
+      }
+      const desc = googleConnected
+        ? `계정: ${this.plugin.settings.googleAccountEmail || "연결됨"}${permissionInfo.permissionLabel ? ` · ${permissionInfo.permissionLabel}` : ""}`
+        : "OAuth JSON이 성공적으로 등록되었습니다. 티켓 생성 시 Google Drive 문서 자동 검색을 사용할 수 있습니다.";
+      card.createEl("p", { text: desc });
       const actions = card.createDiv({ cls: "snm-setup-inline-actions" });
+      if (googleConnected && permissionInfo.needsReauth) {
+        const reauthButton = actions.createEl("button", {
+          cls: "mod-cta mod-warning",
+          text: "재인증 필요 (다운로드 권한 추가)"
+        });
+        reauthButton.addEventListener("click", () => this.plugin.connectGoogleDrive());
+      }
       const fileButton = actions.createEl("button", { text: "OAuth JSON 교체" });
       fileButton.addEventListener("click", () => this.plugin.importGoogleOAuthJson(() => {
         this.statusMessage = "Google OAuth JSON을 등록했습니다.";
@@ -2563,7 +2583,7 @@ class FirstRunSetupModal extends Modal {
         this.statusMessage = "Google OAuth JSON을 제거했습니다.";
         this.render();
       });
-      contentEl.createDiv({ cls: "snm-setup-note", text: "Google 계정 연결은 초기 설정 완료 후 일반 설정에서 진행할 수 있습니다." });
+      contentEl.createDiv({ cls: "snm-setup-note", text: "Google 계정 연결은 초기 설정 완료 후 일반 설정에서도 언제든 진행할 수 있습니다." });
       return;
     }
 
@@ -2935,16 +2955,53 @@ class WorkNotesSettingTab extends PluginSettingTab {
         .setButtonText("OAuth JSON 선택")
         .onClick(() => this.plugin.importGoogleOAuthJson(() => this.display())));
     const googleConnected = Boolean(this.plugin.getSecret(GOOGLE_REFRESH_TOKEN_KEY) || this.plugin.getSecret(GOOGLE_ACCESS_TOKEN_KEY));
+    const permissionInfo = this.plugin.getGooglePermissionInfo();
+
+    if (googleConnected && !this.plugin.settings.googleGrantedScopes) {
+      void this.plugin.inspectGoogleTokenScopes().then((result) => {
+        if (result.success && this.containerEl.isShown()) {
+          this.display();
+        }
+      });
+    }
+
+    const descLines = [];
+    if (googleConnected) {
+      descLines.push(`${this.plugin.settings.googleAccountEmail || "연결됨"}${this.plugin.settings.googleConnectedAt ? ` · ${this.plugin.settings.googleConnectedAt}` : ""}`);
+      if (permissionInfo.permissionLabel) {
+        descLines.push(`보유 권한: ${permissionInfo.permissionLabel}`);
+      }
+    } else {
+      descLines.push("연결되지 않음");
+    }
+
     const googleConnection = new Setting(containerEl)
       .setName("Google 계정")
-      .setDesc(googleConnected
-        ? `${this.plugin.settings.googleAccountEmail || "연결됨"}${this.plugin.settings.googleConnectedAt ? ` · ${this.plugin.settings.googleConnectedAt}` : ""}`
-        : "연결되지 않음");
-    googleConnection.addButton((button) => button
-      .setButtonText(googleConnected ? "다시 연결" : "Google 계정 연결")
-      .setCta()
-      .setDisabled(!googleCredentialsReady)
-      .onClick(() => this.plugin.connectGoogleDrive()));
+      .setDesc(descLines.join(" · "));
+
+    if (googleConnected && permissionInfo.badge) {
+      googleConnection.nameEl.createSpan({
+        cls: permissionInfo.hasDownloadPermission ? "snm-scope-badge is-valid" : "snm-scope-badge is-warning",
+        text: permissionInfo.badge
+      });
+    }
+
+    const connectButtonText = !googleConnected
+      ? "Google 계정 연결"
+      : permissionInfo.needsReauth
+        ? "재인증 필요 (권한 추가)"
+        : "다시 연결";
+
+    googleConnection.addButton((button) => {
+      button
+        .setButtonText(connectButtonText)
+        .setCta()
+        .setDisabled(!googleCredentialsReady)
+        .onClick(() => this.plugin.connectGoogleDrive());
+      if (googleConnected && permissionInfo.needsReauth) {
+        button.buttonEl.addClass("mod-warning");
+      }
+    });
     googleConnection.addButton((button) => button
       .setButtonText("연결 해제")
       .setDisabled(!googleConnected)
@@ -5437,6 +5494,91 @@ class CltServiceNowWorkNotes extends Plugin {
     return { clientId, clientSecret };
   }
 
+  hasGoogleDriveDownloadScope(scopes) {
+    const list = Array.isArray(scopes)
+      ? scopes
+      : String(scopes || "").split(/\s+/).filter(Boolean);
+    if (!list.length) return false;
+    return list.some((s) => {
+      const lower = String(s).toLowerCase();
+      return lower.includes("/auth/drive.readonly")
+        || lower.endsWith("/auth/drive")
+        || lower === "https://www.googleapis.com/auth/drive";
+    });
+  }
+
+  getGooglePermissionInfo() {
+    const connected = Boolean(this.getSecret(GOOGLE_REFRESH_TOKEN_KEY) || this.getSecret(GOOGLE_ACCESS_TOKEN_KEY));
+    if (!connected) {
+      return {
+        connected: false,
+        hasDownloadPermission: false,
+        hasMetadataPermission: false,
+        scopes: [],
+        permissionLabel: "",
+        badge: "",
+        needsReauth: false
+      };
+    }
+    const grantedScopes = String(this.settings.googleGrantedScopes || "").split(/\s+/).filter(Boolean);
+    const hasDownload = this.hasGoogleDriveDownloadScope(grantedScopes);
+    const hasMetadata = grantedScopes.some((s) => s.toLowerCase().includes("/auth/drive.metadata"));
+    const hasDownloadPermission = hasDownload || (this.settings.googleDriveContentAccess === true && !grantedScopes.length);
+    const hasMetadataPermission = hasMetadata || hasDownloadPermission;
+
+    let permissionLabel = "";
+    let badge = "";
+    let needsReauth = false;
+
+    if (hasDownloadPermission) {
+      permissionLabel = "파일 보기 및 다운로드 (drive.readonly)";
+      badge = "🟢 파일 다운로드 권한 보유";
+    } else if (hasMetadataPermission || this.settings.googleDriveContentAccess === false) {
+      permissionLabel = "메타데이터 전용 (drive.metadata.readonly · 다운로드 권한 없음)";
+      badge = "⚠️ 메타데이터 전용 (재인증 필요)";
+      needsReauth = true;
+    } else {
+      permissionLabel = "권한 확인 필요 (이전 방식 연결)";
+      badge = "⚠️ 재인증 필요";
+      needsReauth = true;
+    }
+
+    return {
+      connected: true,
+      hasDownloadPermission,
+      hasMetadataPermission,
+      scopes: grantedScopes,
+      permissionLabel,
+      badge,
+      needsReauth
+    };
+  }
+
+  async inspectGoogleTokenScopes() {
+    try {
+      const token = await this.validGoogleAccessToken();
+      const response = await requestUrl({
+        url: `https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${encodeURIComponent(token)}`,
+        method: "GET",
+        headers: { Accept: "application/json" },
+        throw: false
+      });
+      if (response.status >= 200 && response.status < 300 && response.json?.scope) {
+        const rawScope = String(response.json.scope || "").trim();
+        this.settings.googleGrantedScopes = rawScope;
+        this.settings.googleDriveContentAccess = this.hasGoogleDriveDownloadScope(rawScope);
+        if (response.json.email && !this.settings.googleAccountEmail) {
+          this.settings.googleAccountEmail = response.json.email;
+        }
+        await this.savePluginData();
+        return { success: true, scope: rawScope, hasDownload: this.settings.googleDriveContentAccess };
+      }
+    } catch (error) {
+      console.warn("[ServiceNow Manage] Google tokeninfo 확인 실패", error);
+    }
+    return { success: false, scope: "", hasDownload: Boolean(this.settings.googleDriveContentAccess) };
+  }
+
   async connectGoogleDrive() {
     let clientId;
     try {
@@ -5455,7 +5597,7 @@ class CltServiceNowWorkNotes extends Plugin {
       client_id: clientId,
       redirect_uri: redirectUri,
       response_type: "code",
-      scope: "https://www.googleapis.com/auth/drive.readonly",
+      scope: "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.metadata.readonly",
       access_type: "offline",
       prompt: "consent select_account",
       code_challenge: challenge,
@@ -5463,7 +5605,7 @@ class CltServiceNowWorkNotes extends Plugin {
       state
     });
     await shell.openExternal(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
-    new Notice("브라우저에서 Google 계정을 선택하고 Drive 문서 읽기 권한을 승인하세요.", 8000);
+    new Notice("브라우저에서 Google 계정을 선택하고 Drive 문서 읽기 및 다운로드 권한을 승인하세요.", 8000);
   }
 
   async startGoogleOAuthServer() {
@@ -5492,7 +5634,9 @@ class CltServiceNowWorkNotes extends Plugin {
         this.settings.googleAccountEmail = about.user?.emailAddress || about.user?.displayName || "";
         this.settings.googleConnectedAt = localIsoDateTime();
         await this.savePluginData();
-        new Notice(`Google Drive 연결 완료 · ${this.settings.googleAccountEmail || "계정 확인됨"}`, 8000);
+        const permission = this.getGooglePermissionInfo();
+        const scopeNotice = permission.hasDownloadPermission ? " · 파일 다운로드 권한 확인됨" : " · 파일 다운로드 권한 누락 (재인증 필요)";
+        new Notice(`Google Drive 연결 완료 · ${this.settings.googleAccountEmail || "계정 확인됨"}${scopeNotice}`, 8000);
       } catch (exchangeError) {
         new Notice(`Google Drive 연결 실패: ${exchangeError.message || exchangeError}`, 10000);
       } finally {
@@ -5534,7 +5678,13 @@ class CltServiceNowWorkNotes extends Plugin {
     this.setSecret(GOOGLE_ACCESS_TOKEN_KEY, token.access_token);
     if (token.refresh_token) this.setSecret(GOOGLE_REFRESH_TOKEN_KEY, token.refresh_token);
     this.settings.googleTokenExpiresAt = Date.now() + Number(token.expires_in || 3600) * 1000;
-    this.settings.googleDriveContentAccess = !token.scope || String(token.scope).includes("/auth/drive.readonly");
+    const rawScope = String(token.scope || "").trim();
+    if (rawScope) {
+      this.settings.googleGrantedScopes = rawScope;
+      this.settings.googleDriveContentAccess = this.hasGoogleDriveDownloadScope(rawScope);
+    } else {
+      await this.inspectGoogleTokenScopes();
+    }
     await this.savePluginData();
   }
 
@@ -5831,7 +5981,7 @@ class CltServiceNowWorkNotes extends Plugin {
     const cltConnected = Boolean(this.getSecret(GOOGLE_REFRESH_TOKEN_KEY) || this.getSecret(GOOGLE_ACCESS_TOKEN_KEY));
     if (!cltConnected) return result;
     if (!this.settings.googleDriveContentAccess) {
-      result.warnings.push("현재 Google 연결은 이전 권한 방식입니다. 계정을 다시 연결하면 FS·DS·UT를 자동 다운로드할 수 있습니다.");
+      result.warnings.push("현재 Google 연결에 파일 다운로드 권한(drive.readonly)이 없습니다. 설정에서 [재인증 필요]를 눌러 Google 권한을 다시 승인해 주세요.");
       return result;
     }
     for (const [type, link] of Object.entries(links)) {
@@ -5988,6 +6138,7 @@ class CltServiceNowWorkNotes extends Plugin {
     this.settings.googleConnectedAt = "";
     this.settings.googleAccountEmail = "";
     this.settings.googleDriveContentAccess = false;
+    this.settings.googleGrantedScopes = "";
     await this.savePluginData();
     new Notice("Google Drive 연결을 해제했습니다.");
   }
