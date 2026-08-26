@@ -36,14 +36,14 @@ const SETTINGS_KEY = [
     dv.current()?.file?.path ?? "default"
 ].join(":");
 
-const SETTINGS_SCHEMA_VERSION = 12;
+const SETTINGS_SCHEMA_VERSION = 13;
 
 const DEFAULT_ROW_HEIGHT = 29;
 
 const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
 
 // 플러그인이 관리하는 업무현황 실행 영역의 버전입니다.
-const DASHBOARD_RUNTIME_VERSION = "2.6.6";
+const DASHBOARD_RUNTIME_VERSION = "2.6.7";
 
 const DEFAULT_COLUMN_WIDTHS = {
     file: 52,
@@ -1887,9 +1887,9 @@ style.textContent = `
  */
 .opus-field-panel {
     right: 0;
-    width: min(620px, calc(100vw - 60px));
-    max-height: none;
-    overflow: visible;
+    width: min(840px, calc(100vw - 60px));
+    max-height: min(640px, 82vh);
+    overflow-y: auto;
 }
 
 .opus-popup-title {
@@ -1956,40 +1956,135 @@ style.textContent = `
     display: grid;
     grid-template-columns:
         repeat(3, minmax(0, 1fr));
-    gap: 3px 10px;
-    margin: 3px 0 9px;
+    gap: 6px;
+    margin: 4px 0 10px;
+}
+
+@media (max-width: 780px) {
+    .opus-field-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 480px) {
+    .opus-field-list {
+        grid-template-columns: 1fr;
+    }
 }
 
 .opus-field-option {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 6px;
     min-width: 0;
-    min-height: 30px;
+    min-height: 36px;
     padding: 4px 7px;
-    border-radius: 5px;
-    cursor: grab;
-    border: 1px solid transparent;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 7px;
+    background: var(--background-secondary);
     user-select: none;
+    transition: border-color 100ms ease, background-color 100ms ease;
 }
 
-.opus-field-option:active {
-    cursor: grabbing;
+.opus-field-option:hover {
+    border-color: var(--background-modifier-border-hover);
+    background: var(--background-secondary-alt);
 }
 
 .opus-field-option.dragging {
-    opacity: 0.45;
+    opacity: 0.4;
+    border: 1px dashed var(--interactive-accent);
 }
 
 .opus-field-option.drag-over {
     border-color: var(--interactive-accent);
-    background: var(--background-modifier-hover);
+    background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-secondary));
+    box-shadow: 0 0 0 1px var(--interactive-accent);
 }
 
 .opus-field-drag-handle {
     flex: 0 0 auto;
     color: var(--text-muted);
+    font-size: 13px;
+    cursor: grab;
+    padding: 2px 2px;
+}
+
+.opus-field-drag-handle:active {
+    cursor: grabbing;
+}
+
+.opus-field-order-badge {
+    flex: 0 0 auto;
+    min-width: 18px;
+    height: 18px;
+    line-height: 18px;
+    border-radius: 999px;
+    background: var(--background-modifier-form-field);
+    color: var(--text-muted);
+    font-size: 10.5px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.opus-field-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex: 1 1 auto;
+    cursor: pointer;
+    margin: 0;
+}
+
+.opus-field-label input[type="checkbox"] {
+    flex: 0 0 auto;
+    margin: 0;
+    cursor: pointer;
+}
+
+.opus-field-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 12px;
+    font-weight: 500;
+}
+
+.opus-field-order-buttons {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+.opus-field-move-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 21px;
+    height: 21px;
+    padding: 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-muted);
+    font-size: 9px;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.opus-field-move-btn:hover:not(:disabled) {
+    border-color: var(--interactive-accent);
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.opus-field-move-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
 }
 
 .opus-table th[draggable="true"] .opus-header-content {
@@ -2004,21 +2099,21 @@ style.textContent = `
     box-shadow: inset 3px 0 0 var(--interactive-accent);
 }
 
-.opus-field-option:hover {
-    background:
-        var(--background-modifier-hover);
+.opus-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 7px;
+    cursor: col-resize;
+    z-index: 10;
+    user-select: none;
 }
 
-.opus-field-option input {
-    flex: 0 0 auto;
-    margin: 0;
-}
-
-.opus-field-option span {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+.opus-resize-handle:hover,
+.opus-resize-handle.resizing {
+    background-color: var(--interactive-accent);
+    opacity: 0.85;
 }
 
 .opus-row-height-section {
@@ -5339,7 +5434,7 @@ function renderTemporaryChecks(
     options.forEach(
         option => {
             const checkbox = option.querySelector('input[type="checkbox"]');
-            checkbox.checked = pendingVisible.has(option.dataset.columnKey);
+            if (checkbox) checkbox.checked = pendingVisible.has(option.dataset.columnKey);
         }
     );
 }
@@ -5366,7 +5461,7 @@ function renderFieldMenu() {
         "opus-popup-title";
 
     title.textContent =
-        "표시할 필드";
+        "표시할 필드 및 순서 (◀/▶ 버튼 또는 ⠿ 드래그로 순서 변경)";
 
     fieldMenu.appendChild(title);
 
@@ -5376,99 +5471,138 @@ function renderFieldMenu() {
     list.className =
         "opus-field-list";
 
-    let draggedOption = null;
+    let draggedKey = null;
 
-    for (const key of pendingOrder) {
-        const column = columnMap.get(key);
-        if (!column) continue;
-        const label =
-            document.createElement(
-                "label"
-            );
+    const updateListDisplay = () => {
+        list.innerHTML = "";
+        pendingOrder.forEach((key, index) => {
+            const column = columnMap.get(key);
+            if (!column) return;
 
-        label.className =
-            "opus-field-option";
-        label.dataset.columnKey = column.key;
-        label.draggable = true;
+            const card = document.createElement("div");
+            card.className = "opus-field-option";
+            card.dataset.columnKey = column.key;
+            card.draggable = true;
 
-        const handle = document.createElement("span");
-        handle.className = "opus-field-drag-handle";
-        handle.textContent = "⠿";
-        handle.title = "드래그하여 필드 순서 변경";
+            const handle = document.createElement("span");
+            handle.className = "opus-field-drag-handle";
+            handle.textContent = "⠿";
+            handle.title = "드래그하여 필드 순서 변경";
 
-        const checkbox =
-            document.createElement(
-                "input"
-            );
+            const badge = document.createElement("span");
+            badge.className = "opus-field-order-badge";
+            badge.textContent = String(index + 1);
 
-        checkbox.type = "checkbox";
+            const label = document.createElement("label");
+            label.className = "opus-field-label";
 
-        checkbox.checked =
-            pendingVisible.has(
-                column.key
-            );
-
-        checkbox.addEventListener(
-            "change",
-            () => {
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.checked = pendingVisible.has(column.key);
+            checkbox.addEventListener("change", () => {
                 if (checkbox.checked) {
-                    pendingVisible.add(
-                        column.key
-                    );
+                    pendingVisible.add(column.key);
                 } else {
-                    pendingVisible.delete(
-                        column.key
-                    );
+                    pendingVisible.delete(column.key);
                 }
-            }
-        );
+            });
 
-        const text =
-            document.createElement(
-                "span"
-            );
+            const name = document.createElement("span");
+            name.className = "opus-field-name";
+            name.textContent = column.label;
+            name.title = column.label;
 
-        text.textContent =
-            column.label;
+            label.appendChild(checkbox);
+            label.appendChild(name);
 
-        label.appendChild(handle);
-        label.appendChild(checkbox);
-        label.appendChild(text);
+            const btnContainer = document.createElement("div");
+            btnContainer.className = "opus-field-order-buttons";
 
-        label.addEventListener("dragstart", event => {
-            draggedOption = label;
-            label.classList.add("dragging");
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData("text/plain", column.key);
+            const prevBtn = document.createElement("button");
+            prevBtn.className = "opus-field-move-btn";
+            prevBtn.textContent = "◀";
+            prevBtn.title = "앞으로 이동";
+            if (index === 0) prevBtn.disabled = true;
+            prevBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (index > 0) {
+                    const temp = pendingOrder[index - 1];
+                    pendingOrder[index - 1] = pendingOrder[index];
+                    pendingOrder[index] = temp;
+                    updateListDisplay();
+                }
+            });
+
+            const nextBtn = document.createElement("button");
+            nextBtn.className = "opus-field-move-btn";
+            nextBtn.textContent = "▶";
+            nextBtn.title = "뒤로 이동";
+            if (index === pendingOrder.length - 1) nextBtn.disabled = true;
+            nextBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (index < pendingOrder.length - 1) {
+                    const temp = pendingOrder[index + 1];
+                    pendingOrder[index + 1] = pendingOrder[index];
+                    pendingOrder[index] = temp;
+                    updateListDisplay();
+                }
+            });
+
+            btnContainer.appendChild(prevBtn);
+            btnContainer.appendChild(nextBtn);
+
+            card.appendChild(handle);
+            card.appendChild(badge);
+            card.appendChild(label);
+            card.appendChild(btnContainer);
+
+            // Drag & Drop
+            card.addEventListener("dragstart", (event) => {
+                draggedKey = column.key;
+                card.classList.add("dragging");
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", column.key);
+            });
+
+            card.addEventListener("dragend", () => {
+                card.classList.remove("dragging");
+                list.querySelectorAll(".drag-over").forEach(item => item.classList.remove("drag-over"));
+                draggedKey = null;
+            });
+
+            card.addEventListener("dragover", (event) => {
+                event.preventDefault();
+                if (draggedKey && draggedKey !== column.key) {
+                    card.classList.add("drag-over");
+                }
+            });
+
+            card.addEventListener("dragleave", () => {
+                card.classList.remove("drag-over");
+            });
+
+            card.addEventListener("drop", (event) => {
+                event.preventDefault();
+                card.classList.remove("drag-over");
+                if (!draggedKey || draggedKey === column.key) return;
+
+                const fromIndex = pendingOrder.indexOf(draggedKey);
+                const toIndex = pendingOrder.indexOf(column.key);
+                if (fromIndex < 0 || toIndex < 0) return;
+
+                const bounds = card.getBoundingClientRect();
+                const insertAfter = (event.clientX > bounds.left + bounds.width / 2);
+                pendingOrder.splice(fromIndex, 1);
+                const newTargetIndex = pendingOrder.indexOf(column.key);
+                pendingOrder.splice(newTargetIndex + (insertAfter ? 1 : 0), 0, draggedKey);
+                updateListDisplay();
+            });
+
+            list.appendChild(card);
         });
+    };
 
-        label.addEventListener("dragend", () => {
-            label.classList.remove("dragging");
-            list.querySelectorAll(".drag-over").forEach(item => item.classList.remove("drag-over"));
-            draggedOption = null;
-        });
-
-        label.addEventListener("dragover", event => {
-            event.preventDefault();
-            if (draggedOption && draggedOption !== label) label.classList.add("drag-over");
-        });
-
-        label.addEventListener("dragleave", () => label.classList.remove("drag-over"));
-
-        label.addEventListener("drop", event => {
-            event.preventDefault();
-            label.classList.remove("drag-over");
-            if (!draggedOption || draggedOption === label) return;
-            const bounds = label.getBoundingClientRect();
-            const insertAfter = event.clientY > bounds.top + bounds.height / 2;
-            list.insertBefore(draggedOption, insertAfter ? label.nextSibling : label);
-            pendingOrder = Array.from(list.querySelectorAll(".opus-field-option"))
-                .map(option => option.dataset.columnKey);
-        });
-
-        list.appendChild(label);
-    }
-
+    updateListDisplay();
     fieldMenu.appendChild(list);
 
     const rowSection =
@@ -7441,9 +7575,9 @@ function bindColumnResize(table) {
 
                         const newWidth =
                             Math.min(
-                                600,
+                                1200,
                                 Math.max(
-                                    42,
+                                    36,
                                     Math.round(
                                         startWidth
                                         + delta
@@ -7481,6 +7615,7 @@ function bindColumnResize(table) {
                         );
 
                         saveSettings();
+                        renderTable();
                     }
 
                     document.addEventListener(
