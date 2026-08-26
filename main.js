@@ -534,9 +534,13 @@ function bundledAnalysisTemplate() {
 }
 
 function upgradeDashboardRuntime(markdown, bundledDashboard) {
-  const current = String(markdown || "");
-  const bundled = String(bundledDashboard || "");
+  let current = String(markdown || "").replace(/^\uFEFF/, "");
+  const bundled = String(bundledDashboard || "").replace(/^\uFEFF/, "");
   if (!current || !bundled) return current;
+
+  // Clean any duplicate frontmatters before dataviewjs
+  current = current.replace(/^(---[\s\S]*?---)[\s\r\n\uFEFF]*---[\s\S]*?---[\s\r\n\uFEFF]*(```dataviewjs)/, "$1\n\n$2");
+
   const hasCurrentRuntime = current.includes('const DASHBOARD_RUNTIME_VERSION = "2.6.6";');
   const sharedPluginDeclarations = current.match(/const\s+sharedPlugin\s*=/g) || [];
   if (hasCurrentRuntime && sharedPluginDeclarations.length <= 2) return current;
