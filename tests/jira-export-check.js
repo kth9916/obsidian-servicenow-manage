@@ -5,7 +5,7 @@ const root = path.resolve(__dirname, "..");
 const dashboard = fs.readFileSync(path.join(root, "resources", "업무현황.md"), "utf8");
 
 const required = [
-  'const DASHBOARD_RUNTIME_VERSION = "2.6.1";',
+  'const DASHBOARD_RUNTIME_VERSION = "2.6.4";',
   'exportButton.textContent = "Jira 용 Export";',
   "function openJiraExportModal()",
   "function buildJiraExportPayload(tasks, fields)",
@@ -28,6 +28,10 @@ const required = [
   "function collapseJiraTasksByTicket(tasks)",
   'label: "To-Do 제목"',
   'label: "To-Do 상세 내용"',
+  'document.createTextNode("선택한 To-Do를 영어로 번역")',
+  "function syncTranslationOption()",
+  "async function ensureEnglishTranslations()",
+  'plugin.translateTextForExport(source, "en")',
   "function matchesExportFilters(task)",
   'excludeCompleted && task.status === "done"',
   '"text/html"',
@@ -83,6 +87,12 @@ if (!dashboard.includes('.opus-jira-export-preview [data-jira-field="ticket"]'))
   throw new Error("Jira preview Ticket No. minimum width is missing");
 }
 if (!dashboard.includes("width: min(1580px, 98vw)")) throw new Error("Jira Export modal width was not expanded");
+
+const main = fs.readFileSync(path.join(root, "main.js"), "utf8");
+if (!main.includes('async translateTextForExport(content, target = "en")')
+    || !main.includes('translate.api.translate(masked, "auto", target)')) {
+  throw new Error("Jira Export English translation bridge is missing");
+}
 
 const collapseStart = dashboard.indexOf("function collapseJiraTasksByTicket(");
 const collapseEnd = dashboard.indexOf("\nasync function copyJiraExportPayload", collapseStart);

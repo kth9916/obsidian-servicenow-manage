@@ -27,6 +27,11 @@ const requiredMainMarkers = [
   "posAtMouse?.(event)",
   "renderTicketTodoBoard(sourceList, ticketId, tasks)",
   "clt-ticket-mini-todo-board",
+  "clt-todo-detail-layout",
+  "clt-todo-ticket-context",
+  'text: "SHORT DESCRIPTION"',
+  'text: "Description 펼치기"',
+  'text: "한국어 번역 펼치기"',
   "async normalizeTodoMetadataOnce()",
   "this.close();\n      await this.app.workspace.getLeaf(false).openFile(file);",
   "text: \"저장\", cls: \"mod-cta\""
@@ -62,6 +67,9 @@ if (!main.includes('cls: "clt-ticket-mini-card-due"')) throw new Error("Ticket m
 if (!styles.includes("display: block !important")) throw new Error("Ticket mini-board block layout guard is missing");
 if (!styles.includes(".clt-ticket-mini-card-due")) throw new Error("Ticket mini-board due-date wrapping style is missing");
 if (!styles.includes(".clt-ticket-mini-card-detail")) throw new Error("Ticket mini-board detail preview styling is missing");
+if (!styles.includes(".clt-todo-detail-layout") || !styles.includes("grid-template-columns: minmax(240px, 0.82fr)")) {
+  throw new Error("To-Do ticket context side panel styling is missing");
+}
 if (!dashboard.includes('key: "todoDetails"')) throw new Error("Dashboard/Jira To-Do detail field is missing");
 
 console.log("Shared To-Do detail integration checks passed");

@@ -302,6 +302,15 @@
   object-fit: contain;
 }
 
+.clt-sn-video-preview video {
+  background: #000;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  display: block;
+  max-height: min(70vh, 720px);
+  width: min(100%, 960px);
+}
+
 .clt-sn-attachment-loading {
   color: var(--text-muted);
   font-size: var(--font-ui-small);
@@ -548,7 +557,89 @@
 }
 
 .clt-todo-detail-modal {
-  width: min(680px, 94vw);
+  width: min(1040px, 96vw);
+}
+
+.clt-todo-detail-layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(240px, 0.82fr) minmax(430px, 1.45fr);
+}
+
+.clt-todo-ticket-context {
+  align-self: start;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 11px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 14px;
+}
+
+.clt-todo-context-label {
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  letter-spacing: 0.02em;
+  margin-bottom: 7px;
+}
+
+.clt-todo-context-title {
+  display: block;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.clt-todo-context-status {
+  align-items: baseline;
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 9px;
+  margin-top: 13px;
+  padding-top: 11px;
+}
+
+.clt-todo-context-status > span {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.clt-todo-context-details {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 11px;
+  padding-top: 9px;
+}
+
+.clt-todo-context-details > summary {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+}
+
+.clt-todo-context-details > pre {
+  background: transparent;
+  border: 0;
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: var(--font-ui-smaller);
+  line-height: 1.5;
+  margin: 9px 0 0;
+  max-height: 250px;
+  overflow: auto;
+  padding: 0 4px 0 0;
+  white-space: pre-wrap;
+}
+
+.clt-todo-detail-editor {
+  min-width: 0;
+}
+
+.clt-todo-detail-editor .clt-todo-entry-form {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
 }
 
 .clt-todo-modal-title {
@@ -600,6 +691,129 @@
   display: none !important;
 }
 
+.clt-ticket-worklog-source-hidden {
+  display: none !important;
+}
+
+.clt-ticket-worklog-cards {
+  display: grid;
+  gap: 9px;
+  margin: 10px 0 22px;
+}
+
+.clt-ticket-worklog-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.clt-ticket-worklog-view-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.clt-ticket-worklog-button {
+  min-height: 30px;
+  padding: 4px 10px;
+}
+
+.clt-ticket-worklog-button.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.clt-ticket-worklog-sort.is-hidden {
+  display: none;
+}
+
+.clt-ticket-worklog-card {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-left: 3px solid color-mix(in srgb, var(--interactive-accent) 72%, transparent);
+  border-radius: 10px;
+  padding: 11px 13px;
+}
+
+.clt-ticket-worklog-time {
+  color: var(--interactive-accent);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  font-weight: 650;
+  margin-bottom: 7px;
+}
+
+.clt-ticket-worklog-body {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.clt-ticket-worklog-body > :first-child { margin-top: 0; }
+.clt-ticket-worklog-body > :last-child { margin-bottom: 0; }
+.clt-ticket-worklog-body ul,
+.clt-ticket-worklog-body ol {
+  margin-block: 0.25em;
+  padding-inline-start: 1.45em;
+}
+
+.clt-ticket-worklog-empty {
+  color: var(--text-faint);
+}
+
+.clt-confirm-modal {
+  width: min(460px, calc(100vw - 32px));
+}
+
+.clt-confirm-panel {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  padding: 8px 2px 18px;
+}
+
+.clt-confirm-icon {
+  align-items: center;
+  background: color-mix(in srgb, var(--color-red) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-red) 42%, transparent);
+  border-radius: 50%;
+  color: var(--color-red);
+  display: flex;
+  flex: 0 0 34px;
+  font-weight: 750;
+  height: 34px;
+  justify-content: center;
+}
+
+.clt-confirm-copy {
+  min-width: 0;
+}
+
+.clt-confirm-description {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  margin-top: 5px;
+}
+
+.clt-confirm-item {
+  background: var(--background-secondary);
+  border-radius: 7px;
+  font-size: var(--font-ui-small);
+  margin-top: 10px;
+  max-height: 84px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+}
+
+.clt-confirm-actions {
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 12px;
+}
+
 /* Live Preview keeps task metadata in the editor DOM. Hide only task-line comments. */
 .markdown-source-view.mod-cm6 .HyperMD-task-line .cm-comment {
   display: none;
@@ -616,6 +830,8 @@
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 11px;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   overflow: hidden;
 }
@@ -656,8 +872,11 @@
 }
 
 .clt-ticket-mini-column-body {
+  align-content: start;
   display: grid;
+  flex: 1 1 auto;
   gap: 7px;
+  min-height: 72px;
   padding: 8px;
 }
 
@@ -726,6 +945,24 @@
   -webkit-line-clamp: 3;
 }
 
+.clt-ticket-mini-card-detail.markdown-rendered ul,
+.clt-ticket-mini-card-detail.markdown-rendered ol,
+.opus-todo-card-detail.markdown-rendered ul,
+.opus-todo-card-detail.markdown-rendered ol {
+  margin: 0.15em 0;
+  padding-inline-start: 1.35em;
+}
+
+.clt-ticket-mini-card-detail.markdown-rendered li,
+.opus-todo-card-detail.markdown-rendered li {
+  margin: 0;
+}
+
+.clt-ticket-mini-card-detail.markdown-rendered p,
+.opus-todo-card-detail.markdown-rendered p {
+  margin: 0.15em 0;
+}
+
 .clt-todo-detail-input {
   min-height: 100px;
 }
@@ -761,19 +998,22 @@
 
 .clt-ticket-mini-add {
   background: transparent;
-  border: 1px dashed var(--background-modifier-border);
+  border: 0;
+  border-top: 1px solid var(--background-modifier-border);
+  border-radius: 0;
   box-shadow: none;
   color: var(--text-muted);
   cursor: pointer;
   font-size: var(--font-ui-smaller);
-  margin-top: 8px;
-  min-height: 34px;
+  flex: 0 0 auto;
+  margin: 0;
+  min-height: 38px;
+  padding: 8px 10px;
   width: 100%;
 }
 
 .clt-ticket-mini-add:hover {
-  background: var(--background-modifier-hover);
-  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
   color: var(--interactive-accent);
 }
 
@@ -820,7 +1060,16 @@
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 560px) {
+@media (max-width: 760px) {
+  .clt-todo-detail-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .clt-todo-ticket-context {
+    max-height: 270px;
+    overflow-y: auto;
+  }
+
   .clt-ticket-mini-todo-board,
   .clt-todo-readonly-grid {
     grid-template-columns: 1fr;
@@ -1138,4 +1387,70 @@
   .snm-setup-summary-row {
     grid-template-columns: 1fr;
   }
+}
+
+.clt-worklog-markdown-form { margin-top: 8px; }
+
+.clt-rich-markdown-editor {
+  background: var(--background-modifier-form-field);
+  border: var(--input-border-width) solid var(--background-modifier-border);
+  border-radius: var(--input-radius);
+  box-sizing: border-box;
+  cursor: text;
+  line-height: 1.55;
+  max-height: 300px;
+  min-height: 116px;
+  overflow: auto;
+  padding: 9px 11px;
+  white-space: normal;
+  width: 100%;
+}
+
+.clt-rich-markdown-editor:focus {
+  border-color: var(--background-modifier-border-focus);
+  box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
+  outline: none;
+}
+
+.clt-rich-markdown-editor:empty::before {
+  color: var(--text-faint);
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+.clt-rich-markdown-editor > :first-child { margin-top: 0; }
+.clt-rich-markdown-editor > :last-child { margin-bottom: 0; }
+.clt-rich-markdown-editor ul,
+.clt-rich-markdown-editor ol { margin-block: 0.35em; }
+.clt-rich-markdown-editor pre { white-space: pre-wrap; }
+.clt-rich-markdown-editor a { cursor: pointer; }
+.clt-worklog-markdown-form .clt-rich-markdown-editor { min-height: 150px; }
+.opus-add-log-input.clt-rich-markdown-editor { min-height: 120px; }
+.opus-work-log-text { user-select: text; }
+
+.opus-latest-worklog-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opus-latest-worklog-date {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--background-modifier-form-field);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--font-monospace);
+  flex-shrink: 0;
+}
+
+.opus-latest-worklog-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
