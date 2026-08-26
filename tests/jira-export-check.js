@@ -5,7 +5,7 @@ const root = path.resolve(__dirname, "..");
 const dashboard = fs.readFileSync(path.join(root, "resources", "업무현황.md"), "utf8");
 
 const required = [
-  'const DASHBOARD_RUNTIME_VERSION = "2.6.4";',
+  'const DASHBOARD_RUNTIME_VERSION = "2.9.0";',
   'exportButton.textContent = "Jira 용 Export";',
   "function openJiraExportModal()",
   "function buildJiraExportPayload(tasks, fields)",
@@ -26,8 +26,8 @@ const required = [
   'document.createTextNode("완료 태스크 제외")',
   'document.createTextNode("같은 티켓끼리 하나로 묶기")',
   "function collapseJiraTasksByTicket(tasks)",
-  'label: "To-Do 제목"',
-  'label: "To-Do 상세 내용"',
+  'label: "To-Do (할 일)"',
+  'label: "To-Do Details (상세 내용)"',
   'document.createTextNode("선택한 To-Do를 영어로 번역")',
   "function syncTranslationOption()",
   "async function ensureEnglishTranslations()",

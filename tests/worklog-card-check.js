@@ -12,6 +12,8 @@ if (!main.includes('sourceList.dataset.cltWorklogView || "latest"')) throw new E
 if (!main.includes('latestButton.textContent = "최근 작업"')) throw new Error("Recent work-log button is missing");
 if (!main.includes('allButton.textContent = "전체 작업"')) throw new Error("All work-log button is missing");
 if (!main.includes('sortDirection === "desc" ? "최신순" : "오래된순"')) throw new Error("Work-log sorting control is missing");
+if (!main.includes("async deleteTicketWorkLog(sourcePath, entry)")) throw new Error("Work-log deletion API is missing");
+if (!main.includes('cls: "clt-ticket-worklog-delete"')) throw new Error("Ticket work-log delete control is missing");
 if (!styles.includes(".clt-ticket-worklog-toolbar")) throw new Error("Work-log toolbar styles are missing");
 if (!main.includes("new ConfirmDeleteModal(this.app")) throw new Error("Custom To-Do delete confirmation is missing");
 if (main.includes("window.confirm(`${this.task.ticketId}의 이 To-Do를 삭제하시겠습니까?")) throw new Error("Native delete confirmation is still used");

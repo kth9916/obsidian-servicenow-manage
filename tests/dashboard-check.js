@@ -1,4 +1,4 @@
-﻿(async () => {
+(async () => {
 /*****************************************************************
  * ServiceNow 업무 현황
  *
@@ -43,7 +43,7 @@ const DEFAULT_ROW_HEIGHT = 29;
 const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
 
 // 플러그인이 관리하는 업무현황 실행 영역의 버전입니다.
-const DASHBOARD_RUNTIME_VERSION = "2.8.0";
+const DASHBOARD_RUNTIME_VERSION = "2.9.0";
 
 const DEFAULT_COLUMN_WIDTHS = {
     file: 52,
@@ -4040,6 +4040,13 @@ tr:last-child td {
         var(--background-secondary);
 }
 
+.opus-work-log-heading {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+
 .opus-work-log-date {
     display: block;
     margin-bottom: 5px;
@@ -4047,6 +4054,39 @@ tr:last-child td {
         var(--interactive-accent);
     font-size: 12px;
     font-weight: 600;
+}
+
+.opus-work-log-delete {
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    line-height: 1;
+}
+
+.opus-work-log-delete:hover,
+.opus-work-log-delete.is-confirming {
+    width: auto;
+    padding: 0 7px;
+    color: var(--text-on-accent);
+    background: var(--color-red);
+}
+
+.opus-work-log-text.markdown-rendered {
+    white-space: normal;
+}
+
+.opus-work-log-text.markdown-rendered > :first-child { margin-top: 0; }
+.opus-work-log-text.markdown-rendered > :last-child { margin-bottom: 0; }
+.opus-work-log-text.markdown-rendered ul,
+.opus-work-log-text.markdown-rendered ol {
+    margin-block: 0.25em;
+    padding-inline-start: 1.45em;
 }
 
 .opus-work-log-text {
@@ -6308,6 +6348,22 @@ function renderWorkLogContent(
     const value =
         String(markdown ?? "");
 
+    const sharedPlugin =
+        app.plugins.getPlugin("servicenow-manage");
+
+    if (
+        value
+        && typeof sharedPlugin?.renderMarkdownInto === "function"
+    ) {
+        container.classList.add("markdown-rendered");
+        void sharedPlugin.renderMarkdownInto(
+            container,
+            value,
+            sourcePath || ""
+        );
+        return;
+    }
+
     const wikiLinkPattern =
         /(!)?\[\[([^|\]]+)(?:\|([^\]]+))?]]/g;
 
@@ -6405,6 +6461,8 @@ function createWorkLogEntryElement(
         "opus-work-log-entry";
 
     if (log.dateTime) {
+        const heading = document.createElement("div");
+        heading.className = "opus-work-log-heading";
         const date =
             document.createElement(
                 "span"
@@ -6416,7 +6474,45 @@ function createWorkLogEntryElement(
         date.textContent =
             log.dateTime;
 
-        entry.appendChild(date);
+        heading.appendChild(date);
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "opus-work-log-delete";
+        remove.textContent = "×";
+        remove.title = "작업 일지 삭제";
+        remove.setAttribute("aria-label", "작업 일지 삭제");
+        remove.addEventListener("click", async event => {
+            event.preventDefault();
+            event.stopPropagation();
+            const sharedPlugin = app.plugins.getPlugin("servicenow-manage");
+            if (typeof sharedPlugin?.deleteTicketWorkLog !== "function") {
+                new Notice("플러그인을 다시 로드한 뒤 삭제해 주세요.");
+                return;
+            }
+            if (remove.dataset.confirm !== "true") {
+                remove.dataset.confirm = "true";
+                remove.textContent = "삭제?";
+                remove.classList.add("is-confirming");
+                window.setTimeout(() => {
+                    if (!remove.isConnected) return;
+                    remove.dataset.confirm = "false";
+                    remove.textContent = "×";
+                    remove.classList.remove("is-confirming");
+                }, 3000);
+                return;
+            }
+            remove.disabled = true;
+            try {
+                await sharedPlugin.deleteTicketWorkLog(sourcePath, log);
+                entry.dispatchEvent(new CustomEvent("clt-worklog-deleted", { bubbles: true }));
+            } catch (error) {
+                new Notice(`작업 일지 삭제 실패: ${error?.message || error}`, 8000);
+                remove.disabled = false;
+            }
+        });
+        heading.appendChild(remove);
+        entry.appendChild(heading);
     }
 
     const text =
@@ -7106,6 +7202,13 @@ function openWorkLogModal(item) {
 
     body.className =
         "opus-note-body";
+
+    body.addEventListener("clt-worklog-deleted", async () => {
+        item.workLogs = await readWorkLogs(item.page);
+        item.latestWorkLog = getLatestWorkLog(item.workLogs);
+        renderWorkLogBody();
+        renderTable();
+    });
 
     const addArea =
         document.createElement("div");
@@ -8271,6 +8374,8 @@ const JIRA_EXPORT_FIELDS = [
     { key: "completedAt", label: "To-Do Completed (완료일)", jiraLabel: "To-Do Completed", value: task => task.completedAt },
     { key: "releaseDate", label: "Deploy Date (배포일)", jiraLabel: "Deploy Date", value: (_task, page) => page?.["배포일"] ?? page?.release_date ?? page?.releaseDate ?? "" },
     { key: "actualReleaseDate", label: "Actual Release Date", jiraLabel: "Actual Release Date", value: (_task, page) => page?.actual_release_date ?? page?.actualReleaseDate ?? page?.["Actual Release Date"] ?? "" },
+    { key: "deploymentFinish", label: "Deployment Finish", jiraLabel: "Deployment Finish", value: (_task, page) => page?.deployment_finish ?? page?.deploymentFinish ?? page?.["Deployment Finish"] ?? page?.["배포일"] ?? "" },
+    { key: "uiInterfaceId", label: "UI & I/F ID", jiraLabel: "UI & I/F ID", value: (_task, page) => page?.ui_interface_id ?? page?.uiInterfaceId ?? page?.["UI & I/F ID"] ?? "" },
     { key: "estimatedQaCompletionDate", label: "Estimated QA Completion Date", jiraLabel: "Estimated QA Completion Date", value: (_task, page) => page?.estimated_qa_completion_date ?? page?.estimated_qa_completion ?? page?.estimatedQaCompletionDate ?? page?.["Estimated QA Completion Date"] ?? "" },
     { key: "targetQaCompletionDate", label: "Target QA Completion Date", jiraLabel: "Target QA Completion Date", value: (_task, page) => page?.target_qa_completion_date ?? page?.target_qa_completion ?? page?.targetQaCompletionDate ?? page?.["Target QA Completion Date"] ?? "" },
     { key: "scheduledDate", label: "Scheduled Date (작업예정일)", jiraLabel: "Scheduled Date", value: (_task, page) => page?.["작업예정일"] ?? "" },

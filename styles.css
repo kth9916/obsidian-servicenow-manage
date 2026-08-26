@@ -735,12 +735,37 @@
   padding: 11px 13px;
 }
 
+.clt-ticket-worklog-heading {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
 .clt-ticket-worklog-time {
   color: var(--interactive-accent);
   font-family: var(--font-monospace);
   font-size: var(--font-ui-smaller);
   font-weight: 650;
   margin-bottom: 7px;
+}
+
+.clt-ticket-worklog-delete {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 18px;
+  height: 26px;
+  line-height: 1;
+  min-width: 26px;
+  padding: 0;
+}
+
+.clt-ticket-worklog-delete:hover {
+  background: var(--background-modifier-error-hover);
+  color: var(--text-error);
 }
 
 .clt-ticket-worklog-body {
