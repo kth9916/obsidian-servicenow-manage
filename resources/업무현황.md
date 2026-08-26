@@ -43,7 +43,7 @@ const DEFAULT_ROW_HEIGHT = 29;
 const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
 
 // 플러그인이 관리하는 업무현황 실행 영역의 버전입니다.
-const DASHBOARD_RUNTIME_VERSION = "2.7.0";
+const DASHBOARD_RUNTIME_VERSION = "2.8.0";
 
 const DEFAULT_COLUMN_WIDTHS = {
     file: 52,
