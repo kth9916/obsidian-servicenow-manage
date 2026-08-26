@@ -36,14 +36,14 @@ const SETTINGS_KEY = [
     dv.current()?.file?.path ?? "default"
 ].join(":");
 
-const SETTINGS_SCHEMA_VERSION = 13;
+const SETTINGS_SCHEMA_VERSION = 14;
 
 const DEFAULT_ROW_HEIGHT = 29;
 
 const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
 
 // 플러그인이 관리하는 업무현황 실행 영역의 버전입니다.
-const DASHBOARD_RUNTIME_VERSION = "2.6.7";
+const DASHBOARD_RUNTIME_VERSION = "2.6.8";
 
 const DEFAULT_COLUMN_WIDTHS = {
     file: 52,
@@ -1887,9 +1887,52 @@ style.textContent = `
  */
 .opus-field-panel {
     right: 0;
-    width: min(840px, calc(100vw - 60px));
-    max-height: min(640px, 82vh);
-    overflow-y: auto;
+    width: min(940px, calc(100vw - 40px));
+    max-height: none;
+    overflow: visible;
+}
+
+.opus-field-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 4px 6px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    margin-bottom: 6px;
+}
+
+.opus-field-panel-header .opus-popup-title {
+    padding: 0;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.opus-field-reorder-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 2px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 5px;
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 120ms ease;
+}
+
+.opus-field-reorder-toggle:hover {
+    border-color: var(--interactive-accent);
+    color: var(--text-normal);
+}
+
+.opus-field-reorder-toggle.active {
+    border-color: var(--interactive-accent);
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    font-weight: 600;
 }
 
 .opus-popup-title {
@@ -1955,35 +1998,36 @@ style.textContent = `
 .opus-field-list {
     display: grid;
     grid-template-columns:
-        repeat(3, minmax(0, 1fr));
-    gap: 6px;
-    margin: 4px 0 10px;
+        repeat(4, minmax(0, 1fr));
+    gap: 4px;
+    margin: 3px 0 8px;
 }
 
-@media (max-width: 780px) {
+@media (max-width: 900px) {
     .opus-field-list {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 600px) {
     .opus-field-list {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
 .opus-field-option {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     min-width: 0;
-    min-height: 36px;
-    padding: 4px 7px;
+    min-height: 28px;
+    padding: 2px 6px;
     border: 1px solid var(--background-modifier-border);
-    border-radius: 7px;
+    border-radius: 6px;
     background: var(--background-secondary);
     user-select: none;
     transition: border-color 100ms ease, background-color 100ms ease;
+    box-sizing: border-box;
 }
 
 .opus-field-option:hover {
@@ -2005,9 +2049,9 @@ style.textContent = `
 .opus-field-drag-handle {
     flex: 0 0 auto;
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: 11px;
     cursor: grab;
-    padding: 2px 2px;
+    padding: 0 1px;
 }
 
 .opus-field-drag-handle:active {
@@ -2016,13 +2060,13 @@ style.textContent = `
 
 .opus-field-order-badge {
     flex: 0 0 auto;
-    min-width: 18px;
-    height: 18px;
-    line-height: 18px;
+    min-width: 16px;
+    height: 16px;
+    line-height: 16px;
     border-radius: 999px;
     background: var(--background-modifier-form-field);
     color: var(--text-muted);
-    font-size: 10.5px;
+    font-size: 9.5px;
     font-weight: 600;
     text-align: center;
 }
@@ -2030,7 +2074,7 @@ style.textContent = `
 .opus-field-label {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     min-width: 0;
     flex: 1 1 auto;
     cursor: pointer;
@@ -2048,7 +2092,7 @@ style.textContent = `
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 500;
 }
 
@@ -2064,14 +2108,14 @@ style.textContent = `
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 21px;
-    height: 21px;
+    width: 18px;
+    height: 18px;
     padding: 0;
     border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
+    border-radius: 3px;
     background: var(--background-primary);
     color: var(--text-muted);
-    font-size: 9px;
+    font-size: 8px;
     cursor: pointer;
     line-height: 1;
 }
@@ -2083,7 +2127,7 @@ style.textContent = `
 }
 
 .opus-field-move-btn:disabled {
-    opacity: 0.3;
+    opacity: 0.25;
     cursor: default;
 }
 
@@ -5454,16 +5498,29 @@ function renderFieldMenu() {
     let pendingRowHeight =
         settings.rowHeight;
 
-    const title =
-        document.createElement("div");
+    let reorderMode = false;
 
-    title.className =
-        "opus-popup-title";
+    const header = document.createElement("div");
+    header.className = "opus-field-panel-header";
 
-    title.textContent =
-        "표시할 필드 및 순서 (◀/▶ 버튼 또는 ⠿ 드래그로 순서 변경)";
+    const title = document.createElement("div");
+    title.className = "opus-popup-title";
+    title.textContent = "표시할 필드";
 
-    fieldMenu.appendChild(title);
+    const toggleBtn = document.createElement("button");
+    toggleBtn.className = "opus-field-reorder-toggle";
+    toggleBtn.textContent = "순서 변경 모드";
+    toggleBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        reorderMode = !reorderMode;
+        toggleBtn.classList.toggle("active", reorderMode);
+        toggleBtn.textContent = reorderMode ? "✓ 순서 변경 완료" : "순서 변경 모드";
+        updateListDisplay();
+    });
+
+    header.appendChild(title);
+    header.appendChild(toggleBtn);
+    fieldMenu.appendChild(header);
 
     const list =
         document.createElement("div");
@@ -5482,7 +5539,7 @@ function renderFieldMenu() {
             const card = document.createElement("div");
             card.className = "opus-field-option";
             card.dataset.columnKey = column.key;
-            card.draggable = true;
+            if (reorderMode) card.draggable = true;
 
             const handle = document.createElement("span");
             handle.className = "opus-field-drag-handle";
@@ -5515,88 +5572,90 @@ function renderFieldMenu() {
             label.appendChild(checkbox);
             label.appendChild(name);
 
-            const btnContainer = document.createElement("div");
-            btnContainer.className = "opus-field-order-buttons";
-
-            const prevBtn = document.createElement("button");
-            prevBtn.className = "opus-field-move-btn";
-            prevBtn.textContent = "◀";
-            prevBtn.title = "앞으로 이동";
-            if (index === 0) prevBtn.disabled = true;
-            prevBtn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                if (index > 0) {
-                    const temp = pendingOrder[index - 1];
-                    pendingOrder[index - 1] = pendingOrder[index];
-                    pendingOrder[index] = temp;
-                    updateListDisplay();
-                }
-            });
-
-            const nextBtn = document.createElement("button");
-            nextBtn.className = "opus-field-move-btn";
-            nextBtn.textContent = "▶";
-            nextBtn.title = "뒤로 이동";
-            if (index === pendingOrder.length - 1) nextBtn.disabled = true;
-            nextBtn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                if (index < pendingOrder.length - 1) {
-                    const temp = pendingOrder[index + 1];
-                    pendingOrder[index + 1] = pendingOrder[index];
-                    pendingOrder[index] = temp;
-                    updateListDisplay();
-                }
-            });
-
-            btnContainer.appendChild(prevBtn);
-            btnContainer.appendChild(nextBtn);
-
-            card.appendChild(handle);
+            if (reorderMode) card.appendChild(handle);
             card.appendChild(badge);
             card.appendChild(label);
-            card.appendChild(btnContainer);
 
-            // Drag & Drop
-            card.addEventListener("dragstart", (event) => {
-                draggedKey = column.key;
-                card.classList.add("dragging");
-                event.dataTransfer.effectAllowed = "move";
-                event.dataTransfer.setData("text/plain", column.key);
-            });
+            if (reorderMode) {
+                const btnContainer = document.createElement("div");
+                btnContainer.className = "opus-field-order-buttons";
 
-            card.addEventListener("dragend", () => {
-                card.classList.remove("dragging");
-                list.querySelectorAll(".drag-over").forEach(item => item.classList.remove("drag-over"));
-                draggedKey = null;
-            });
+                const prevBtn = document.createElement("button");
+                prevBtn.className = "opus-field-move-btn";
+                prevBtn.textContent = "◀";
+                prevBtn.title = "앞으로 이동";
+                if (index === 0) prevBtn.disabled = true;
+                prevBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    if (index > 0) {
+                        const temp = pendingOrder[index - 1];
+                        pendingOrder[index - 1] = pendingOrder[index];
+                        pendingOrder[index] = temp;
+                        updateListDisplay();
+                    }
+                });
 
-            card.addEventListener("dragover", (event) => {
-                event.preventDefault();
-                if (draggedKey && draggedKey !== column.key) {
-                    card.classList.add("drag-over");
-                }
-            });
+                const nextBtn = document.createElement("button");
+                nextBtn.className = "opus-field-move-btn";
+                nextBtn.textContent = "▶";
+                nextBtn.title = "뒤로 이동";
+                if (index === pendingOrder.length - 1) nextBtn.disabled = true;
+                nextBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    if (index < pendingOrder.length - 1) {
+                        const temp = pendingOrder[index + 1];
+                        pendingOrder[index + 1] = pendingOrder[index];
+                        pendingOrder[index] = temp;
+                        updateListDisplay();
+                    }
+                });
 
-            card.addEventListener("dragleave", () => {
-                card.classList.remove("drag-over");
-            });
+                btnContainer.appendChild(prevBtn);
+                btnContainer.appendChild(nextBtn);
+                card.appendChild(btnContainer);
 
-            card.addEventListener("drop", (event) => {
-                event.preventDefault();
-                card.classList.remove("drag-over");
-                if (!draggedKey || draggedKey === column.key) return;
+                // Drag & Drop
+                card.addEventListener("dragstart", (event) => {
+                    draggedKey = column.key;
+                    card.classList.add("dragging");
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", column.key);
+                });
 
-                const fromIndex = pendingOrder.indexOf(draggedKey);
-                const toIndex = pendingOrder.indexOf(column.key);
-                if (fromIndex < 0 || toIndex < 0) return;
+                card.addEventListener("dragend", () => {
+                    card.classList.remove("dragging");
+                    list.querySelectorAll(".drag-over").forEach(item => item.classList.remove("drag-over"));
+                    draggedKey = null;
+                });
 
-                const bounds = card.getBoundingClientRect();
-                const insertAfter = (event.clientX > bounds.left + bounds.width / 2);
-                pendingOrder.splice(fromIndex, 1);
-                const newTargetIndex = pendingOrder.indexOf(column.key);
-                pendingOrder.splice(newTargetIndex + (insertAfter ? 1 : 0), 0, draggedKey);
-                updateListDisplay();
-            });
+                card.addEventListener("dragover", (event) => {
+                    event.preventDefault();
+                    if (draggedKey && draggedKey !== column.key) {
+                        card.classList.add("drag-over");
+                    }
+                });
+
+                card.addEventListener("dragleave", () => {
+                    card.classList.remove("drag-over");
+                });
+
+                card.addEventListener("drop", (event) => {
+                    event.preventDefault();
+                    card.classList.remove("drag-over");
+                    if (!draggedKey || draggedKey === column.key) return;
+
+                    const fromIndex = pendingOrder.indexOf(draggedKey);
+                    const toIndex = pendingOrder.indexOf(column.key);
+                    if (fromIndex < 0 || toIndex < 0) return;
+
+                    const bounds = card.getBoundingClientRect();
+                    const insertAfter = (event.clientX > bounds.left + bounds.width / 2);
+                    pendingOrder.splice(fromIndex, 1);
+                    const newTargetIndex = pendingOrder.indexOf(column.key);
+                    pendingOrder.splice(newTargetIndex + (insertAfter ? 1 : 0), 0, draggedKey);
+                    updateListDisplay();
+                });
+            }
 
             list.appendChild(card);
         });
