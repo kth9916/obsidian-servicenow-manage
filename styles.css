@@ -566,6 +566,38 @@
   grid-template-columns: minmax(240px, 0.82fr) minmax(430px, 1.45fr);
 }
 
+.clt-todo-detail-layout.no-ticket {
+  display: block;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.clt-todo-ticket-header-row {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 7px;
+}
+
+.clt-todo-no-ticket-toggle {
+  align-items: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: var(--font-ui-smaller);
+  gap: 6px;
+  user-select: none;
+}
+
+.clt-todo-no-ticket-toggle:hover {
+  color: var(--text-normal);
+}
+
+.clt-todo-ticket-picker.is-disabled .clt-todo-ticket-search {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 .clt-todo-ticket-context {
   align-self: start;
   background: var(--background-secondary);
@@ -642,6 +674,16 @@
   padding-top: 0;
 }
 
+.clt-todo-modal-title,
+.clt-todo-detail-modal .modal-title,
+.clt-todo-entry-modal .modal-title,
+.clt-todo-detail-modal h4.modal-title,
+.clt-todo-modal-title span {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  cursor: text;
+}
+
 .clt-todo-modal-title {
   align-items: center;
   display: inline-flex;
@@ -658,6 +700,7 @@
   font-size: 14px;
   height: 25px;
   justify-content: center;
+  user-select: none;
   width: 25px;
 }
 
