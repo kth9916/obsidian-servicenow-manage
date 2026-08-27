@@ -1211,7 +1211,7 @@ function extractTodos(markdown, page) {
     const rawId = String(page?.id || "").trim();
     const isGeneralNote = page?.file?.name === "To-Do" || page?.file?.name === "일반 To-Do" || rawId === "To-Do" || rawId === "일반 To-Do" || rawId === "일반";
     const ticketId = isGeneralNote ? "" : (rawId || (/^(CR|SR)\d+$/i.test(String(page?.file?.name || "")) ? String(page.file.name) : ""));
-    const ticketTitle = ticketId ? String(page.file.name || page.id || "") : "일반 To-Do";
+    const ticketTitle = ticketId ? String(page.file.name || page.id || "") : "티켓 없음";
 
     for (let lineIndex = section.headingLineIndex + 1; lineIndex < section.sectionEndLineIndex; lineIndex += 1) {
         const match = section.lines[lineIndex].match(/^(\s*)[-*+]\s+\[([ xX])\]\s+(.+)$/);
@@ -6980,7 +6980,7 @@ function openTodoDetailModal(task, afterSaved = null) {
             grid.className = "opus-todo-detail-grid";
             const statusLabel = TODO_STATUSES.find(status => status.key === task.status)?.label || task.status;
             grid.append(
-                detailItem("티켓", task.ticketId || "(일반 To-Do)"),
+                detailItem("티켓", task.ticketId || "티켓 없음"),
                 detailItem("상태", statusLabel),
                 detailItem("등록일", task.dateTime),
                 detailItem("완료 예정일", task.dueDate),
@@ -9119,7 +9119,7 @@ function renderTodoBoard() {
                 group.className = "opus-todo-ticket-group";
                 const heading = document.createElement("div");
                 heading.className = "opus-todo-ticket-heading";
-                const displayTitle = ticketId || "일반 To-Do";
+                const displayTitle = ticketId || "티켓 없음";
                 heading.textContent = `${displayTitle} · ${ticketTasks.length}개`;
                 heading.title = ticketId ? "티켓 노트 열기" : "To-Do 열기";
                 heading.style.cursor = "pointer";
