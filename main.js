@@ -1978,9 +1978,6 @@ class TodoDetailEntryModal extends Modal {
     this.contentEl.empty();
   }
 }
-    this.contentEl.empty();
-  }
-}
 
 class WorkNotesRenderChild extends MarkdownRenderChild {
   constructor(containerEl, plugin, ticketId) {
