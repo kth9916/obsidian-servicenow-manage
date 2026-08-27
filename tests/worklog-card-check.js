@@ -6,6 +6,21 @@ const main = fs.readFileSync(path.join(root, "main.js"), "utf8");
 const styles = fs.readFileSync(path.join(root, "styles.css"), "utf8");
 
 if (!main.includes("function extractTicketWorkLogs(markdown)")) throw new Error("Work-log parser is missing");
+const formatterSource = main.match(/function formatMarkdownListEntry\(prefix, content\) \{[\s\S]*?\n\}/)?.[0];
+if (!formatterSource) throw new Error("Work-log Markdown formatter is missing");
+const formatMarkdownListEntry = Function(`${formatterSource}; return formatMarkdownListEntry;`)();
+const bulletEntry = formatMarkdownListEntry("- 2026-08-26 16:54 : ", "- 테스트3\n- 테스트4");
+if (bulletEntry !== "- 2026-08-26 16:54 :\n    - 테스트3\n    - 테스트4") {
+  throw new Error(`Work-log bullet list is flattened: ${JSON.stringify(bulletEntry)}`);
+}
+const plainEntry = formatMarkdownListEntry("- 2026-08-26 16:54 : ", "일반 문장");
+if (plainEntry !== "- 2026-08-26 16:54 : 일반 문장") throw new Error("Plain work-log entry formatting regressed");
+const prefixStripperSource = main.match(/function stripWorkLogEntryPrefix\(raw, dateTime\) \{[\s\S]*?\n\}/)?.[0];
+if (!prefixStripperSource) throw new Error("Work-log prefix parser is missing");
+const stripWorkLogEntryPrefix = Function(`${prefixStripperSource}; return stripWorkLogEntryPrefix;`)();
+if (stripWorkLogEntryPrefix("2026-08-26 16:54 : - 테스트3\n- 테스트4", "2026-08-26 16:54") !== "- 테스트3\n- 테스트4") {
+  throw new Error("Existing work-log first bullet is not preserved");
+}
 if (!main.includes("renderTicketWorkLogCards(sourceList, ticketId, workLogs")) throw new Error("Ticket work-log card renderer is missing");
 if (!main.includes("await mountWorkLogCards()")) throw new Error("Ticket work-log cards are not mounted");
 if (!main.includes('sourceList.dataset.cltWorklogView || "latest"')) throw new Error("Recent work-log view is not the default");

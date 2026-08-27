@@ -43,7 +43,7 @@ const DEFAULT_ROW_HEIGHT = 29;
 const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
 
 // 플러그인이 관리하는 업무현황 실행 영역의 버전입니다.
-const DASHBOARD_RUNTIME_VERSION = "2.9.0";
+const DASHBOARD_RUNTIME_VERSION = "2.10.0";
 
 const DEFAULT_COLUMN_WIDTHS = {
     file: 52,
@@ -8374,7 +8374,6 @@ const JIRA_EXPORT_FIELDS = [
     { key: "completedAt", label: "To-Do Completed (완료일)", jiraLabel: "To-Do Completed", value: task => task.completedAt },
     { key: "releaseDate", label: "Deploy Date (배포일)", jiraLabel: "Deploy Date", value: (_task, page) => page?.["배포일"] ?? page?.release_date ?? page?.releaseDate ?? "" },
     { key: "actualReleaseDate", label: "Actual Release Date", jiraLabel: "Actual Release Date", value: (_task, page) => page?.actual_release_date ?? page?.actualReleaseDate ?? page?.["Actual Release Date"] ?? "" },
-    { key: "deploymentFinish", label: "Deployment Finish", jiraLabel: "Deployment Finish", value: (_task, page) => page?.deployment_finish ?? page?.deploymentFinish ?? page?.["Deployment Finish"] ?? page?.["배포일"] ?? "" },
     { key: "uiInterfaceId", label: "UI & I/F ID", jiraLabel: "UI & I/F ID", value: (_task, page) => page?.ui_interface_id ?? page?.uiInterfaceId ?? page?.["UI & I/F ID"] ?? "" },
     { key: "estimatedQaCompletionDate", label: "Estimated QA Completion Date", jiraLabel: "Estimated QA Completion Date", value: (_task, page) => page?.estimated_qa_completion_date ?? page?.estimated_qa_completion ?? page?.estimatedQaCompletionDate ?? page?.["Estimated QA Completion Date"] ?? "" },
     { key: "targetQaCompletionDate", label: "Target QA Completion Date", jiraLabel: "Target QA Completion Date", value: (_task, page) => page?.target_qa_completion_date ?? page?.target_qa_completion ?? page?.targetQaCompletionDate ?? page?.["Target QA Completion Date"] ?? "" },

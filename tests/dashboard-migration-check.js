@@ -3,6 +3,10 @@ const path = require("path");
 
 const root = path.resolve(__dirname, "..");
 const main = fs.readFileSync(path.join(root, "main.js"), "utf8");
+const cleanStart = main.indexOf("function cleanDashboardFrontmatter(");
+const cleanEnd = main.indexOf("\nfunction ", cleanStart + 1);
+if (cleanStart < 0) throw new Error("Dashboard frontmatter cleaner was not found");
+eval(main.slice(cleanStart, cleanEnd));
 const runtimeStart = main.indexOf("function upgradeDashboardRuntime(");
 const runtimeEnd = main.indexOf("\nfunction ", runtimeStart + 1);
 if (runtimeStart < 0) throw new Error("Dashboard runtime migration was not found");
@@ -50,13 +54,21 @@ eval(main.slice(paginationStart, paginationEnd));
 const oldDashboard = fs.readFileSync(path.join(root, "resources", "업무현황.md"), "utf8");
 const legacyDelegation = `    const sharedPlugin = app.plugins.getPlugin("clt-servicenow-worknotes");\n    if (sharedPlugin?.openTodoEntryModal) return;\n`;
 const brokenDashboard = oldDashboard
-  .replace('const DASHBOARD_RUNTIME_VERSION = "2.6.6";', 'const DASHBOARD_RUNTIME_VERSION = "2.0.0";')
+  .replace(/const DASHBOARD_RUNTIME_VERSION = "[^"]+";/, 'const DASHBOARD_RUNTIME_VERSION = "2.0.0";')
   .replace('function renderTodoBoard() {', `${legacyDelegation}\nfunction renderTodoBoard() {`);
 const runtimeUpgraded = upgradeDashboardRuntime(brokenDashboard, oldDashboard);
-if (!runtimeUpgraded.includes('const DASHBOARD_RUNTIME_VERSION = "2.6.6";')) throw new Error("Dashboard runtime was not upgraded");
+if (!runtimeUpgraded.includes('const DASHBOARD_RUNTIME_VERSION = "2.10.0";')) throw new Error("Dashboard runtime was not upgraded");
 if (runtimeUpgraded.includes('getPlugin("clt-servicenow-worknotes")')) throw new Error("Legacy duplicate plugin delegation remains");
 if (!runtimeUpgraded.includes("Jira 용 Export")) throw new Error("Jira Export runtime was not installed");
 if (upgradeDashboardRuntime(runtimeUpgraded, oldDashboard) !== runtimeUpgraded) throw new Error("Dashboard runtime migration is not idempotent");
+const legacyDeploymentFinishDashboard = oldDashboard.replace(
+  '    { key: "actualReleaseDate", label: "Actual Release Date", jiraLabel: "Actual Release Date",',
+  '    { key: "deploymentFinish", label: "Deployment Finish", jiraLabel: "Deployment Finish", value: (_task, page) => page?.deployment_finish ?? "" },\n    { key: "actualReleaseDate", label: "Actual Release Date", jiraLabel: "Actual Release Date",'
+);
+const deploymentFinishUpgraded = upgradeDashboardRuntime(legacyDeploymentFinishDashboard, oldDashboard);
+if (deploymentFinishUpgraded.includes('{ key: "deploymentFinish", label: "Deployment Finish"')) {
+  throw new Error("Legacy Deployment Finish Jira field was not removed during an update");
+}
 const upgraded = upgradeDashboardPopupFieldGrid(oldDashboard);
 if (!upgraded.includes("repeat(4, minmax(0, 1fr))")) throw new Error("Four-column grid was not added");
 if (!upgraded.includes("grid.appendChild(button)")) throw new Error("Field buttons were not moved into the grid");
