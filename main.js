@@ -1228,10 +1228,26 @@ function adaptPromptToAvailableDocuments(prompt, availableTypes, hasBsTranslatio
         : "- BS를 한국어로 번역한 별도 문서를 만들어 주세요. 로컬 파일 수정이 가능한 환경이라면 파일명을 ‘<티켓번호> BS-한글 - <원래제목>.pdf’ 형식으로 assets 폴더에 저장하고 티켓 노트의 ‘BS-한글’ 필드에 PDF를 링크하세요. 로컬 파일 수정이 불가능한 채팅 AI라면 사용자가 저장할 수 있는 번역 결과와 원본 시각자료 보존 방법을 제공하세요.",
       "- BS-한글은 요약문이 아니라 시각 문서 번역본입니다. 원본 전체 페이지를 읽고 표·이미지·스크린샷·도표·캡션·각주·링크와 섹션 순서를 보존한 한국어 PDF로 만드세요. 사용자가 명시하지 않는 한 Markdown, `.docx.md`, 텍스트 요약을 최종 산출물로 만들지 마세요.",
       "- 직접 원문 위에 번역하기 어렵다면 읽기 좋은 새 한국어 PDF로 재구성하되, 원본의 모든 시각자료를 관련 번역 문맥 옆에 포함하세요. 분석·리스크·ITO 의견은 번역 본문을 대체하지 말고 별도 부록으로 구분하세요.",
+      "- 번역은 문장별 직역이 아니라 OPUS/eBooking 업무 문맥에 맞는 자연스러운 한국어로 작성하세요. 같은 용어는 문서 전체에서 동일하게 번역하고, 화면명·필드명·메시지·코드·수치·비교 연산자·조건 분기는 원문과 정확히 일치시킨 뒤 필요한 경우 원문을 괄호로 병기하세요.",
+      "- 원문에 없는 결론, 기대효과, 위험, 화면 존재 여부 또는 '이미지가 없다' 같은 판단을 번역 본문에 새로 만들지 마세요. 원본 양식의 안내 문구와 실제 요구사항을 구분하고, 빈 페이지나 빈 항목은 임의 내용으로 채우지 마세요.",
+      "- 최종 검수에서는 (1) 모든 요구사항과 조건/예외의 의미 정확성, (2) 용어 일관성, (3) 자연스러운 한국어, (4) 원본 시각자료와의 대응, (5) 원문에 없는 내용의 추가 여부를 별도로 확인하세요. 하나라도 충족하지 못하면 완료로 보고하지 말고 수정하세요.",
       "- 완료 전 결과 PDF의 모든 페이지를 렌더링해 육안 검수하고 원본과 페이지 단위로 비교하여 누락된 표·이미지·요구사항, 잘림, 겹침, 깨진 한글이 없는지 확인하세요."
     );
   }
   return `${next}\n${instructions.join("\n")}`.trim();
+}
+
+function classifyPromptDocuments(documentValues, failures = {}) {
+  const types = ["BS", "FS", "DS", "UT"];
+  return {
+    availableTypes: types.filter((type) => Boolean(documentValues?.[type]?.local)),
+    inaccessibleTypes: types.filter((type) =>
+      Boolean(documentValues?.[type]?.link) && !documentValues?.[type]?.local
+    ),
+    failures: Object.fromEntries(types
+      .filter((type) => failures?.[type])
+      .map((type) => [type, String(failures[type])]))
+  };
 }
 
 function repairTemplatePlaceholders(template) {
@@ -5200,12 +5216,14 @@ class CltServiceNowWorkNotes extends Plugin {
       messages.push(`ServiceNow 최신 조회에 실패하여 마지막 저장 데이터를 사용했습니다: ${error.message || error}`);
     }
 
-    let documentSync = { local: {}, downloaded: [], warnings: [], renamedBs: "" };
+    let documentSync = { local: {}, downloaded: [], warnings: [], failures: {}, renamedBs: "" };
     try {
       documentSync = await this.downloadTicketCltDocuments(normalized, fm);
     } catch (error) {
       console.warn(`[ServiceNow Manage] ${normalized} AI 프롬프트용 문서 확인 실패`, error);
-      messages.push(`관련 문서 확인에 실패했지만 나머지 정보로 프롬프트를 생성했습니다: ${error.message || error}`);
+      const reason = String(error.message || error);
+      documentSync.failures.GENERAL = reason;
+      messages.push(`관련 문서 확인에 실패했지만 나머지 정보로 프롬프트를 생성했습니다: ${reason}`);
     }
 
     let savedImages = 0;
@@ -5215,6 +5233,9 @@ class CltServiceNowWorkNotes extends Plugin {
       console.warn(`[ServiceNow Manage] ${normalized} AI 프롬프트용 이미지 저장 실패`, error);
       messages.push(`ServiceNow 이미지 저장에 실패했지만 나머지 정보로 프롬프트를 생성했습니다: ${error.message || error}`);
     }
+    ticket.documentDownloadFailures = { ...documentSync.failures };
+    ticket.documentDownloadCheckedAt = new Date().toISOString();
+    this.data.tickets[normalized] = ticket;
     await this.savePluginData();
     const workNotes = (ticket.entries || [])
       .filter((entry) => String(entry.type || "").toLowerCase() === "work note")
@@ -5252,9 +5273,8 @@ class CltServiceNowWorkNotes extends Plugin {
       DS: { link: fm.DS || "", local: documentSync.local.DS || "" },
       UT: { link: fm.ut || fm.UT || "", local: documentSync.local.UT || "" }
     };
-    const availableTypes = Object.entries(documentValues)
-      .filter(([, value]) => value.link || value.local)
-      .map(([type]) => type);
+    const documentAvailability = classifyPromptDocuments(documentValues, documentSync.failures);
+    const { availableTypes, inaccessibleTypes } = documentAvailability;
     prompt = adaptPromptToAvailableDocuments(prompt, availableTypes, Boolean(documentSync.local.BS_KO));
 
     const documentLines = [
@@ -5269,11 +5289,19 @@ class CltServiceNowWorkNotes extends Plugin {
       `- 티켓 노트: ${rootFile.path}`,
     ];
     for (const type of availableTypes) {
-      if (documentValues[type].local) documentLines.push(`- ${type} 로컬 파일: ${documentValues[type].local}`);
-      else documentLines.push(`- ${type} 파일: 로컬 파일 없음 · 채팅 첨부 파일을 사용하고, 첨부되지 않았다면 요청 필요`);
+      documentLines.push(`- ${type} 로컬 파일: ${documentValues[type].local}`);
+    }
+    for (const type of inaccessibleTypes) {
+      const reason = documentAvailability.failures[type]
+        ? ` · 실패 사유: ${documentAvailability.failures[type]}`
+        : "";
+      documentLines.push(`- ${type}: 원본 링크는 등록되어 있으나 로컬 파일을 확보하지 못함${reason}`);
+    }
+    if (inaccessibleTypes.length) {
+      documentLines.push(`- 중요: ${inaccessibleTypes.join("·")} 문서는 '없는 문서'가 아니라 '링크는 있으나 현재 접근할 수 없는 문서'입니다. 내용을 검토했다고 주장하지 말고 사용자에게 파일 첨부 또는 문서 권한 확인을 요청하세요.`);
     }
     if (documentSync.local.BS_KO) documentLines.push(`- BS-한글 번역본: ${documentSync.local.BS_KO}`);
-    if (!availableTypes.length) documentLines.push("- 분석 문서: 없음");
+    if (!availableTypes.length && !inaccessibleTypes.length) documentLines.push("- 분석 문서: 확인된 링크 또는 로컬 파일 없음");
     const imageContexts = serviceNowImageContext(ticket);
     if (imageContexts.length) {
       documentLines.push(
@@ -6045,11 +6073,16 @@ class CltServiceNowWorkNotes extends Plugin {
   findLocalBsTranslation(ticketId) {
     const folder = `${this.ticketAssetsFolder(ticketId)}/`;
     const prefix = `${normalizeTicketId(ticketId)} BS-`;
-    return this.app.vault.getFiles().find((file) =>
+    const candidates = this.app.vault.getFiles().filter((file) =>
       file.path.startsWith(folder)
         && file.basename.toUpperCase().startsWith(prefix.toUpperCase())
         && /BS[-_\s]*한글/i.test(file.basename)
-    )?.path || "";
+    );
+    candidates.sort((left, right) =>
+      Number(right.stat?.mtime || 0) - Number(left.stat?.mtime || 0)
+        || left.path.localeCompare(right.path, "ko")
+    );
+    return candidates[0]?.path || "";
   }
 
   ticketIdFromAssetsPath(path) {
@@ -6137,8 +6170,7 @@ class CltServiceNowWorkNotes extends Plugin {
     if (!(rootFile instanceof TFile)) return;
     const link = `[[${path}]]`;
     await this.app.fileManager.processFrontMatter(rootFile, (frontmatter) => {
-      const current = String(frontmatter["BS-한글"] || "").trim();
-      if (!current || current === link) frontmatter["BS-한글"] = link;
+      frontmatter["BS-한글"] = link;
     });
   }
 
@@ -6244,7 +6276,7 @@ class CltServiceNowWorkNotes extends Plugin {
       DS: this.findLocalTicketDocument(ticketId, "DS"),
       UT: this.findLocalTicketDocument(ticketId, "UT")
     };
-    const result = { downloaded: [], warnings: bs.warning ? [bs.warning] : [], local, renamedBs: bs.renamed, linkedBs: null };
+    const result = { downloaded: [], warnings: bs.warning ? [bs.warning] : [], failures: {}, local, renamedBs: bs.renamed, linkedBs: null };
     await this.linkLocalBsTranslation(ticketId, local.BS_KO);
     result.linkedBs = await this.linkLocalBsDocument(ticketId, local.BS);
     const links = {
@@ -6265,7 +6297,9 @@ class CltServiceNowWorkNotes extends Plugin {
         result.local[type] = await this.downloadGoogleDriveDocument(ticketId, type, link);
         result.downloaded.push(type);
       } catch (error) {
-        result.warnings.push(`${type} 다운로드 실패: ${error.message || error}`);
+        const reason = String(error.message || error);
+        result.failures[type] = reason;
+        result.warnings.push(`${type} 다운로드 실패: ${reason}`);
       }
     }
     result.local.BS = this.findLocalTicketDocument(ticketId, "BS");

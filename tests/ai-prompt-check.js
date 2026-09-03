@@ -29,6 +29,7 @@ eval(loadFunction("isLocalBsWikiLink"));
 eval(loadFunction("isImageAttachment"));
 eval(loadFunction("serviceNowAttachmentId"));
 eval(loadFunction("adaptPromptToAvailableDocuments"));
+eval(loadFunction("classifyPromptDocuments"));
 
 const sample = [
   "CR_TEMPLATE.md 기준으로 진행해줘.",
@@ -94,13 +95,23 @@ if (isLocalBsWikiLink("https://docs.google.com/document/d/abc/edit", "ServiceNow
 if (!isImageAttachment("screen.PNG", "") || !isImageAttachment("unknown", "image/jpeg") || isImageAttachment("report.pdf", "application/pdf")) throw new Error("Image attachment classification failed");
 if (serviceNowAttachmentId({ url: "https://your-instance.service-now.com/sys_attachment.do?sys_id=abc123&view=true" }) !== "abc123") throw new Error("Cached attachment ID was not recovered");
 const bsOnly = adaptPromptToAvailableDocuments("첨부한 BS, FS, DS, UT를 분석해줘. 추가로 BS를 한글로 번역해서 문서로 만들고 링크해줘.", ["BS"]);
-if (!bsOnly.includes("BS 문서를 분석해 주세요") || !bsOnly.includes("‘BS-한글’ 필드") || !bsOnly.includes("현재 상태 한 줄 요약") || !bsOnly.includes("시각 문서 번역본") || !bsOnly.includes(".pdf")) throw new Error("BS-only prompt was not adapted");
+if (!bsOnly.includes("BS 문서를 분석해 주세요") || !bsOnly.includes("‘BS-한글’ 필드") || !bsOnly.includes("현재 상태 한 줄 요약") || !bsOnly.includes("시각 문서 번역본") || !bsOnly.includes("자연스러운 한국어") || !bsOnly.includes("원문에 없는 결론") || !bsOnly.includes(".pdf")) throw new Error("BS-only prompt was not adapted");
 const utOnly = adaptPromptToAvailableDocuments("첨부한 BS, FS, DS, UT를 분석해줘. 추가로 BS를 한글로 번역해서 문서로 만들고 링크해줘.", ["UT"]);
 if (!utOnly.includes("UT 문서를 분석해 주세요") || utOnly.includes("‘BS-한글’ 필드")) throw new Error("Non-BS prompt retained BS instruction");
 const noDocs = adaptPromptToAvailableDocuments("SR_TEMPLATE.md 기준으로 진행해줘.", []);
 if (!noDocs.includes("Working Notes를 중점적으로") || !noDocs.includes("현재 상태 한 줄 요약")) throw new Error("No-document instructions are missing");
 const translatedBs = adaptPromptToAvailableDocuments("CR_TEMPLATE.md 기준으로 진행해줘.", ["BS"], true);
 if (!translatedBs.includes("기존 BS-한글 번역본") || !translatedBs.includes("Markdown/`.docx.md` 요약본") || !translatedBs.includes("페이지 단위로 비교")) throw new Error("Existing BS translation was not validated");
+const documentAvailability = classifyPromptDocuments({
+  FS: { link: "https://docs.google.com/fs", local: "ServiceNow/티켓/CR0000000/assets/CR0000000 FS.xlsx" },
+  UT: { link: "https://docs.google.com/ut", local: "" }
+}, { UT: "File not found" });
+if (!documentAvailability.availableTypes.includes("FS") || documentAvailability.availableTypes.includes("UT")) {
+  throw new Error("A link-only document was incorrectly classified as locally available");
+}
+if (!documentAvailability.inaccessibleTypes.includes("UT") || documentAvailability.failures.UT !== "File not found") {
+  throw new Error("Inaccessible linked document details were not preserved");
+}
 const environment = buildAiEnvironmentInstructions("SR", {
   templatePath: "C:\\Vault\\ServiceNow\\지침\\SR_TEMPLATE.md",
   ticketPath: "C:\\Vault\\ServiceNow\\티켓\\SR0000000\\SR0000000.md",
@@ -113,11 +124,20 @@ if (main.includes("EMBEDDED_ANALYSIS_TEMPLATE_GZIP_BASE64")) throw new Error("Or
 if (!main.includes("importOrganizationPack(onDone)") || !main.includes("organizationFeatureEnabled(\"aiPrompt\")")) {
   throw new Error("Organization-pack AI feature gate is missing");
 }
+if (!/async linkLocalBsTranslation[\s\S]*?frontmatter\["BS-한글"\] = link;/.test(main)) {
+  throw new Error("Explicit local BS translation refresh must overwrite the managed BS-한글 link");
+}
 if (!main.includes("defaultAiPromptTemplate()") || !main.includes("analysisTemplatePath(category)")) {
   throw new Error("AI guide scaffold is missing");
 }
 if (!main.includes("onTicketAssetChanged(file)") || !main.includes("linkLocalBsDocument(ticketId, path)")) {
   throw new Error("Automatic local BS linking is missing");
+}
+if (!main.includes("문서는 '없는 문서'가 아니라 '링크는 있으나 현재 접근할 수 없는 문서'")) {
+  throw new Error("AI prompt does not distinguish a missing document from an inaccessible linked document");
+}
+if (!main.includes("ticket.documentDownloadFailures = { ...documentSync.failures }") || !main.includes("ticket.documentDownloadCheckedAt")) {
+  throw new Error("Document download failures are not persisted for later diagnosis");
 }
 if (!main.includes("class TodoEntryModal extends Modal") || !main.includes("openTodoEntryModal(preselectedTicketId") || !main.includes("clt-todo-ticket-search")) {
   throw new Error("Shared searchable To-Do entry modal is missing");
