@@ -33,11 +33,13 @@ const requiredMainMarkers = [
   'text: "Description 펼치기"',
   'text: "한국어 번역 펼치기"',
   "async normalizeTodoMetadataOnce()",
-  "this.close();\n      await this.app.workspace.getLeaf(false).openFile(file);",
   "text: \"저장\", cls: \"mod-cta\""
 ];
 for (const marker of requiredMainMarkers) {
   if (!main.includes(marker)) throw new Error(`Missing shared To-Do detail marker: ${marker}`);
+}
+if (!/this\.close\(\);\s*await this\.app\.workspace\.getLeaf\(false\)\.openFile\(file\);/.test(main)) {
+  throw new Error("Missing shared To-Do original-ticket navigation");
 }
 if (!main.includes('text: "삭제", cls: "mod-warning clt-todo-delete-button"')) {
   throw new Error("To-Do delete action is missing");
