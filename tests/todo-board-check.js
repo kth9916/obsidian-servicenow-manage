@@ -61,6 +61,12 @@ eval(loadFunction("updateTodoStatus"));
   if (!source.includes("min-height: min(620px") || !source.includes("To-Do 보드") || !source.includes("티켓별로 구분")) {
     throw new Error("Dashboard layout safeguards or board controls are missing");
   }
+  if (!source.includes("function renderTodoCalendar(tasks)") || !source.includes('[["board", "보드"], ["calendar", "달력"]]') || !source.includes('[["month", "월"], ["week", "주"], ["day", "일"]]')) {
+    throw new Error("To-Do calendar month/week/day view is missing");
+  }
+  if (!source.includes('const key = String(task.dueDate || "").slice(0, 10)')) {
+    throw new Error("To-Do calendar is not based on the due date");
+  }
   if (!source.includes("opus-popup-field-grid") || !source.includes("repeat(4, minmax(0, 1fr))")) {
     throw new Error("Sort/filter field grid is missing");
   }

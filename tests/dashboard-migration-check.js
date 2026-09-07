@@ -57,7 +57,7 @@ const brokenDashboard = oldDashboard
   .replace(/const DASHBOARD_RUNTIME_VERSION = "[^"]+";/, 'const DASHBOARD_RUNTIME_VERSION = "2.0.0";')
   .replace('function renderTodoBoard() {', `${legacyDelegation}\nfunction renderTodoBoard() {`);
 const runtimeUpgraded = upgradeDashboardRuntime(brokenDashboard, oldDashboard);
-if (!runtimeUpgraded.includes('const DASHBOARD_RUNTIME_VERSION = "2.10.1";')) throw new Error("Dashboard runtime was not upgraded");
+if (!runtimeUpgraded.includes('const DASHBOARD_RUNTIME_VERSION = "2.11.0";')) throw new Error("Dashboard runtime was not upgraded");
 if (runtimeUpgraded.includes('getPlugin("clt-servicenow-worknotes")')) throw new Error("Legacy duplicate plugin delegation remains");
 if (!runtimeUpgraded.includes("Jira 용 Export")) throw new Error("Jira Export runtime was not installed");
 if (upgradeDashboardRuntime(runtimeUpgraded, oldDashboard) !== runtimeUpgraded) throw new Error("Dashboard runtime migration is not idempotent");

@@ -5,10 +5,14 @@ const root = path.resolve(__dirname, "..");
 const dashboard = fs.readFileSync(path.join(root, "resources", "업무현황.md"), "utf8");
 
 const required = [
-  'const DASHBOARD_RUNTIME_VERSION = "2.10.1";',
+  'const DASHBOARD_RUNTIME_VERSION = "2.11.0";',
   'exportButton.textContent = "Jira 용 Export";',
   "function openJiraExportModal()",
   "function buildJiraExportPayload(tasks, fields)",
+  "function buildJiraCellTextPayload(tasks, fields)",
+  "function jiraGroupedTodoDetails(tasks)",
+  '[["table", "Jira 표"], ["cellText", "한 셀용 텍스트"]]',
+  'user-select: text !important;',
   'label: "No."',
   'label: "Ticket No."',
   'label: "Description"',
@@ -97,7 +101,11 @@ if (!main.includes('async translateTextForExport(content, target = "en")')
 const collapseStart = dashboard.indexOf("function collapseJiraTasksByTicket(");
 const collapseEnd = dashboard.indexOf("\nasync function copyJiraExportPayload", collapseStart);
 if (collapseStart < 0 || collapseEnd < 0) throw new Error("Jira ticket grouping function was not found");
-const collapse = Function(`${dashboard.slice(collapseStart, collapseEnd)}; return collapseJiraTasksByTicket;`)();
+const normalizeStart = dashboard.indexOf("function normalizeJiraDetailLines(");
+const payloadStart = dashboard.indexOf("function buildJiraExportPayload(", normalizeStart);
+if (normalizeStart < 0 || payloadStart < 0) throw new Error("Jira To-Do detail formatter was not found");
+const detailHelpers = dashboard.slice(normalizeStart, payloadStart);
+const collapse = Function(`${detailHelpers}\n${dashboard.slice(collapseStart, collapseEnd)}; return collapseJiraTasksByTicket;`)();
 const grouped = collapse([
   { ticketId: "CR1", status: "done", text: "첫 번째", details: "상세 A", dueDate: "2026-08-24" },
   { ticketId: "CR1", status: "in-progress", text: "두 번째", details: "상세 B", dueDate: "2026-08-25" },
@@ -106,6 +114,9 @@ const grouped = collapse([
 if (grouped.length !== 2) throw new Error("Same-ticket Jira rows were not collapsed");
 if (grouped[0].status !== "in-progress" || !grouped[0].text.includes("첫 번째") || !grouped[0].details.includes("상세 B")) {
   throw new Error("Grouped Jira row did not preserve task titles, details, or mixed status");
+}
+if (!grouped[0].details.includes("1. 첫 번째\n   - 상세 A") || grouped[0].details.includes("• -")) {
+  throw new Error("Grouped Jira To-Do details are not separated into clean numbered bullet blocks");
 }
 
 console.log("Jira export checks passed");

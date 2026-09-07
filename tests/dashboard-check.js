@@ -1,4 +1,4 @@
-﻿(async () => {
+(async () => {
 /*****************************************************************
  * ServiceNow 업무 현황
  *
@@ -43,7 +43,7 @@ const DEFAULT_ROW_HEIGHT = 29;
 const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
 
 // 플러그인이 관리하는 업무현황 실행 영역의 버전입니다.
-const DASHBOARD_RUNTIME_VERSION = "2.10.1";
+const DASHBOARD_RUNTIME_VERSION = "2.11.0";
 
 const DEFAULT_COLUMN_WIDTHS = {
     file: 52,
@@ -667,6 +667,12 @@ function createDefaultSettings() {
 
         todoGroupByTicket: true,
 
+        todoDisplayMode: "board",
+
+        todoCalendarView: "month",
+
+        todoCalendarAnchor: "",
+
         todoSearchKeyword: "",
 
         todoQuickView: "all",
@@ -836,13 +842,28 @@ function loadSettings() {
                     ? saved.todoGroupByTicket
                     : defaults.todoGroupByTicket,
 
+            todoDisplayMode:
+                ["board", "calendar"].includes(saved.todoDisplayMode)
+                    ? saved.todoDisplayMode
+                    : defaults.todoDisplayMode,
+
+            todoCalendarView:
+                ["month", "week", "day"].includes(saved.todoCalendarView)
+                    ? saved.todoCalendarView
+                    : defaults.todoCalendarView,
+
+            todoCalendarAnchor:
+                /^\d{4}-\d{2}-\d{2}$/.test(String(saved.todoCalendarAnchor || ""))
+                    ? saved.todoCalendarAnchor
+                    : defaults.todoCalendarAnchor,
+
             todoSearchKeyword:
                 typeof saved.todoSearchKeyword === "string"
                     ? saved.todoSearchKeyword
                     : defaults.todoSearchKeyword,
 
             todoQuickView:
-                ["all", "open", "today", "overdue", "done"].includes(saved.todoQuickView)
+                ["all", "open", "pending", "in-progress", "today", "overdue", "done"].includes(saved.todoQuickView)
                     ? saved.todoQuickView
                     : defaults.todoQuickView,
 
@@ -2567,6 +2588,30 @@ tr:last-child td {
     gap: 8px;
 }
 
+.opus-todo-display-switch {
+    display: inline-flex;
+    padding: 2px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 7px;
+    background: var(--background-secondary);
+}
+
+.opus-todo-display-switch button {
+    min-height: 26px;
+    padding: 3px 9px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-muted);
+    font-size: 11.5px;
+}
+
+.opus-todo-display-switch button.active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
 .opus-todo-date-filter {
     display: inline-flex;
     align-items: center;
@@ -2650,6 +2695,163 @@ tr:last-child td {
 
 .opus-todo-board:has(.opus-todo-column:not(.is-collapsed)) {
     min-height: 430px;
+}
+
+.opus-todo-calendar-shell {
+    overflow: hidden;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 10px;
+    background: var(--background-primary);
+}
+
+.opus-todo-calendar-header {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+}
+
+.opus-todo-calendar-header > strong {
+    font-size: 15px;
+    text-align: center;
+}
+
+.opus-todo-calendar-header > select {
+    justify-self: end;
+    min-height: 29px;
+    min-width: 74px;
+}
+
+.opus-todo-calendar-navigation {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.opus-todo-calendar-navigation button {
+    min-width: 30px;
+    min-height: 29px;
+    padding: 3px 8px;
+}
+
+.opus-todo-calendar {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(120px, 1fr));
+    min-width: 840px;
+    overflow-x: auto;
+}
+
+.opus-todo-calendar-day,
+.opus-todo-calendar-weekday {
+    border-bottom: 1px solid var(--background-modifier-border);
+    border-right: 1px solid var(--background-modifier-border);
+}
+
+.opus-todo-calendar-weekday {
+    padding: 6px 8px;
+    background: var(--background-secondary-alt);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+}
+
+.opus-todo-calendar-weekday.day-0,
+.opus-todo-calendar-day:nth-child(7n + 8) .opus-todo-calendar-day-label {
+    color: var(--color-red);
+}
+
+.opus-todo-calendar-day {
+    min-height: 116px;
+    padding: 7px;
+    background: var(--background-primary);
+}
+
+.opus-todo-calendar.view-week .opus-todo-calendar-day {
+    min-height: 480px;
+}
+
+.opus-todo-calendar-day.is-outside {
+    background: var(--background-secondary-alt);
+    color: var(--text-faint);
+}
+
+.opus-todo-calendar-day.is-today {
+    box-shadow: inset 0 0 0 2px var(--interactive-accent);
+}
+
+.opus-todo-calendar-day-label {
+    margin-bottom: 5px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.opus-todo-calendar-item {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin: 4px 0;
+    padding: 5px 6px;
+    border: 1px solid var(--background-modifier-border);
+    border-left: 3px solid var(--text-muted);
+    border-radius: 6px;
+    background: var(--background-secondary);
+    box-shadow: none;
+    color: var(--text-normal);
+    text-align: left;
+    white-space: normal;
+}
+
+.opus-todo-calendar-item.status-pending { border-left-color: var(--text-muted); }
+.opus-todo-calendar-item.status-in-progress { border-left-color: var(--interactive-accent); }
+.opus-todo-calendar-item.status-done { border-left-color: var(--color-green); opacity: 0.78; }
+
+.opus-todo-calendar-item span,
+.opus-todo-calendar-item strong,
+.opus-todo-calendar-item small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.opus-todo-calendar-item span {
+    color: var(--interactive-accent);
+    font-size: 9.5px;
+    font-weight: 700;
+}
+
+.opus-todo-calendar-item strong {
+    margin-top: 2px;
+    font-size: 10.5px;
+    line-height: 1.35;
+}
+
+.opus-todo-calendar-item small {
+    float: right;
+    color: var(--text-faint);
+    font-size: 9px;
+}
+
+.opus-todo-calendar-empty {
+    color: var(--text-faint);
+    font-size: 10px;
+}
+
+.opus-todo-calendar-day:has(.opus-todo-calendar-item) .opus-todo-calendar-empty {
+    display: none;
+}
+
+.opus-todo-calendar.view-day {
+    grid-template-columns: 1fr;
+    min-width: 0;
+}
+
+.opus-todo-calendar.view-day .opus-todo-calendar-day {
+    min-height: 480px;
 }
 
 .opus-todo-column {
@@ -3187,6 +3389,11 @@ tr:last-child td {
     max-width: 98vw;
     height: min(900px, 94vh);
     max-height: 94vh;
+    user-select: text;
+}
+
+.opus-jira-export-modal :is(p, span, small, h4, th, td, pre) {
+    user-select: text !important;
 }
 
 .opus-jira-export-body {
@@ -3216,6 +3423,23 @@ tr:last-child td {
     font-weight: 600;
     color: var(--text-normal);
     flex-shrink: 0;
+}
+
+.opus-jira-export-preview-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.opus-jira-export-preview-heading h4 {
+    margin: 0;
+}
+
+.opus-jira-export-preview-heading select {
+    min-height: 29px;
+    padding: 3px 8px;
 }
 
 .opus-jira-export-search {
@@ -3463,6 +3687,19 @@ tr:last-child td {
     border: 1px solid var(--background-modifier-border);
     border-radius: 7px;
     background: var(--background-primary);
+    user-select: text;
+}
+
+.opus-jira-export-cell-text {
+    margin: 0;
+    padding: 14px;
+    color: var(--text-normal);
+    font-family: var(--font-text);
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    user-select: text !important;
+    white-space: pre-wrap;
 }
 
 .opus-jira-export-preview table {
@@ -8470,6 +8707,26 @@ function jiraWikiCell(value) {
     return String(value ?? "").replace(/\r?\n/g, "<br>").replace(/\|/g, "\\|");
 }
 
+function normalizeJiraDetailLines(value) {
+    return String(value || "")
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean)
+        .map(line => line.replace(/^(?:[-*•]|\d+[.)])\s+/, "").trim())
+        .filter(Boolean);
+}
+
+function jiraGroupedTodoDetails(tasks) {
+    return tasks
+        .filter(task => task.text || task.details)
+        .map((task, index) => {
+            const heading = `${index + 1}. ${task.text || "To-Do"}`;
+            const details = normalizeJiraDetailLines(task.details).map(line => `   - ${line}`);
+            return [heading, ...details].join("\n");
+        })
+        .join("\n\n");
+}
+
 function buildJiraExportPayload(tasks, fields) {
     const rows = tasks.map((task, index) => fields.map(field => jiraExportValue(field, task, index)));
     const fieldHeader = field => field.jiraLabel || field.label;
@@ -8478,6 +8735,36 @@ function buildJiraExportPayload(tasks, fields) {
         wiki: [`||${fields.map(field => jiraWikiCell(fieldHeader(field))).join("||")}||`, ...rows.map(row => `|${row.map(jiraWikiCell).join("|")}|`)].join("\n"),
         html: `<table><thead><tr>${fields.map(field => `<th data-jira-field="${escapeAttribute(field.key)}">${escapeHtml(fieldHeader(field))}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${row.map((value, index) => `<td data-jira-field="${escapeAttribute(fields[index].key)}">${escapeHtml(value).replace(/\r?\n/g, "<br>")}</td>`).join("")}</tr>`).join("")}</tbody></table>`
     };
+}
+
+function buildJiraCellTextPayload(tasks, fields) {
+    const rows = tasks.map((task, index) => ({
+        task,
+        values: Object.fromEntries(fields.map(field => [field.key, jiraExportValue(field, task, index)]))
+    }));
+    const text = rows.map(({ values }, index) => {
+        const ticket = values.ticket || "티켓 없음";
+        const description = values.description || "";
+        const lines = [`${index + 1}. ${ticket}${description ? ` : ${description}` : ""}`];
+        fields.forEach(field => {
+            if (["number", "ticket", "description"].includes(field.key)) return;
+            const value = values[field.key];
+            if (!value) return;
+            if (field.key === "todoDetails") {
+                String(value).split(/\r?\n/).forEach(line => lines.push(`   ${line}`));
+                return;
+            }
+            if (field.key === "todo") {
+                normalizeJiraDetailLines(value).forEach(line => lines.push(`   - ${line}`));
+                return;
+            }
+            const valueLines = String(value).split(/\r?\n/).filter(Boolean);
+            lines.push(`   - ${field.jiraLabel || field.label}: ${valueLines.shift() || ""}`);
+            valueLines.forEach(line => lines.push(`     ${line}`));
+        });
+        return lines.join("\n");
+    }).join("\n\n");
+    return { rows: rows.map(row => fields.map(field => row.values[field.key])), text };
 }
 
 function collapseJiraTasksByTicket(tasks) {
@@ -8496,8 +8783,8 @@ function collapseJiraTasksByTicket(tasks) {
         return {
             ...group[0],
             status,
-            text: group.map(task => task.text).filter(Boolean).map(text => `• ${text}`).join("\n"),
-            details: group.map(task => task.details).filter(Boolean).map(text => `• ${text}`).join("\n"),
+            text: group.map((task, index) => `${index + 1}. ${task.text}`).filter(Boolean).join("\n"),
+            details: jiraGroupedTodoDetails(group),
             dueDate: [...new Set(group.map(task => task.dueDate).filter(Boolean))].join("\n"),
             dateTime: [...new Set(group.map(task => task.dateTime).filter(Boolean))].join("\n"),
             completedAt: [...new Set(group.map(task => task.completedAt).filter(Boolean))].join("\n"),
@@ -8515,6 +8802,10 @@ async function copyJiraExportPayload(payload) {
     } else {
         await navigator.clipboard.writeText(payload.wiki);
     }
+}
+
+async function copyJiraCellTextPayload(payload) {
+    await navigator.clipboard.writeText(payload.text);
 }
 
 function openJiraExportModal() {
@@ -8560,6 +8851,7 @@ function openJiraExportModal() {
     let excludeCompleted = false;
     let collapseSameTicket = true;
     let translateTodoToEnglish = false;
+    let exportFormat = "table";
     let translationWorking = false;
     const jiraEnglishCache = new Map();
     const expandedTicketIds = new Set();
@@ -8649,7 +8941,19 @@ function openJiraExportModal() {
     fieldPanel.append(translationBox, fieldsEl);
     const previewPanel = document.createElement("section");
     previewPanel.className = "opus-jira-export-panel opus-jira-export-preview-panel";
-    previewPanel.innerHTML = '<h4>3. 미리보기</h4>';
+    const previewHeading = document.createElement("div");
+    previewHeading.className = "opus-jira-export-preview-heading";
+    const previewTitle = document.createElement("h4");
+    previewTitle.textContent = "3. 미리보기";
+    const formatSelect = document.createElement("select");
+    [["table", "Jira 표"], ["cellText", "한 셀용 텍스트"]].forEach(([value, label]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        formatSelect.appendChild(option);
+    });
+    previewHeading.append(previewTitle, formatSelect);
+    previewPanel.appendChild(previewHeading);
     const preview = document.createElement("div");
     preview.className = "opus-jira-export-preview";
     previewPanel.appendChild(preview);
@@ -8749,9 +9053,16 @@ function openJiraExportModal() {
             ? `선택 ${selected.length}개 · 티켓 ${tasks.length}건으로 묶음 · 필드 ${fields.length}개`
             : `선택 ${tasks.length}개 · 필드 ${fields.length}개`;
         copyButton.disabled = translationWorking || !tasks.length || !fields.length;
-        preview.innerHTML = tasks.length && fields.length
-            ? buildJiraExportPayload(tasks.slice(0, 30), fields).html
-            : '<div class="opus-jira-export-empty">To-Do와 필드를 선택해 주세요.</div>';
+        if (!tasks.length || !fields.length) {
+            preview.innerHTML = '<div class="opus-jira-export-empty">To-Do와 필드를 선택해 주세요.</div>';
+        } else if (exportFormat === "cellText") {
+            const pre = document.createElement("pre");
+            pre.className = "opus-jira-export-cell-text";
+            pre.textContent = buildJiraCellTextPayload(tasks.slice(0, 30), fields).text;
+            preview.replaceChildren(pre);
+        } else {
+            preview.innerHTML = buildJiraExportPayload(tasks.slice(0, 30), fields).html;
+        }
     }
     function renderFields() {
         fieldsEl.innerHTML = "";
@@ -8870,6 +9181,11 @@ function openJiraExportModal() {
     endInput.addEventListener("change", () => { endDate = endInput.value; renderTasks(); renderPreview(); });
     completedCheckbox.addEventListener("change", () => { excludeCompleted = completedCheckbox.checked; renderTasks(); renderPreview(); });
     collapseCheckbox.addEventListener("change", () => { collapseSameTicket = collapseCheckbox.checked; renderPreview(); });
+    formatSelect.addEventListener("change", () => {
+        exportFormat = formatSelect.value;
+        copyButton.textContent = exportFormat === "cellText" ? "한 셀용 텍스트 복사" : "Jira 표 복사";
+        renderPreview();
+    });
     translationCheckbox.addEventListener("change", async () => {
         translateTodoToEnglish = translationCheckbox.checked;
         if (translateTodoToEnglish) await ensureEnglishTranslations();
@@ -8881,9 +9197,14 @@ function openJiraExportModal() {
     copyButton.addEventListener("click", async () => {
         try {
             if (!await ensureEnglishTranslations()) return;
-            const payload = buildJiraExportPayload(exportTasks(), orderedFields());
-            await copyJiraExportPayload(payload);
-            new Notice(`Jira 표 ${payload.rows.length}건을 복사했습니다.`);
+            const tasks = exportTasks();
+            const fields = orderedFields();
+            const payload = exportFormat === "cellText"
+                ? buildJiraCellTextPayload(tasks, fields)
+                : buildJiraExportPayload(tasks, fields);
+            if (exportFormat === "cellText") await copyJiraCellTextPayload(payload);
+            else await copyJiraExportPayload(payload);
+            new Notice(`${exportFormat === "cellText" ? "한 셀용 텍스트" : "Jira 표"} ${payload.rows.length}건을 복사했습니다.`);
         } catch (error) {
             new Notice(`Jira 표 복사 실패: ${error.message || error}`);
         }
@@ -8894,6 +9215,172 @@ function openJiraExportModal() {
     syncTranslationOption();
     renderPreview();
     taskSearch.focus();
+}
+
+function todoCalendarDate(value) {
+    const text = String(value || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+    const [year, month, day] = text.split("-").map(Number);
+    const date = new Date(year, month - 1, day);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function todoCalendarKey(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
+function moveTodoCalendarAnchor(anchor, view, direction) {
+    const next = new Date(anchor);
+    if (view === "month") next.setMonth(next.getMonth() + direction);
+    else if (view === "week") next.setDate(next.getDate() + (7 * direction));
+    else next.setDate(next.getDate() + direction);
+    return next;
+}
+
+function renderTodoCalendar(tasks) {
+    const shell = document.createElement("section");
+    shell.className = "opus-todo-calendar-shell";
+    const header = document.createElement("div");
+    header.className = "opus-todo-calendar-header";
+    const navigation = document.createElement("div");
+    navigation.className = "opus-todo-calendar-navigation";
+    const previous = document.createElement("button");
+    previous.type = "button";
+    previous.textContent = "‹";
+    previous.title = "이전 기간";
+    const todayButton = document.createElement("button");
+    todayButton.type = "button";
+    todayButton.textContent = "오늘";
+    const next = document.createElement("button");
+    next.type = "button";
+    next.textContent = "›";
+    next.title = "다음 기간";
+    navigation.append(previous, todayButton, next);
+    const title = document.createElement("strong");
+    const viewSelect = document.createElement("select");
+    [["month", "월"], ["week", "주"], ["day", "일"]].forEach(([value, label]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        option.selected = settings.todoCalendarView === value;
+        viewSelect.appendChild(option);
+    });
+    header.append(navigation, title, viewSelect);
+    shell.appendChild(header);
+
+    const now = new Date();
+    const todayKey = todoCalendarKey(now);
+    const anchor = todoCalendarDate(settings.todoCalendarAnchor) || now;
+    const view = settings.todoCalendarView || "month";
+    const dates = [];
+    if (view === "month") {
+        title.textContent = `${anchor.getFullYear()}년 ${anchor.getMonth() + 1}월`;
+        const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+        const gridStart = new Date(first);
+        gridStart.setDate(1 - first.getDay());
+        const last = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+        const total = Math.ceil((first.getDay() + last.getDate()) / 7) * 7;
+        for (let index = 0; index < total; index += 1) {
+            const date = new Date(gridStart);
+            date.setDate(gridStart.getDate() + index);
+            dates.push(date);
+        }
+    } else if (view === "week") {
+        const start = new Date(anchor);
+        start.setDate(anchor.getDate() - anchor.getDay());
+        const end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        title.textContent = `${start.getMonth() + 1}월 ${start.getDate()}일 – ${end.getMonth() + 1}월 ${end.getDate()}일`;
+        for (let index = 0; index < 7; index += 1) {
+            const date = new Date(start);
+            date.setDate(start.getDate() + index);
+            dates.push(date);
+        }
+    } else {
+        title.textContent = `${anchor.getFullYear()}년 ${anchor.getMonth() + 1}월 ${anchor.getDate()}일`;
+        dates.push(anchor);
+    }
+
+    const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
+    const grid = document.createElement("div");
+    grid.className = `opus-todo-calendar view-${view}`;
+    if (view !== "day") {
+        weekdays.forEach((weekday, index) => {
+            const label = document.createElement("div");
+            label.className = `opus-todo-calendar-weekday day-${index}`;
+            label.textContent = weekday;
+            grid.appendChild(label);
+        });
+    }
+    const tasksByDate = new Map();
+    tasks.forEach(task => {
+        const key = String(task.dueDate || "").slice(0, 10);
+        if (!key) return;
+        if (!tasksByDate.has(key)) tasksByDate.set(key, []);
+        tasksByDate.get(key).push(task);
+    });
+    dates.forEach(date => {
+        const key = todoCalendarKey(date);
+        const day = document.createElement("div");
+        day.className = "opus-todo-calendar-day";
+        if (key === todayKey) day.classList.add("is-today");
+        if (view === "month" && date.getMonth() !== anchor.getMonth()) day.classList.add("is-outside");
+        const dayLabel = document.createElement("div");
+        dayLabel.className = "opus-todo-calendar-day-label";
+        dayLabel.textContent = view === "day" ? `${weekdays[date.getDay()]}요일` : String(date.getDate());
+        day.appendChild(dayLabel);
+        const dayTasks = (tasksByDate.get(key) || []).sort((left, right) =>
+            String(left.dueDate || "").localeCompare(String(right.dueDate || ""))
+        );
+        dayTasks.forEach(task => {
+            const item = document.createElement("button");
+            item.type = "button";
+            item.className = `opus-todo-calendar-item status-${task.status}`;
+            item.title = `${task.ticketId} · ${task.text}`;
+            const ticket = document.createElement("span");
+            ticket.textContent = task.ticketId;
+            const text = document.createElement("strong");
+            text.textContent = task.text;
+            const time = String(task.dueDate || "").slice(11, 16);
+            if (time) {
+                const timeLabel = document.createElement("small");
+                timeLabel.textContent = time;
+                item.appendChild(timeLabel);
+            }
+            item.append(ticket, text);
+            item.addEventListener("click", () => openTodoDetailModal(task));
+            day.appendChild(item);
+        });
+        if (!dayTasks.length) {
+            const empty = document.createElement("span");
+            empty.className = "opus-todo-calendar-empty";
+            empty.textContent = "일정 없음";
+            day.appendChild(empty);
+        }
+        grid.appendChild(day);
+    });
+    shell.appendChild(grid);
+    const move = direction => {
+        settings.todoCalendarAnchor = todoCalendarKey(moveTodoCalendarAnchor(anchor, view, direction));
+        saveSettings();
+        renderTodoBoard();
+    };
+    previous.addEventListener("click", () => move(-1));
+    next.addEventListener("click", () => move(1));
+    todayButton.addEventListener("click", () => {
+        settings.todoCalendarAnchor = todayKey;
+        saveSettings();
+        renderTodoBoard();
+    });
+    viewSelect.addEventListener("change", () => {
+        settings.todoCalendarView = viewSelect.value;
+        saveSettings();
+        renderTodoBoard();
+    });
+    return shell;
 }
 
 function renderTodoBoard() {
@@ -8933,6 +9420,8 @@ function renderTodoBoard() {
     [
         ["all", "전체"],
         ["open", "미완료"],
+        ["pending", "진행 전"],
+        ["in-progress", "진행 중"],
         ["today", "오늘까지"],
         ["overdue", "기한 지남"],
         ["done", "완료"]
@@ -9003,6 +9492,23 @@ function renderTodoBoard() {
     const boardActions = document.createElement("div");
     boardActions.className = "opus-todo-board-actions";
 
+    const displaySwitch = document.createElement("div");
+    displaySwitch.className = "opus-todo-display-switch";
+    [["board", "보드"], ["calendar", "달력"]].forEach(([value, label]) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.classList.toggle("active", settings.todoDisplayMode === value);
+        button.addEventListener("click", () => {
+            settings.todoDisplayMode = value;
+            if (value === "calendar" && !settings.todoCalendarAnchor) settings.todoCalendarAnchor = formatDateTime().slice(0, 10);
+            saveSettings();
+            renderTodoBoard();
+        });
+        displaySwitch.appendChild(button);
+    });
+    boardActions.appendChild(displaySwitch);
+
     const addButton = document.createElement("button");
     addButton.className = "opus-todo-add-button";
     addButton.textContent = "＋ 새 To-Do";
@@ -9027,7 +9533,7 @@ function renderTodoBoard() {
     });
     groupToggle.appendChild(groupCheckbox);
     groupToggle.appendChild(document.createTextNode("티켓별로 구분"));
-    boardActions.appendChild(groupToggle);
+    if (settings.todoDisplayMode !== "calendar") boardActions.appendChild(groupToggle);
     toolbar.appendChild(boardActions);
     todoBoardArea.appendChild(toolbar);
 
@@ -9048,11 +9554,28 @@ function renderTodoBoard() {
         if (settings.todoDateFrom && (!taskDate || taskDate < settings.todoDateFrom)) return false;
         if (settings.todoDateTo && (!taskDate || taskDate > settings.todoDateTo)) return false;
         if (quickFilter === "open") return task.status !== "done";
+        if (quickFilter === "pending") return task.status === "pending";
+        if (quickFilter === "in-progress") return task.status === "in-progress";
         if (quickFilter === "today") return task.status !== "done" && task.dueDate && task.dueDate.slice(0, 10) <= today;
         if (quickFilter === "overdue") return task.status !== "done" && task.dueDate && task.dueDate.slice(0, 10) < today;
         if (quickFilter === "done") return task.status === "done";
         return true;
     });
+
+    const counts = Object.fromEntries(TODO_STATUSES.map(status => [
+        status.key,
+        filteredTodoItems.filter(task => task.status === status.key).length
+    ]));
+    const resultLabel = filteredTodoItems.length === todoItems.length
+        ? `전체 ${todoItems.length}개`
+        : `검색 ${filteredTodoItems.length}개 / 전체 ${todoItems.length}개`;
+
+    if (settings.todoDisplayMode === "calendar") {
+        todoBoardArea.appendChild(renderTodoCalendar(filteredTodoItems));
+        const scheduled = filteredTodoItems.filter(task => todoCalendarDate(task.dueDate)).length;
+        summary.textContent = `${resultLabel} · 달력 표시 ${scheduled}개 · 진행 전 ${counts.pending} · 진행 중 ${counts["in-progress"]} · 완료 ${counts.done}`;
+        return;
+    }
 
     const board = document.createElement("div");
     board.className = "opus-todo-board";
@@ -9176,13 +9699,6 @@ function renderTodoBoard() {
     }
 
     todoBoardArea.appendChild(board);
-    const counts = Object.fromEntries(TODO_STATUSES.map(status => [
-        status.key,
-        filteredTodoItems.filter(task => task.status === status.key).length
-    ]));
-    const resultLabel = filteredTodoItems.length === todoItems.length
-        ? `전체 ${todoItems.length}개`
-        : `검색 ${filteredTodoItems.length}개 / 전체 ${todoItems.length}개`;
     summary.textContent = `${resultLabel} · 진행 전 ${counts.pending} · 진행 중 ${counts["in-progress"]} · 완료 ${counts.done}`;
 }
 
