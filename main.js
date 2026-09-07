@@ -2590,6 +2590,12 @@ class FirstRunSetupModal extends Modal {
       .addToggle((toggle) => toggle
         .setValue(this.readingViewDefaultValue)
         .onChange((value) => { this.readingViewDefaultValue = value; }));
+    new Setting(contentEl)
+      .setName("모든 파일 형식 표시")
+      .setDesc("assets 폴더의 Excel·Word·PowerPoint 파일을 파일 탐색기와 플러그인 문서 검색에서 찾을 수 있도록 활성화합니다.")
+      .addToggle((toggle) => toggle
+        .setValue(true)
+        .setDisabled(true));
     const quickApply = contentEl.createEl("button", {
       cls: this.plugin.isReadingViewDefault() ? "" : "mod-cta",
       text: this.plugin.isReadingViewDefault() ? "현재 읽기 화면으로 설정됨" : "지금 읽기 화면을 기본값으로 적용"
@@ -2597,8 +2603,9 @@ class FirstRunSetupModal extends Modal {
     quickApply.addEventListener("click", async () => {
       try {
         await this.plugin.setReadingViewDefault(true, { notify: false });
+        await this.plugin.setShowAllFileTypes(true, { notify: false });
         this.readingViewDefaultValue = true;
-        this.statusMessage = "새 탭 기본 화면을 읽기 화면으로 설정했습니다.";
+        this.statusMessage = "읽기 화면과 모든 파일 형식 표시를 적용했습니다.";
       } catch (error) {
         this.statusMessage = `화면 설정 실패: ${error.message || error}`;
       }
@@ -2606,7 +2613,7 @@ class FirstRunSetupModal extends Modal {
     });
     contentEl.createDiv({
       cls: "snm-setup-note",
-      text: "이미 열려 있는 탭의 화면은 바뀌지 않습니다. 설정 후 새 탭을 열거나 기존 탭을 다시 열어 확인해 주세요."
+      text: "Excel 파일은 Obsidian 파일 탐색기에 표시되며 클릭하면 시스템 기본 앱에서 열립니다. 이미 열려 있는 탭의 화면은 바뀌지 않습니다. 설정 후 새 탭을 열거나 기존 탭을 다시 열어 확인해 주세요."
     });
   }
 
@@ -2820,7 +2827,10 @@ class FirstRunSetupModal extends Modal {
 
   async saveCurrentStep() {
     if (this.step === 0) return this.saveRootFolder();
-    if (this.step === 1) return this.plugin.setReadingViewDefault(this.readingViewDefaultValue, { notify: false });
+    if (this.step === 1) {
+      await this.plugin.setReadingViewDefault(this.readingViewDefaultValue, { notify: false });
+      return this.plugin.setShowAllFileTypes(true, { notify: false });
+    }
     if (this.step === 3) return this.saveServiceNow();
     if (this.step === 4 && this.googleJsonValue.trim()) {
       await this.plugin.applyGoogleOAuthJson(JSON.parse(this.googleJsonValue));
@@ -3611,6 +3621,20 @@ class CltServiceNowWorkNotes extends Plugin {
     await Promise.resolve(this.app.vault.setConfig("defaultViewMode", enabled ? "preview" : "source"));
     if (options.notify !== false) {
       new Notice(`새 탭 기본 화면을 ${enabled ? "읽기 화면" : "편집 화면"}으로 변경했습니다. 이미 열린 탭에는 적용되지 않습니다.`, 6000);
+    }
+  }
+
+  isShowingAllFileTypes() {
+    return this.app.vault.getConfig?.("showUnsupportedFiles") === true;
+  }
+
+  async setShowAllFileTypes(enabled, options = {}) {
+    if (typeof this.app.vault.setConfig !== "function") {
+      throw new Error("현재 Obsidian 버전에서는 모든 파일 형식 표시를 자동으로 변경할 수 없습니다. 설정 → 파일 및 링크 → 모든 파일 형식 표시를 직접 켜 주세요.");
+    }
+    await Promise.resolve(this.app.vault.setConfig("showUnsupportedFiles", Boolean(enabled)));
+    if (options.notify !== false) {
+      new Notice(`모든 파일 형식 표시를 ${enabled ? "활성화" : "비활성화"}했습니다.`, 5000);
     }
   }
 

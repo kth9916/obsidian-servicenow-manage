@@ -33,6 +33,15 @@ for (const marker of [
   if (!main.includes(marker)) throw new Error(`Missing improved setup marker: ${marker}`);
 }
 
+for (const marker of [
+  "모든 파일 형식 표시",
+  "setShowAllFileTypes(true, { notify: false })",
+  'setConfig("showUnsupportedFiles", Boolean(enabled))',
+  "assets 폴더의 Excel·Word·PowerPoint 파일"
+]) {
+  if (!main.includes(marker)) throw new Error(`Missing all-file-types setup marker: ${marker}`);
+}
+
 if (/업무자료 팩|조직 업무자료/.test(main)) throw new Error("Legacy work-guide-pack labels remain in the UI");
 
 for (const marker of [".snm-setup-modal", ".snm-setup-footer", ".snm-setup-summary", ".snm-setup-dependency-card"]) {
