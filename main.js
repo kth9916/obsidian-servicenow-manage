@@ -427,6 +427,10 @@ function restoreUrls(text, urls) {
   urls.forEach((url, index) => {
     restored = restored.replaceAll(`__SNM_URL_${index}__`, url);
   });
+  const missing = urls.filter((url) => !restored.includes(url));
+  if (missing.length) {
+    restored = [restored.trimEnd(), ...missing].filter(Boolean).join("\n");
+  }
   return restored;
 }
 
@@ -7009,7 +7013,16 @@ class CltServiceNowWorkNotes extends Plugin {
       ];
       for (const [field, label] of summaryFields) {
         const content = ticket[field];
-        if (!content || ticket.translations[field]?.[target]) continue;
+        if (!content) continue;
+        const existing = ticket.translations[field]?.[target];
+        if (existing) {
+          const repaired = restoreUrls(existing, protectUrls(content).urls);
+          if (repaired !== existing) {
+            ticket.translations[field][target] = repaired;
+            completed++;
+          }
+          continue;
+        }
         const { masked, urls } = protectUrls(content);
         try {
           const output = await api.translate(masked, "auto", target);
@@ -7031,7 +7044,16 @@ class CltServiceNowWorkNotes extends Plugin {
       }
       if (!stoppedEarly) {
         for (const entry of ticket.entries || []) {
-          if (entry.type === "Attachment" || entry.translations?.[target] || !entry.content) continue;
+          if (entry.type === "Attachment" || !entry.content) continue;
+          const existing = entry.translations?.[target];
+          if (existing) {
+            const repaired = restoreUrls(existing, protectUrls(entry.content).urls);
+            if (repaired !== existing) {
+              entry.translations[target] = repaired;
+              completed++;
+            }
+            continue;
+          }
           const { masked, urls } = protectUrls(entry.content);
           try {
             const output = await api.translate(masked, "auto", target);
