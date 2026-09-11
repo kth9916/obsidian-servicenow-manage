@@ -2010,6 +2010,7 @@ class WorkNotesRenderChild extends MarkdownRenderChild {
   onload() {
     this.plugin.registerView(this.ticketId, this);
     this.render();
+    this.plugin.scheduleViewRefresh(this.ticketId, "work-notes");
   }
 
   onunload() {
@@ -2154,7 +2155,14 @@ class WorkNotesRenderChild extends MarkdownRenderChild {
       const option = language.createEl("option", { value, text: label });
       option.selected = value === this.state.language;
     });
-    language.addEventListener("change", () => { this.state.language = language.value; this.render(); });
+    language.addEventListener("change", () => {
+      const selectedLanguage = language.value;
+      this.state.language = selectedLanguage;
+      this.render();
+      if (selectedLanguage !== "original") {
+        void this.plugin.translateTicket(this.ticketId, selectedLanguage, { notify: true });
+      }
+    });
 
     const fromWrap = filters.createDiv({ cls: "clt-sn-date-field" });
     fromWrap.createEl("span", { text: "시작일" });
@@ -2327,6 +2335,7 @@ class TicketStatusRenderChild extends MarkdownRenderChild {
   onload() {
     this.plugin.registerView(this.ticketId, this);
     this.render();
+    this.plugin.scheduleViewRefresh(this.ticketId, "root");
   }
   onunload() {
     this.plugin.unregisterView(this.ticketId, this);
@@ -3153,7 +3162,7 @@ class WorkNotesSettingTab extends PluginSettingTab {
 
     const statusSyncSetting = new Setting(containerEl)
       .setName("티켓 상태 하루 1회 자동 갱신")
-      .setDesc(`Obsidian이 열려 있을 때 ${this.plugin.settings.rootFolder}/티켓의 상태를 지정 시간 이후 하루 한 번 갱신합니다.`)
+      .setDesc(`Obsidian이 열려 있을 때 ${this.plugin.settings.rootFolder}/티켓의 상태·기본정보·워킹노트를 지정 시간 이후 하루 한 번 갱신합니다.`)
       .addToggle((toggle) => toggle
         .setValue(this.plugin.settings.autoStatusSync)
         .onChange(async (value) => {
@@ -3176,7 +3185,7 @@ class WorkNotesSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("워킹노트 자동 갱신")
-      .setDesc("Obsidian이 열려 있을 때 등록된 티켓의 워킹노트를 자동 갱신합니다.")
+      .setDesc("Obsidian이 열려 있을 때 등록된 티켓의 상태·기본정보와 워킹노트를 자동 갱신합니다.")
       .addToggle((toggle) => toggle
         .setValue(this.plugin.settings.autoSync)
         .onChange(async (value) => {
@@ -3186,7 +3195,7 @@ class WorkNotesSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("워킹노트 매 정각 갱신")
-      .setDesc("워킹노트 자동 갱신이 켜진 경우 매 정각에 순차적으로 갱신합니다.")
+      .setDesc("워킹노트 자동 갱신이 켜진 경우 상태·기본정보·워킹노트를 매 정각에 순차적으로 갱신합니다.")
       .addToggle((toggle) => toggle
         .setValue(this.plugin.settings.syncAtTopOfHour)
         .onChange(async (value) => {
@@ -3196,7 +3205,7 @@ class WorkNotesSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("실행 시 누락분 갱신")
-      .setDesc("마지막 성공 이후 날짜가 바뀌었으면 Obsidian 실행 후 한 번 갱신합니다.")
+      .setDesc("마지막 성공 이후 날짜가 바뀌었으면 Obsidian 실행 후 상태·기본정보·워킹노트를 한 번 갱신합니다.")
       .addToggle((toggle) => toggle
         .setValue(this.plugin.settings.catchUpOnOpen)
         .onChange(async (value) => {
@@ -3373,6 +3382,8 @@ class CltServiceNowWorkNotes extends Plugin {
     this.linkingLocalBs = new Set();
     this.ticketNoticeQueue = [];
     this.ticketNoticeTimer = null;
+    this.viewRefreshTimers = new Map();
+    this.lastViewRefreshAt = new Map();
     this.workNotesSettingTab = null;
 
     this.addSettingTab(new WorkNotesSettingTab(this.app, this));
@@ -3594,6 +3605,8 @@ class CltServiceNowWorkNotes extends Plugin {
 
   onunload() {
     if (this.ticketNoticeTimer) window.clearTimeout(this.ticketNoticeTimer);
+    this.viewRefreshTimers?.forEach((timer) => window.clearTimeout(timer));
+    this.viewRefreshTimers?.clear();
     if (this.oauthServer) {
       try { this.oauthServer.close(); } catch (_) { /* no-op */ }
     }
@@ -3700,6 +3713,24 @@ class CltServiceNowWorkNotes extends Plugin {
 
   refreshViews(ticketId) {
     this.views.get(ticketId)?.forEach((view) => view.render());
+  }
+
+  scheduleViewRefresh(ticketId, kind) {
+    const normalized = normalizeTicketId(ticketId);
+    if (!normalized) return;
+    const key = `${kind}:${normalized}`;
+    const previousTimer = this.viewRefreshTimers.get(key);
+    if (previousTimer) window.clearTimeout(previousTimer);
+    const timer = window.setTimeout(() => {
+      this.viewRefreshTimers.delete(key);
+      const now = Date.now();
+      const lastRefresh = Number(this.lastViewRefreshAt.get(key) || 0);
+      if (now - lastRefresh < 60 * 1000) return;
+      this.lastViewRefreshAt.set(key, now);
+      if (kind === "work-notes") void this.syncTicket(normalized);
+      else void this.syncTicketStatus(normalized);
+    }, 300);
+    this.viewRefreshTimers.set(key, timer);
   }
 
   ticketIdFromPath(path) {
@@ -6832,6 +6863,27 @@ class CltServiceNowWorkNotes extends Plugin {
     return { total: files.length, changed, unchanged: results.length - changed, failed };
   }
 
+  async syncAllTickets(options = {}) {
+    const files = this.rootTicketFiles();
+    let completed = 0;
+    let failed = 0;
+    for (const file of files) {
+      const ticketId = this.rootTicketIdFromFile(file);
+      try {
+        const fresh = await this.syncTicket(ticketId);
+        if (fresh) completed += 1;
+        else failed += 1;
+      } catch (error) {
+        failed += 1;
+        console.error(`[ServiceNow Manage] ${ticketId} 전체 갱신 실패`, error);
+      }
+    }
+    if (options.notify) {
+      new Notice(`ServiceNow 전체 갱신 완료 · 상태·기본정보·워킹노트 ${completed}건${failed ? ` · 실패 ${failed}건` : ""}`, 9000);
+    }
+    return { total: files.length, completed, failed };
+  }
+
   async syncTicket(ticketId, options = {}) {
     const normalized = normalizeTicketId(ticketId);
     if (!normalized || this.syncing.has(normalized)) return;
@@ -7123,10 +7175,10 @@ class CltServiceNowWorkNotes extends Plugin {
     if (currentTime < configuredTime) return;
     this.dailyStatusSyncing = true;
     try {
-      const result = await this.syncAllTicketStatuses();
+      const result = await this.syncAllTickets();
       this.settings.lastStatusSyncDate = today;
       await this.savePluginData();
-      new Notice(`일일 ServiceNow 상태 갱신 완료 · 변경 ${result.changed}건${result.failed ? ` · 실패 ${result.failed}건` : ""}`, 8000);
+      new Notice(`일일 ServiceNow 전체 갱신 완료 · 상태·기본정보·워킹노트 ${result.completed}건${result.failed ? ` · 실패 ${result.failed}건` : ""}`, 8000);
     } finally {
       this.dailyStatusSyncing = false;
     }
