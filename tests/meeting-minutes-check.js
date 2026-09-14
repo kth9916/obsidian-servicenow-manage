@@ -97,13 +97,13 @@ const parser = Function(`
   ${functionSource("buildMeetingAnalysisPrompt")}
   return { parseMeetingDate, buildMeetingNoteMarkdown, buildMeetingAnalysisPrompt };
 `)();
-if (parser.parseMeetingDate("CR0022122 회의 - 2026_09_11 09_30 KST.md") !== "2026-09-11T09:30") {
+if (parser.parseMeetingDate("CR000000 회의 - 2026_09_11 09_30 KST.md") !== "2026-09-11T09:30") {
   throw new Error("Gemini filename date/time parsing regressed");
 }
-const sample = `# **📝 회의록**\n\n9월 11, 2026\n\n## **CR0022122 회의**\n\n초대됨 Amy 김미선\n\n### **요약**\n\n핵심 요약\n\n### **결정**\n\n## 의견 일치\n\n* API 전송 합의\n\n### **다음 단계**\n\n- [ ] 담당자 확인\n\n### **상세정보**\n\n* 상세 논의\n\n# **📖 스크립트**\n\n### **00:00:31**\n\n**Amy：** 테스트`;
+const sample = `# **📝 회의록**\n\n9월 11, 2026\n\n## **CR000000 회의**\n\n초대됨 사용자 A\n\n### **요약**\n\n핵심 요약\n\n### **결정**\n\n## 의견 일치\n\n* API 전송 합의\n\n### **다음 단계**\n\n- [ ] 담당자 확인\n\n### **상세정보**\n\n* 상세 논의\n\n# **📖 스크립트**\n\n### **00:00:31**\n\n**사용자 A：** 테스트`;
 const generated = parser.buildMeetingNoteMarkdown({
-  ticketId: "CR0022122",
-  sourceName: "CR0022122 회의 - 2026_09_11 09_30 KST.md",
+  ticketId: "CR000000",
+  sourceName: "CR000000 회의 - 2026_09_11 09_30 KST.md",
   sourceText: sample
 });
 for (const expected of ["meeting_date: \"2026-09-11T09:30\"", "meeting_kind: gemini", "회의 핵심", "API 전송 합의", "담당자 확인", "상세 논의", "스크립트 펼치기"]) {
@@ -111,9 +111,9 @@ for (const expected of ["meeting_date: \"2026-09-11T09:30\"", "meeting_kind: gem
 }
 
 const analysisPrompt = parser.buildMeetingAnalysisPrompt({
-  ticketId: "CR0022122",
-  ticketPath: "EBKG/티켓/CR0022122/CR0022122.md",
-  outputFolder: "EBKG/티켓/CR0022122/회의록",
+  ticketId: "CR000000",
+  ticketPath: "EBKG/티켓/CR000000/CR000000.md",
+  outputFolder: "EBKG/티켓/CR000000/회의록",
   meetings: [
     { meetingDate: "2026-09-11T09:30", title: "두 번째", file: { path: "second.md" }, content: "두 번째 회의 원문" },
     { meetingDate: "2026-09-01T10:00", title: "첫 번째", file: { path: "first.md" }, content: "첫 번째 회의 원문" }
