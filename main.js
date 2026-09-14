@@ -1222,28 +1222,39 @@ function buildMeetingNoteMarkdown({ ticketId, sourceName, sourceText, meetingDat
     `\n${sections.join("\n\n")}\n`;
 }
 
-function buildMeetingAnalysisPrompt({ ticketId, meetings, ticketPath, outputFolder }) {
+function buildMeetingAnalysisPrompt({ ticketId, meetings, ticketPath, outputFolder, baseline = null }) {
   const ordered = [...(meetings || [])].sort((left, right) =>
     String(left.meetingDate || "").localeCompare(String(right.meetingDate || ""))
   );
-  const start = String(ordered[0]?.meetingDate || "").slice(0, 10) || "시작일";
-  const end = String(ordered.at(-1)?.meetingDate || "").slice(0, 10) || "종료일";
+  const start = String(baseline?.meetingStart || baseline?.meetingDate || ordered[0]?.meetingDate || "").slice(0, 10) || "시작일";
+  const end = String(ordered.at(-1)?.meetingDate || baseline?.meetingEnd || baseline?.meetingDate || "").slice(0, 10) || "종료일";
   const sources = ordered.map((meeting, index) => [
     `## 회의록 ${index + 1} · ${meeting.meetingDate || "일시 미지정"} · ${meeting.title}`,
     `Obsidian 경로: ${meeting.file?.path || ""}`,
     "",
     String(meeting.content || "(파일 내용을 직접 읽으세요.)").trim()
   ].join("\n")).join("\n\n---\n\n");
+  const baselineSource = baseline ? [
+    "이전 분석 자료:",
+    `분석 범위: ${baseline.meetingStart || "시작일 미지정"} ~ ${baseline.meetingEnd || baseline.meetingDate || "종료일 미지정"}`,
+    `Obsidian 경로: ${baseline.file?.path || ""}`,
+    "",
+    String(baseline.content || "(파일 내용을 직접 읽으세요.)").trim(),
+    "",
+    "새로 추가된 회의록 원문:"
+  ] : ["선택된 회의록 원문:"];
   return [
     `${ticketId} 회의록 종합 분석 요청`,
     "",
     `분석 기간: ${start} ~ ${end}`,
     `티켓 원본 노트: ${ticketPath}`,
     "",
-    "아래 회의록을 반드시 오래된 순서부터 모두 읽고, 시간 흐름에 따른 논의 변화와 현재 결론을 한 문서만으로 파악할 수 있게 분석하세요.",
+    baseline
+      ? "이전 분석 자료를 기준점으로 사용하고 새로 추가된 회의록만 이어서 분석하세요. 이전 분석을 처음부터 재작성하지 말고, 새 회의로 인해 변경된 결정·미결 사항·위험·할 일을 반영한 최신 누적 분석본을 만드세요."
+      : "아래 회의록을 반드시 오래된 순서부터 모두 읽고, 시간 흐름에 따른 논의 변화와 현재 결론을 한 문서만으로 파악할 수 있게 분석하세요.",
     "추측하지 말고 회의록에 명시된 사실, 결정, 미결 사항을 구분하세요. 서로 충돌하는 내용은 날짜와 발언 근거를 함께 표시하세요.",
     "",
-    "선택된 회의록 원문:",
+    ...baselineSource,
     sources,
     "",
     "필수 구성:",
@@ -1834,8 +1845,10 @@ class MeetingAnalysisPromptModal extends Modal {
   onOpen() {
     this.modalEl.addClass("clt-meeting-analysis-modal");
     this.titleEl.setText(`${this.ticketId} AI 회의록 분석`);
-    const meetings = this.plugin.listTicketMeetings(this.ticketId, "asc")
-      .filter((meeting) => meeting.kind !== "analysis");
+    const allMeetings = this.plugin.listTicketMeetings(this.ticketId, "asc");
+    const meetings = allMeetings.filter((meeting) => meeting.kind !== "analysis");
+    const baseline = this.plugin.latestMeetingAnalysis(this.ticketId);
+    let useBaseline = Boolean(baseline);
     this.contentEl.createDiv({
       cls: "clt-meeting-import-lead",
       text: "분석에 포함할 회의록을 선택하세요. 기본적으로 전체 회의록이 선택됩니다."
@@ -1847,7 +1860,10 @@ class MeetingAnalysisPromptModal extends Modal {
       const checkbox = row.createEl("input", { type: "checkbox" });
       checkbox.checked = true;
       const body = row.createSpan({ cls: "clt-meeting-drive-candidate-body" });
-      body.createSpan({ cls: "clt-meeting-drive-candidate-name", text: meeting.title });
+      const name = body.createSpan({ cls: "clt-meeting-drive-candidate-name", text: meeting.title });
+      if (baseline && this.plugin.meetingCoveredByAnalysis(meeting, baseline)) {
+        name.createSpan({ cls: "clt-meeting-type-badge is-analysis", text: "이미 분석됨" });
+      }
       body.createSpan({ cls: "clt-meeting-drive-candidate-meta", text: String(meeting.meetingDate || "일시 미지정").replace("T", " ") });
       checkbox.addEventListener("change", () => {
         if (checkbox.checked) selectedPaths.add(meeting.file.path);
@@ -1855,6 +1871,17 @@ class MeetingAnalysisPromptModal extends Modal {
       });
     }
     if (!meetings.length) list.createDiv({ cls: "clt-meeting-empty", text: "분석할 Gemini 회의록이 없습니다." });
+    if (baseline) {
+      const reuse = this.contentEl.createEl("label", { cls: "clt-meeting-analysis-reuse" });
+      const checkbox = reuse.createEl("input", { type: "checkbox" });
+      checkbox.checked = true;
+      reuse.createSpan({ text: "기존 분석 자료를 기준으로 새 회의만 이어서 분석" });
+      checkbox.addEventListener("change", () => { useBaseline = checkbox.checked; });
+      this.contentEl.createDiv({
+        cls: "clt-meeting-analysis-hint",
+        text: "이미 분석된 회의록은 기존 분석 자료를 바탕으로 합니다. 이 옵션을 해제하면 선택한 원본 회의록 전체를 처음부터 다시 분석합니다."
+      });
+    }
     const details = this.contentEl.createEl("details", { cls: "clt-ai-prompt-details" });
     details.hidden = true;
     details.createEl("summary", { text: "AI 회의록 분석 프롬프트 펼치기" });
@@ -1878,7 +1905,7 @@ class MeetingAnalysisPromptModal extends Modal {
       generate.disabled = true;
       generate.setText("프롬프트 생성 중…");
       try {
-        prompt = await this.plugin.generateMeetingAnalysisPrompt(this.ticketId, selected);
+        prompt = await this.plugin.generateMeetingAnalysisPrompt(this.ticketId, selected, { useBaseline });
         content.setText(prompt);
         details.hidden = false;
         details.open = true;
@@ -1907,6 +1934,16 @@ class MeetingListModal extends Modal {
   async onOpen() {
     this.modalEl.addClass("clt-meeting-list-modal");
     this.titleEl.setText(`${this.ticketId} 회의록`);
+    const refreshIfRelevant = (file, oldPath = "") => {
+      const folder = `${this.plugin.ticketMeetingsFolder(this.ticketId)}/`;
+      if (!String(file?.path || "").startsWith(folder) && !String(oldPath || "").startsWith(folder)) return;
+      window.setTimeout(() => this.render(), 120);
+    };
+    this.registerEvent(this.app.vault.on("create", refreshIfRelevant));
+    this.registerEvent(this.app.vault.on("delete", refreshIfRelevant));
+    this.registerEvent(this.app.vault.on("rename", refreshIfRelevant));
+    this.registerEvent(this.app.vault.on("modify", refreshIfRelevant));
+    this.registerEvent(this.app.metadataCache.on("changed", refreshIfRelevant));
     await this.render();
   }
   async render() {
@@ -1921,6 +1958,8 @@ class MeetingListModal extends Modal {
     });
     const drive = actions.createEl("button", { text: "Drive에서 가져오기" });
     drive.addEventListener("click", () => new DriveMeetingCandidateModal(this.app, this.plugin, this.ticketId, () => this.render()).open());
+    const refresh = actions.createEl("button", { text: "새로고침", attr: { title: "회의록 목록 새로고침" } });
+    refresh.addEventListener("click", () => this.render());
     const add = actions.createEl("button", { text: "＋ 파일로 추가", cls: "mod-cta" });
     add.addEventListener("click", () => new MeetingImportModal(this.app, this.plugin, this.ticketId, () => this.render()).open());
     const list = this.contentEl.createDiv({ cls: "clt-meeting-list" });
@@ -2736,6 +2775,36 @@ class TicketStatusRenderChild extends MarkdownRenderChild {
   render() {
     this.containerEl.empty();
     this.plugin.renderTicketStatusControl(this.containerEl, this.ticketId);
+  }
+}
+
+class MeetingSectionRenderChild extends MarkdownRenderChild {
+  constructor(containerEl, plugin, ticketId) {
+    super(containerEl);
+    this.plugin = plugin;
+    this.ticketId = ticketId;
+    this.refreshTimer = null;
+  }
+  onload() {
+    const refreshIfRelevant = (file, oldPath = "") => {
+      const folder = `${this.plugin.ticketMeetingsFolder(this.ticketId)}/`;
+      if (!String(file?.path || "").startsWith(folder) && !String(oldPath || "").startsWith(folder)) return;
+      window.clearTimeout(this.refreshTimer);
+      this.refreshTimer = window.setTimeout(() => this.render(), 120);
+    };
+    this.registerEvent(this.plugin.app.vault.on("create", refreshIfRelevant));
+    this.registerEvent(this.plugin.app.vault.on("delete", refreshIfRelevant));
+    this.registerEvent(this.plugin.app.vault.on("rename", refreshIfRelevant));
+    this.registerEvent(this.plugin.app.vault.on("modify", refreshIfRelevant));
+    this.registerEvent(this.plugin.app.metadataCache.on("changed", refreshIfRelevant));
+    this.render();
+  }
+  onunload() {
+    window.clearTimeout(this.refreshTimer);
+  }
+  render() {
+    this.containerEl.empty();
+    this.plugin.renderTicketMeetingSection(this.containerEl, this.ticketId);
   }
 }
 
@@ -3866,7 +3935,7 @@ class CltServiceNowWorkNotes extends Plugin {
       const ticketId = normalizeTicketId(configured || this.ticketIdFromPath(ctx.sourcePath));
       const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
       if (!ticketId || !(file instanceof TFile)) return;
-      this.renderTicketMeetingSection(el, ticketId);
+      ctx.addChild(new MeetingSectionRenderChild(el, this, ticketId));
     });
     this.registerMarkdownCodeBlockProcessor("clt-ticket-todo-actions", (source, el, ctx) => {
       const configured = source.match(/^ticket:\s*(\S+)\s*$/m)?.[1];
@@ -4882,6 +4951,8 @@ class CltServiceNowWorkNotes extends Plugin {
           file,
           title: file.basename.replace(/^\d{4}-\d{2}-\d{2}[ T_-]*\d{0,2}[-:]?\d{0,2}\s*-?\s*/, "") || file.basename,
           meetingDate,
+          meetingStart: String(frontmatter.meeting_start || ""),
+          meetingEnd: String(frontmatter.meeting_end || ""),
           sourceName: String(frontmatter.source_name || ""),
           sourceDriveId: String(frontmatter.source_drive_id || ""),
           sourcePdf: parseWikiLink(frontmatter.source_pdf || ""),
@@ -4893,6 +4964,22 @@ class CltServiceNowWorkNotes extends Plugin {
       return sortDirection === "asc" ? compared : -compared;
     });
     return meetings;
+  }
+
+  latestMeetingAnalysis(ticketId) {
+    return this.listTicketMeetings(ticketId, "desc")
+      .filter((meeting) => meeting.kind === "analysis")
+      .sort((left, right) => {
+        const leftEnd = String(left.meetingEnd || left.meetingDate || "");
+        const rightEnd = String(right.meetingEnd || right.meetingDate || "");
+        return rightEnd.localeCompare(leftEnd) || right.file.stat.mtime - left.file.stat.mtime;
+      })[0] || null;
+  }
+
+  meetingCoveredByAnalysis(meeting, analysis) {
+    const meetingDate = String(meeting?.meetingDate || "");
+    const analysisEnd = String(analysis?.meetingEnd || analysis?.meetingDate || "");
+    return Boolean(meetingDate && analysisEnd && meetingDate.slice(0, 10) <= analysisEnd.slice(0, 10));
   }
 
   renderMeetingCards(container, meetings, { emptyText = "등록된 회의록이 없습니다." } = {}) {
@@ -4951,6 +5038,7 @@ class CltServiceNowWorkNotes extends Plugin {
     const actions = toolbar.createDiv({ cls: "clt-meeting-list-actions" });
     const sort = actions.createEl("button", { text: "최신순 ↓", attr: { type: "button" } });
     const drive = actions.createEl("button", { text: "Drive에서 가져오기", attr: { type: "button" } });
+    const reload = actions.createEl("button", { text: "새로고침", attr: { type: "button", title: "회의록 목록 새로고침" } });
     const add = actions.createEl("button", { text: "＋ 파일로 추가", cls: "mod-cta", attr: { type: "button" } });
     const list = el.createDiv({ cls: "clt-meeting-list" });
     let direction = "desc";
@@ -4967,6 +5055,7 @@ class CltServiceNowWorkNotes extends Plugin {
     });
     add.addEventListener("click", () => new MeetingImportModal(this.app, this, ticketId, refresh).open());
     drive.addEventListener("click", () => new DriveMeetingCandidateModal(this.app, this, ticketId, refresh).open());
+    reload.addEventListener("click", refresh);
     list.addEventListener("clt-meeting-deleted", refresh);
     refresh();
   }
@@ -4987,18 +5076,30 @@ class CltServiceNowWorkNotes extends Plugin {
     new MeetingAnalysisPromptModal(this.app, this, ticketId).open();
   }
 
-  async generateMeetingAnalysisPrompt(ticketId, meetings) {
+  async generateMeetingAnalysisPrompt(ticketId, meetings, { useBaseline = false } = {}) {
     const normalized = normalizeTicketId(ticketId);
     const rootFile = this.rootTicketFile(normalized);
-    const withContent = await Promise.all(meetings.map(async (meeting) => ({
+    const baseline = useBaseline ? this.latestMeetingAnalysis(normalized) : null;
+    const inputMeetings = baseline
+      ? meetings.filter((meeting) => !this.meetingCoveredByAnalysis(meeting, baseline))
+      : meetings;
+    if (baseline && !inputMeetings.length) {
+      throw new Error("기존 분석 이후 새로 추가된 회의록이 없습니다. 전체 재분석이 필요하면 기존 분석 자료 활용 옵션을 해제해 주세요.");
+    }
+    const withContent = await Promise.all(inputMeetings.map(async (meeting) => ({
       ...meeting,
       content: meeting.file instanceof TFile ? await this.app.vault.cachedRead(meeting.file) : ""
     })));
+    const baselineWithContent = baseline ? {
+      ...baseline,
+      content: baseline.file instanceof TFile ? await this.app.vault.cachedRead(baseline.file) : ""
+    } : null;
     return buildMeetingAnalysisPrompt({
       ticketId: normalized,
       meetings: withContent,
       ticketPath: rootFile?.path || "",
-      outputFolder: this.ticketMeetingsFolder(normalized)
+      outputFolder: this.ticketMeetingsFolder(normalized),
+      baseline: baselineWithContent
     });
   }
 

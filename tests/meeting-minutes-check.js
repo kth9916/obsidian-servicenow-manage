@@ -19,6 +19,9 @@ for (const expected of [
   "async deleteTicketMeeting(meeting)",
   "listTicketMeetings(ticketId, sortDirection = \"desc\")",
   "openMeetingListModal(ticketId)",
+  "class MeetingSectionRenderChild extends MarkdownRenderChild",
+  "latestMeetingAnalysis(ticketId)",
+  "meetingCoveredByAnalysis(meeting, analysis)",
   "clt-ticket-meeting-actions",
   "ticketMeetingsFolder(ticketId)",
   "마크다운(.md)으로 내려받아 등록하는 방식을 권장"
@@ -58,6 +61,12 @@ if (!main.includes('createSpan({ cls: "clt-meeting-drive-candidate-body"') || !m
 }
 if (!main.includes('const actions = toolbar.createDiv({ cls: "clt-meeting-list-actions" });')) {
   throw new Error("Meeting toolbar buttons are not grouped on the right");
+}
+if (!main.includes('text: "새로고침"') || !main.includes('this.plugin.app.vault.on("create", refreshIfRelevant)')) {
+  throw new Error("Meeting list manual or automatic refresh is missing");
+}
+if (!main.includes('text: "이미 분석됨"') || !main.includes("기존 분석 자료를 기준으로 새 회의만 이어서 분석")) {
+  throw new Error("Incremental meeting-analysis UI is missing");
 }
 const guideIndex = main.indexOf('text: "현재 상태 업무 가이드"');
 const ticketAiIndex = main.indexOf('text: "AI 티켓 분석 프롬프트 생성"', guideIndex);
@@ -121,6 +130,24 @@ const analysisPrompt = parser.buildMeetingAnalysisPrompt({
 });
 for (const expected of ["2026-09-01 ~ 2026-09-11 회의록 분석.md", "meeting_kind: analysis", "첫 번째 회의 원문", "두 번째 회의 원문", "Action Items"]) {
   if (!analysisPrompt.includes(expected)) throw new Error(`Meeting analysis prompt is incomplete: ${expected}`);
+}
+
+const incrementalPrompt = parser.buildMeetingAnalysisPrompt({
+  ticketId: "CR000000",
+  ticketPath: "EBKG/티켓/CR000000/CR000000.md",
+  outputFolder: "EBKG/티켓/CR000000/회의록",
+  baseline: {
+    meetingStart: "2026-09-01",
+    meetingEnd: "2026-09-11",
+    file: { path: "analysis.md" },
+    content: "기존 누적 분석"
+  },
+  meetings: [
+    { meetingDate: "2026-09-15T10:00", title: "새 회의", file: { path: "new.md" }, content: "새 회의 원문" }
+  ]
+});
+for (const expected of ["기존 누적 분석", "새 회의 원문", "이전 분석 자료를 기준점으로 사용", "2026-09-01 ~ 2026-09-15 회의록 분석.md"]) {
+  if (!incrementalPrompt.includes(expected)) throw new Error(`Incremental analysis prompt is incomplete: ${expected}`);
 }
 if (analysisPrompt.indexOf("첫 번째 회의 원문") > analysisPrompt.indexOf("두 번째 회의 원문")) {
   throw new Error("Meeting analysis prompt is not chronological");

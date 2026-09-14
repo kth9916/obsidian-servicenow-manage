@@ -989,6 +989,9 @@
 .clt-meeting-card-heading { align-items: center; display: flex; gap: 8px; justify-content: flex-start; min-width: 0; }
 .clt-meeting-type-badge { background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-primary)); border-radius: 999px; color: var(--interactive-accent); font-size: 0.75em; font-weight: 700; padding: 3px 8px; }
 .clt-meeting-type-badge.is-analysis { background: color-mix(in srgb, #7757d9 16%, var(--background-primary)); color: #7757d9; }
+.clt-meeting-analysis-option .clt-meeting-type-badge { margin-left: 8px; vertical-align: middle; }
+.clt-meeting-analysis-reuse { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-weight: 600; }
+.clt-meeting-analysis-hint { margin: 6px 0 2px 26px; color: var(--text-muted); font-size: var(--font-ui-smaller); }
 .clt-meeting-card-delete { position: absolute; right: 9px; top: 9px; z-index: 1; }
 
 .clt-meeting-card:hover {
