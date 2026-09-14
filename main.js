@@ -1757,9 +1757,10 @@ class DriveMeetingCandidateModal extends Modal {
     const loading = this.contentEl.createDiv({ cls: "clt-meeting-empty", text: "Google Drive에서 회의록을 찾는 중…" });
     try {
       const candidates = await this.plugin.searchGoogleDriveMeetingDocuments(this.ticketId);
-      loading.remove();
       this.renderCandidates(candidates);
+      loading.remove();
     } catch (error) {
+      console.error(`[ServiceNow Manage] ${this.ticketId} Drive 회의록 후보 표시 실패`, error);
       loading.setText(`회의록 검색 실패: ${error.message || error}`);
     }
   }
@@ -1774,13 +1775,13 @@ class DriveMeetingCandidateModal extends Modal {
       const row = list.createEl("label", { cls: `clt-meeting-drive-candidate${imported.has(candidate.id) ? " is-imported" : ""}` });
       const checkbox = row.createEl("input", { type: "checkbox" });
       checkbox.disabled = imported.has(candidate.id);
-      const body = row.createDiv({ cls: "clt-meeting-drive-candidate-body" });
-      const heading = body.createDiv({ cls: "clt-meeting-drive-candidate-heading" });
-      heading.createStrong({ text: candidate.name });
+      const body = row.createSpan({ cls: "clt-meeting-drive-candidate-body" });
+      const heading = body.createSpan({ cls: "clt-meeting-drive-candidate-heading" });
+      heading.createSpan({ cls: "clt-meeting-drive-candidate-name", text: String(candidate.name || "이름 없는 Google Docs") });
       if (imported.has(candidate.id)) heading.createSpan({ cls: "clt-meeting-type-badge is-imported", text: "추가됨" });
-      body.createDiv({
+      body.createSpan({
         cls: "clt-meeting-drive-candidate-meta",
-        text: `회의 일시 ${candidate.meetingDate.replace("T", " ")} · 수정 ${candidate.modifiedTime || "확인 불가"}${candidate.owner ? ` · ${candidate.owner}` : ""}`
+        text: `회의 일시 ${String(candidate.meetingDate || "확인 불가").replace("T", " ")} · 수정 ${candidate.modifiedTime || "확인 불가"}${candidate.owner ? ` · ${candidate.owner}` : ""}`
       });
       checkbox.addEventListener("change", () => {
         if (checkbox.checked) this.selectedIds.add(candidate.id);
@@ -1844,9 +1845,9 @@ class MeetingAnalysisPromptModal extends Modal {
       const row = list.createEl("label", { cls: "clt-meeting-analysis-option" });
       const checkbox = row.createEl("input", { type: "checkbox" });
       checkbox.checked = true;
-      const body = row.createDiv();
-      body.createStrong({ text: meeting.title });
-      body.createDiv({ cls: "clt-meeting-drive-candidate-meta", text: String(meeting.meetingDate || "일시 미지정").replace("T", " ") });
+      const body = row.createSpan({ cls: "clt-meeting-drive-candidate-body" });
+      body.createSpan({ cls: "clt-meeting-drive-candidate-name", text: meeting.title });
+      body.createSpan({ cls: "clt-meeting-drive-candidate-meta", text: String(meeting.meetingDate || "일시 미지정").replace("T", " ") });
       checkbox.addEventListener("change", () => {
         if (checkbox.checked) selectedPaths.add(meeting.file.path);
         else selectedPaths.delete(meeting.file.path);

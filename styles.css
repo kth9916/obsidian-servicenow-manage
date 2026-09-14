@@ -867,9 +867,10 @@
 }
 
 .clt-meeting-drive-candidate.is-imported { opacity: 0.65; }
-.clt-meeting-drive-candidate-body { min-width: 0; }
-.clt-meeting-drive-candidate-heading { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
-.clt-meeting-drive-candidate-meta { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 4px; }
+.clt-meeting-drive-candidate-body { display: grid !important; min-width: 0; }
+.clt-meeting-drive-candidate-heading { align-items: center; display: flex !important; gap: 8px; justify-content: space-between; min-width: 0; }
+.clt-meeting-drive-candidate-name { color: var(--text-normal); display: block !important; font-weight: 700; overflow-wrap: anywhere; }
+.clt-meeting-drive-candidate-meta { color: var(--text-muted); display: block !important; font-size: var(--font-ui-smaller); margin-top: 4px; overflow-wrap: anywhere; }
 
 .clt-meeting-import-lead {
   color: var(--text-muted);

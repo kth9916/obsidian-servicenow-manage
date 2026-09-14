@@ -50,6 +50,9 @@ if (!main.includes("source_drive_id") || !main.includes("meeting_kind: analysis"
 if (!main.includes("await this.app.vault.trash(meeting.file, true)")) {
   throw new Error("Meeting-note deletion does not use the Obsidian trash");
 }
+if (!main.includes('createSpan({ cls: "clt-meeting-drive-candidate-body"') || !main.includes("이름 없는 Google Docs")) {
+  throw new Error("Drive meeting candidates are not rendered with the theme-safe fallback structure");
+}
 const guideIndex = main.indexOf('text: "현재 상태 업무 가이드"');
 const ticketAiIndex = main.indexOf('text: "AI 티켓 분석 프롬프트 생성"', guideIndex);
 const analysisIndex = main.indexOf('text: "AI 회의록 분석"', ticketAiIndex);
