@@ -5103,6 +5103,12 @@ function formatCell(
                                 : "작업 일지 추가"
                         }"
                     >📝</button>
+                    <button
+                        class="opus-work-log-button opus-meeting-button"
+                        data-meeting-index="${rowIndex}"
+                        title="회의록 목록 보기 및 등록"
+                        aria-label="${escapeAttribute(`${page.id || page.file.name} 회의록 목록 보기 및 등록`)}"
+                    >🗓️</button>
                 </div>
             `;
         }
@@ -8453,6 +8459,23 @@ function renderTable() {
                     }
                 }
             );
+        });
+
+    tableArea
+        .querySelectorAll("[data-meeting-index]")
+        .forEach(button => {
+            button.addEventListener("click", event => {
+                event.preventDefault();
+                event.stopPropagation();
+                const item = sortedItems[Number(button.dataset.meetingIndex)];
+                const ticketId = String(item?.page?.id || item?.page?.file?.name || "");
+                const sharedPlugin = app.plugins.getPlugin("servicenow-manage");
+                if (!ticketId || typeof sharedPlugin?.openMeetingListModal !== "function") {
+                    new Notice("회의록 기능을 사용하려면 ServiceNow Manage 플러그인을 최신 버전으로 업데이트해 주세요.");
+                    return;
+                }
+                sharedPlugin.openMeetingListModal(ticketId);
+            });
         });
 
 }

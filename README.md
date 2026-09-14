@@ -25,6 +25,7 @@ See [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
 - Refresh ticket metadata and work notes from ServiceNow.
 - Search, sort, filter, translate, copy, and date-filter work notes.
 - Create work logs and To-Dos from ticket notes or a dashboard.
+- Import Gemini meeting minutes from Markdown, optionally preserve the source PDF, and browse chronologically linked meeting notes from either the ticket note or dashboard.
 - View To-Dos as a three-state board with due dates, completion dates, search, details, and pagination.
 - Maintain a configurable ticket dashboard with persistent columns, sorting, filters, widths, and field order.
 - Optionally discover BS links from a description and FS/DS/UT files from Google Drive naming conventions.
