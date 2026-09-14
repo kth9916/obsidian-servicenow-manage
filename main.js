@@ -1200,6 +1200,7 @@ function buildMeetingNoteMarkdown({ ticketId, sourceName, sourceText, meetingDat
   if (!sections.length && raw) sections.push(`## 🧾 회의 내용\n\n${raw}`);
   return `---\n` +
     `ticket: "${normalized}"\n` +
+    `Parent: "[[${normalized}]]"\n` +
     `type: meeting-minutes\n` +
     `meeting_date: "${resolvedDate}"\n` +
     `meeting_kind: gemini\n` +
@@ -1255,7 +1256,7 @@ function buildMeetingAnalysisPrompt({ ticketId, meetings, ticketPath, outputFold
     "",
     "Obsidian 저장 지침:",
     `- 결과를 '${outputFolder}' 폴더에 '${start} ~ ${end} 회의록 분석.md' 이름으로 직접 저장하세요. 같은 파일이 있으면 덮어쓰지 말고 번호를 붙이세요.`,
-    "- YAML frontmatter에 ticket, type: meeting-minutes, meeting_kind: analysis, meeting_start, meeting_end, meeting_date, source_name: AI 회의록 분석, cssclasses: [clt-meeting-analysis-note]를 넣으세요.",
+    `- YAML frontmatter에 ticket, Parent: "[[${ticketId}]]", type: meeting-minutes, meeting_kind: analysis, meeting_start, meeting_end, meeting_date, source_name: AI 회의록 분석, cssclasses: [clt-meeting-analysis-note]를 넣으세요.`,
     `- ticket은 '${ticketId}', meeting_start는 '${start}', meeting_end와 meeting_date는 '${end}'입니다.`,
     "- 각 핵심 판단에는 근거가 된 회의 날짜와 원본 회의록 위키링크를 표시하세요.",
     "- 저장이 끝나면 생성한 파일 경로와 아직 확인이 필요한 항목만 간단히 보고하세요."
@@ -3971,6 +3972,7 @@ class CltServiceNowWorkNotes extends Plugin {
     const initLayout = async () => {
       await this.ensureWorkspaceScaffold();
       await this.migrateDeploymentFinishFields();
+      await this.migrateMeetingParentLinks();
       await this.normalizeTodoMetadataOnce();
       await this.linkExistingLocalBsDocuments();
       await this.repairMalformedRootTickets();
@@ -4825,6 +4827,19 @@ class CltServiceNowWorkNotes extends Plugin {
       if (!this.rootTicketIdFromPathStructure(file)) continue;
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
         mergeDeploymentFinishField(frontmatter);
+      });
+    }
+  }
+
+  async migrateMeetingParentLinks() {
+    const files = this.app.vault.getMarkdownFiles().filter((file) => file.path.includes("/회의록/"));
+    for (const file of files) {
+      const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+      if (String(frontmatter.type || "") !== "meeting-minutes" || frontmatter.Parent) continue;
+      const ticketId = normalizeTicketId(frontmatter.ticket || this.ticketIdFromPath(file.path));
+      if (!ticketId) continue;
+      await this.app.fileManager.processFrontMatter(file, (current) => {
+        if (!current.Parent) current.Parent = `[[${ticketId}]]`;
       });
     }
   }

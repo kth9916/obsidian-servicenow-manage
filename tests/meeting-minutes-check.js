@@ -38,6 +38,9 @@ if (!main.includes("await this.app.vault.createBinary(pdfPath")) {
 if (!main.includes('cssclasses:\\n  - clt-meeting-note')) {
   throw new Error("Generated meeting notes do not opt into the visual meeting-note design");
 }
+if (!main.includes('`Parent: "[[${normalized}]]"\\n`') || !main.includes("async migrateMeetingParentLinks()")) {
+  throw new Error("Meeting notes do not link back to their parent ticket");
+}
 if (!main.includes("name contains '${normalized}' and name contains 'Gemini가 작성한 회의록'")) {
   throw new Error("Google Drive meeting search does not enforce the required AND condition");
 }
@@ -69,6 +72,9 @@ if (!styles.includes(".clt-meeting-card") || !styles.includes(".clt-meeting-note
 }
 if (!styles.includes(".clt-meeting-analysis-note h1") || !styles.includes(".clt-meeting-type-badge.is-analysis")) {
   throw new Error("AI meeting-analysis visual distinction is missing");
+}
+if (!styles.includes("grid-template-columns: minmax(150px") || !styles.includes("width: min(1500px")) {
+  throw new Error("Meeting cards or notes do not use the requested wide layout");
 }
 if (!dashboard.includes("data-meeting-index") || !dashboard.includes("openMeetingListModal(ticketId)")) {
   throw new Error("Dashboard meeting icon integration is missing");

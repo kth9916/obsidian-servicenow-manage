@@ -977,14 +977,16 @@
   cursor: pointer;
   display: grid;
   gap: 5px;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(190px, 1fr) minmax(280px, 2fr);
   height: auto;
+  align-items: center;
   padding: 13px 44px 13px 15px;
   text-align: left;
   width: 100%;
 }
 
 .clt-meeting-card-open:hover { background: transparent; box-shadow: none; }
-.clt-meeting-card-heading { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
+.clt-meeting-card-heading { align-items: center; display: flex; gap: 8px; justify-content: flex-start; min-width: 0; }
 .clt-meeting-type-badge { background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-primary)); border-radius: 999px; color: var(--interactive-accent); font-size: 0.75em; font-weight: 700; padding: 3px 8px; }
 .clt-meeting-type-badge.is-analysis { background: color-mix(in srgb, #7757d9 16%, var(--background-primary)); color: #7757d9; }
 .clt-meeting-card-delete { position: absolute; right: 9px; top: 9px; z-index: 1; }
@@ -1002,7 +1004,9 @@
 
 .markdown-preview-view.clt-meeting-note .markdown-preview-sizer,
 .markdown-source-view.clt-meeting-note .cm-contentContainer {
-  max-width: 920px;
+  margin-inline: auto;
+  max-width: none !important;
+  width: min(1500px, calc(100% - 32px));
 }
 
 .clt-meeting-note h1 {
@@ -1024,13 +1028,25 @@
   border-radius: 14px;
 }
 
+.clt-meeting-note .callout[data-callout="info"] table { table-layout: auto; width: 100%; }
+.clt-meeting-note .callout[data-callout="info"] th:first-child,
+.clt-meeting-note .callout[data-callout="info"] td:first-child {
+  min-width: 86px;
+  white-space: nowrap;
+  width: 86px;
+}
+
 .clt-meeting-note .callout[data-callout="abstract"] {
   border-radius: 14px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 7%);
 }
 
 .markdown-preview-view.clt-meeting-analysis-note .markdown-preview-sizer,
-.markdown-source-view.clt-meeting-analysis-note .cm-contentContainer { max-width: 980px; }
+.markdown-source-view.clt-meeting-analysis-note .cm-contentContainer {
+  margin-inline: auto;
+  max-width: none !important;
+  width: min(1500px, calc(100% - 32px));
+}
 
 .clt-meeting-analysis-note h1 {
   background: linear-gradient(120deg, var(--interactive-accent), #7757d9);
@@ -1057,6 +1073,10 @@
   .clt-meeting-import-grid { grid-template-columns: 1fr; }
   .clt-meeting-inline-toolbar, .clt-meeting-list-toolbar { align-items: stretch; flex-direction: column; }
   .clt-meeting-list-actions { justify-content: flex-end; }
+}
+
+@media (max-width: 900px) {
+  .clt-meeting-card-open { align-items: stretch; grid-template-columns: 1fr; }
 }
 
 .clt-confirm-modal {
