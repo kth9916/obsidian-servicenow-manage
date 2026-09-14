@@ -948,7 +948,7 @@
   margin: 8px 0 12px;
 }
 
-.clt-meeting-list-actions { display: flex; gap: 7px; }
+.clt-meeting-list-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 7px; justify-content: flex-end; margin-left: auto; }
 .clt-meeting-list-count { color: var(--text-muted); font-size: var(--font-ui-smaller); }
 .clt-meeting-list { display: grid; gap: 9px; margin-bottom: 20px; }
 

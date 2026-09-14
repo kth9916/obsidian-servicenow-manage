@@ -4933,9 +4933,10 @@ class CltServiceNowWorkNotes extends Plugin {
     el.closest(".markdown-preview-view, .markdown-rendered")?.classList.add("clt-ticket-note-render");
     const toolbar = el.createDiv({ cls: "clt-meeting-inline-toolbar" });
     const count = toolbar.createSpan({ cls: "clt-meeting-list-count" });
-    const sort = toolbar.createEl("button", { text: "최신순 ↓", attr: { type: "button" } });
-    const drive = toolbar.createEl("button", { text: "Drive에서 가져오기", attr: { type: "button" } });
-    const add = toolbar.createEl("button", { text: "＋ 파일로 추가", cls: "mod-cta", attr: { type: "button" } });
+    const actions = toolbar.createDiv({ cls: "clt-meeting-list-actions" });
+    const sort = actions.createEl("button", { text: "최신순 ↓", attr: { type: "button" } });
+    const drive = actions.createEl("button", { text: "Drive에서 가져오기", attr: { type: "button" } });
+    const add = actions.createEl("button", { text: "＋ 파일로 추가", cls: "mod-cta", attr: { type: "button" } });
     const list = el.createDiv({ cls: "clt-meeting-list" });
     let direction = "desc";
     const refresh = () => {
