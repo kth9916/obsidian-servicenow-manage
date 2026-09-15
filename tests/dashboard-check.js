@@ -2539,12 +2539,15 @@ tr:last-child td {
 
 .opus-meeting-overview-toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .opus-meeting-overview-toolbar input[type="search"] { flex: 1 1 260px; min-width: 220px; }
+.opus-meeting-overview-actions { display: flex; gap: 7px; margin-left: auto; }
 .opus-meeting-kind-filters { align-items: center; display: flex; gap: 10px; }
 .opus-meeting-kind-filters label { align-items: center; display: flex; gap: 5px; white-space: nowrap; }
 .opus-meeting-overview-list { display: grid; gap: 14px; }
 .opus-meeting-ticket-group { background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 12px; }
 .opus-meeting-ticket-title { font-weight: 750; margin-bottom: 9px; }
-.opus-meeting-overview-card { align-items: center; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 9px; display: grid; gap: 10px; grid-template-columns: minmax(145px, .55fr) minmax(140px, .65fr) minmax(260px, 2fr); margin-top: 7px; padding: 10px 12px; }
+.opus-meeting-overview-card { align-items: center; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 9px; display: grid; gap: 10px; grid-template-columns: minmax(145px, .55fr) minmax(140px, .65fr) minmax(260px, 2fr); margin-top: 7px; padding: 10px 46px 10px 12px; position: relative; }
+.opus-meeting-overview-card-link { color: inherit; display: contents; text-decoration: none; }
+.opus-meeting-overview-delete { position: absolute; right: 9px; top: 8px; z-index: 2; }
 .opus-meeting-overview-date { color: var(--interactive-accent); font-family: var(--font-monospace); font-weight: 700; white-space: nowrap; }
 .opus-meeting-overview-kind { background: var(--background-modifier-hover); border-radius: 999px; font-size: var(--font-ui-smaller); padding: 3px 8px; width: fit-content; white-space: nowrap; }
 .opus-jira-sortable-header { cursor: pointer; padding-right: 22px !important; position: relative; user-select: none; }
@@ -9776,6 +9779,7 @@ function renderTodoBoard() {
 
 let meetingSearchKeyword = "";
 const selectedMeetingKinds = new Set(["gemini", "analysis"]);
+let meetingSortDirection = "desc";
 
 function renderMeetingOverview() {
     meetingArea.innerHTML = "";
@@ -9799,7 +9803,31 @@ function renderMeetingOverview() {
         label.append(checkbox, document.createTextNode(labelText));
         kinds.appendChild(label);
     });
-    toolbar.append(search, kinds);
+    const actions = document.createElement("div");
+    actions.className = "opus-meeting-overview-actions";
+    const sort = document.createElement("button");
+    sort.textContent = meetingSortDirection === "desc" ? "최신순 ↓" : "오래된순 ↑";
+    sort.addEventListener("click", () => { meetingSortDirection = meetingSortDirection === "desc" ? "asc" : "desc"; renderMeetingOverview(); });
+    const refresh = document.createElement("button");
+    refresh.textContent = "새로고침";
+    refresh.addEventListener("click", renderMeetingOverview);
+    const drive = document.createElement("button");
+    drive.textContent = "Drive에서 가져오기";
+    drive.addEventListener("click", () => {
+        const plugin = app.plugins.getPlugin("servicenow-manage");
+        if (typeof plugin?.openGlobalDriveMeetingModal === "function") plugin.openGlobalDriveMeetingModal(renderMeetingOverview);
+        else new Notice("ServiceNow Manage 플러그인을 다시 활성화해 주세요.");
+    });
+    const add = document.createElement("button");
+    add.className = "mod-cta";
+    add.textContent = "＋ 파일로 추가";
+    add.addEventListener("click", () => {
+        const plugin = app.plugins.getPlugin("servicenow-manage");
+        if (typeof plugin?.openGlobalMeetingImportModal === "function") plugin.openGlobalMeetingImportModal(renderMeetingOverview);
+        else new Notice("ServiceNow Manage 플러그인을 다시 활성화해 주세요.");
+    });
+    actions.append(sort, drive, refresh, add);
+    toolbar.append(search, kinds, actions);
     meetingArea.appendChild(toolbar);
     const list = document.createElement("div");
     list.className = "opus-meeting-overview-list";
@@ -9809,13 +9837,17 @@ function renderMeetingOverview() {
         const kind = String(fm.meeting_kind || "").toLowerCase();
         const ticketId = String(fm.ticket || "").toUpperCase();
         return { file, fm, kind, ticketId };
-    }).filter(item => item.ticketId && selectedMeetingKinds.has(item.kind))
+    }).filter(item => selectedMeetingKinds.has(item.kind))
       .filter(item => !needle || [item.ticketId, item.file.basename, item.fm.source_name].some(value => String(value || "").toLowerCase().includes(needle)))
-      .sort((a, b) => String(b.fm.meeting_date || b.file.stat.ctime).localeCompare(String(a.fm.meeting_date || a.file.stat.ctime)));
+      .sort((a, b) => {
+          const compared = String(a.fm.meeting_date || a.file.stat.ctime).localeCompare(String(b.fm.meeting_date || b.file.stat.ctime));
+          return meetingSortDirection === "asc" ? compared : -compared;
+      });
     const groups = new Map();
     meetings.forEach(meeting => {
-        if (!groups.has(meeting.ticketId)) groups.set(meeting.ticketId, []);
-        groups.get(meeting.ticketId).push(meeting);
+        const groupKey = meeting.ticketId || "티켓 없음";
+        if (!groups.has(groupKey)) groups.set(groupKey, []);
+        groups.get(groupKey).push(meeting);
     });
     for (const [ticketId, groupMeetings] of groups) {
         const group = document.createElement("section");
@@ -9825,10 +9857,12 @@ function renderMeetingOverview() {
         heading.textContent = `${ticketId} · ${groupMeetings.length}개`;
         group.appendChild(heading);
         groupMeetings.forEach(meeting => {
-            const card = document.createElement("a");
-            card.className = "opus-meeting-overview-card internal-link";
-            card.href = meeting.file.path;
-            card.dataset.href = meeting.file.path;
+            const card = document.createElement("div");
+            card.className = "opus-meeting-overview-card";
+            const link = document.createElement("a");
+            link.className = "opus-meeting-overview-card-link internal-link";
+            link.href = meeting.file.path;
+            link.dataset.href = meeting.file.path;
             const date = document.createElement("span");
             date.className = "opus-meeting-overview-date";
             date.textContent = String(meeting.fm.meeting_date || "일시 미지정").replace("T", " ");
@@ -9837,7 +9871,18 @@ function renderMeetingOverview() {
             kind.textContent = meeting.kind === "analysis" ? "AI 회의록 분석" : "Gemini 회의록";
             const title = document.createElement("span");
             title.textContent = meeting.file.basename;
-            card.append(date, kind, title);
+            link.append(date, kind, title);
+            const remove = document.createElement("button");
+            remove.className = "opus-meeting-overview-delete";
+            remove.textContent = "×";
+            remove.title = `${meeting.file.basename} 삭제`;
+            remove.addEventListener("click", event => {
+                event.preventDefault();
+                event.stopPropagation();
+                const plugin = app.plugins.getPlugin("servicenow-manage");
+                if (typeof plugin?.confirmDeleteMeetingPath === "function") plugin.confirmDeleteMeetingPath(meeting.file.path, renderMeetingOverview);
+            });
+            card.append(link, remove);
             group.appendChild(card);
         });
         list.appendChild(group);

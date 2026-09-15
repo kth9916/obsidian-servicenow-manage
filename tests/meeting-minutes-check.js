@@ -21,6 +21,9 @@ for (const expected of [
   "async deleteTicketMeeting(meeting)",
   "listTicketMeetings(ticketId, sortDirection = \"desc\")",
   "openMeetingListModal(ticketId)",
+  "openGlobalMeetingImportModal(onImported = null)",
+  "openGlobalDriveMeetingModal(onImported = null)",
+  "confirmDeleteMeetingPath(path, onDeleted = null)",
   "class MeetingSectionRenderChild extends MarkdownRenderChild",
   "latestMeetingAnalysis(ticketId)",
   "meetingCoveredByAnalysis(meeting, analysis)",
@@ -43,7 +46,7 @@ if (!main.includes("await this.app.vault.createBinary(pdfPath")) {
 if (!main.includes('cssclasses:\\n  - clt-meeting-note')) {
   throw new Error("Generated meeting notes do not opt into the visual meeting-note design");
 }
-if (!main.includes('`Parent: "[[${normalized}]]"\\n`') || !main.includes("async migrateMeetingParentLinks()")) {
+if (!main.includes('Parent: "[[${normalized}]]"') || !main.includes("async migrateMeetingParentLinks()")) {
   throw new Error("Meeting notes do not link back to their parent ticket");
 }
 if (!main.includes("name contains '${normalized}' and name contains 'Gemini가 작성한 회의록'")) {
@@ -93,7 +96,7 @@ if (!dashboard.includes("data-meeting-index") || !dashboard.includes("openMeetin
 for (const expected of ["라벨 필터", "selectedKinds", "To-Do로 만들기", "일괄 생성", '"pending"']) {
   if (!main.includes(expected)) throw new Error(`Meeting action/filter feature is missing: ${expected}`);
 }
-for (const expected of ["🗓️ 회의록", "renderMeetingOverview()", "selectedMeetingKinds", "opus-meeting-overview-card"]) {
+for (const expected of ["🗓️ 회의록", "renderMeetingOverview()", "selectedMeetingKinds", "opus-meeting-overview-card", "meetingSortDirection", "openGlobalMeetingImportModal", "confirmDeleteMeetingPath", "티켓 없음"]) {
   if (!dashboard.includes(expected)) throw new Error(`Dashboard meeting overview is missing: ${expected}`);
 }
 
