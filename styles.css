@@ -993,10 +993,11 @@
 .clt-meeting-analysis-reuse { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-weight: 600; }
 .clt-meeting-analysis-hint { margin: 6px 0 2px 26px; color: var(--text-muted); font-size: var(--font-ui-smaller); }
 .clt-meeting-label-filter { position: relative; }
-.clt-meeting-label-filter > summary { cursor: pointer; list-style: none; padding: 6px 10px; }
+.clt-meeting-label-filter > summary { background: var(--interactive-normal); border: var(--input-border-width) solid var(--background-modifier-border); border-radius: var(--button-radius); box-shadow: var(--input-shadow); color: var(--text-normal); cursor: pointer; font-size: var(--font-ui-small); list-style: none; padding: 6px 10px; }
+.clt-meeting-label-filter > summary:hover { background: var(--interactive-hover); box-shadow: var(--input-shadow-hover); }
 .clt-meeting-label-filter-menu { background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 10px; box-shadow: var(--shadow-s); display: grid; gap: 7px; min-width: 180px; padding: 10px; position: absolute; right: 0; top: calc(100% + 5px); z-index: 20; }
 .clt-meeting-label-filter-menu label { align-items: center; display: flex; gap: 8px; white-space: nowrap; }
-.clt-meeting-card-delete { position: absolute; right: 9px; top: 9px; z-index: 1; }
+.clt-meeting-card-delete { position: absolute; right: 9px; top: 7px; z-index: 2; }
 
 .clt-meeting-card:hover {
   border-color: color-mix(in srgb, var(--interactive-accent) 48%, var(--background-modifier-border));
@@ -1006,7 +1007,9 @@
 
 .clt-meeting-card-date { color: var(--interactive-accent); font-family: var(--font-monospace); font-size: var(--font-ui-smaller); font-weight: 700; }
 .clt-meeting-card-title { font-size: 1.02em; font-weight: 720; }
-.clt-meeting-card-meta { color: var(--text-muted); display: flex; font-size: var(--font-ui-smaller); gap: 8px; justify-content: space-between; }
+.clt-meeting-card-meta { color: var(--text-muted); display: flex; font-size: var(--font-ui-smaller); gap: 8px; justify-content: flex-start; padding-right: 54px; }
+.clt-meeting-card-meta > span:last-child { bottom: 8px; position: absolute; right: 13px; }
+.clt-meeting-card { min-height: 66px; }
 .clt-meeting-empty { background: var(--background-secondary); border-radius: 12px; color: var(--text-muted); padding: 24px; text-align: center; }
 
 .markdown-preview-view.clt-meeting-note .markdown-preview-sizer,

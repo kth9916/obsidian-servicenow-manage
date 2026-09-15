@@ -2540,12 +2540,14 @@ tr:last-child td {
 .opus-meeting-overview-toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .opus-meeting-overview-toolbar input[type="search"] { flex: 1 1 260px; min-width: 220px; }
 .opus-meeting-overview-actions { display: flex; gap: 7px; margin-left: auto; }
-.opus-meeting-kind-filters { align-items: center; display: flex; gap: 10px; }
-.opus-meeting-kind-filters label { align-items: center; display: flex; gap: 5px; white-space: nowrap; }
+.opus-meeting-kind-filter { position: relative; }
+.opus-meeting-kind-filter > summary { background: var(--interactive-normal); border: var(--input-border-width) solid var(--background-modifier-border); border-radius: var(--button-radius); box-shadow: var(--input-shadow); cursor: pointer; list-style: none; padding: 6px 10px; white-space: nowrap; }
+.opus-meeting-kind-filter-menu { background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 10px; box-shadow: var(--shadow-s); display: grid; gap: 8px; min-width: 180px; padding: 10px; position: absolute; right: 0; top: calc(100% + 5px); z-index: 30; }
+.opus-meeting-kind-filter-menu label { align-items: center; display: flex; gap: 7px; white-space: nowrap; }
 .opus-meeting-overview-list { display: grid; gap: 14px; }
 .opus-meeting-ticket-group { background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 12px; }
 .opus-meeting-ticket-title { font-weight: 750; margin-bottom: 9px; }
-.opus-meeting-overview-card { align-items: center; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 9px; display: grid; gap: 10px; grid-template-columns: minmax(145px, .55fr) minmax(140px, .65fr) minmax(260px, 2fr); margin-top: 7px; padding: 10px 46px 10px 12px; position: relative; }
+.opus-meeting-overview-card { align-items: center; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 9px; display: grid; gap: 10px; grid-template-columns: minmax(145px, .55fr) minmax(140px, .65fr) minmax(260px, 2fr); margin-top: 7px; min-height: 66px; padding: 10px 46px 10px 12px; position: relative; }
 .opus-meeting-overview-card-link { color: inherit; display: contents; text-decoration: none; }
 .opus-meeting-overview-delete { position: absolute; right: 9px; top: 8px; z-index: 2; }
 .opus-meeting-overview-date { color: var(--interactive-accent); font-family: var(--font-monospace); font-weight: 700; white-space: nowrap; }
@@ -9789,8 +9791,13 @@ function renderMeetingOverview() {
     search.type = "search";
     search.placeholder = "티켓 번호 또는 회의 제목 검색";
     search.value = meetingSearchKeyword;
-    const kinds = document.createElement("div");
-    kinds.className = "opus-meeting-kind-filters";
+    const kinds = document.createElement("details");
+    kinds.className = "opus-meeting-kind-filter";
+    const kindSummary = document.createElement("summary");
+    kindSummary.textContent = "라벨 필터";
+    const kindMenu = document.createElement("div");
+    kindMenu.className = "opus-meeting-kind-filter-menu";
+    kinds.append(kindSummary, kindMenu);
     [["gemini", "Gemini 회의록"], ["analysis", "AI 회의록 분석"]].forEach(([kind, labelText]) => {
         const label = document.createElement("label");
         const checkbox = document.createElement("input");
@@ -9801,7 +9808,7 @@ function renderMeetingOverview() {
             renderMeetingOverview();
         });
         label.append(checkbox, document.createTextNode(labelText));
-        kinds.appendChild(label);
+        kindMenu.appendChild(label);
     });
     const actions = document.createElement("div");
     actions.className = "opus-meeting-overview-actions";
