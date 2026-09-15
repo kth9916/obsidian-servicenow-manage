@@ -992,6 +992,10 @@
 .clt-meeting-analysis-option .clt-meeting-type-badge { margin-left: 8px; vertical-align: middle; }
 .clt-meeting-analysis-reuse { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-weight: 600; }
 .clt-meeting-analysis-hint { margin: 6px 0 2px 26px; color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.clt-meeting-label-filter { position: relative; }
+.clt-meeting-label-filter > summary { cursor: pointer; list-style: none; padding: 6px 10px; }
+.clt-meeting-label-filter-menu { background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 10px; box-shadow: var(--shadow-s); display: grid; gap: 7px; min-width: 180px; padding: 10px; position: absolute; right: 0; top: calc(100% + 5px); z-index: 20; }
+.clt-meeting-label-filter-menu label { align-items: center; display: flex; gap: 8px; white-space: nowrap; }
 .clt-meeting-card-delete { position: absolute; right: 9px; top: 9px; z-index: 1; }
 
 .clt-meeting-card:hover {
@@ -1066,6 +1070,21 @@
   margin-top: 1.8em;
   padding: 0.2em 0 0.2em 0.65em;
 }
+
+.clt-meeting-analysis-note h2:has(.clt-meeting-action-create) { align-items: center; display: flex; gap: 12px; }
+.clt-meeting-action-create { margin-left: auto; white-space: nowrap; }
+.clt-meeting-analysis-note table { table-layout: auto !important; width: 100%; }
+.clt-meeting-analysis-note table th,
+.clt-meeting-analysis-note table td { min-width: 110px; }
+.clt-meeting-analysis-note table th:first-child,
+.clt-meeting-analysis-note table td:first-child { min-width: 92px; white-space: nowrap; width: 1%; }
+
+.clt-meeting-action-modal { width: min(900px, 94vw); }
+.clt-meeting-action-toolbar { align-items: center; display: flex; gap: 8px; margin: 12px 0 8px; }
+.clt-meeting-action-list { display: grid; gap: 8px; max-height: min(56vh, 560px); overflow: auto; }
+.clt-meeting-action-row { align-items: center; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 10px; display: grid; gap: 10px; grid-template-columns: auto minmax(0, 1fr) 150px; padding: 10px 12px; }
+.clt-meeting-action-title { font-weight: 650; }
+.clt-meeting-action-owner { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 3px; }
 
 .clt-meeting-analysis-note .callout {
   border-radius: 14px;

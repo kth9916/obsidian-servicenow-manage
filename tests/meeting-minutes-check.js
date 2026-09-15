@@ -11,6 +11,8 @@ for (const expected of [
   "class MeetingListModal extends Modal",
   "class DriveMeetingCandidateModal extends Modal",
   "class MeetingAnalysisPromptModal extends Modal",
+  "class MeetingActionItemsModal extends Modal",
+  "function extractMeetingActionItems(markdown)",
   "function buildMeetingNoteMarkdown(",
   "function buildMeetingAnalysisPrompt(",
   "async importMeetingFiles(ticketId, files, options = {})",
@@ -88,6 +90,12 @@ if (!styles.includes("grid-template-columns: minmax(150px") || !styles.includes(
 if (!dashboard.includes("data-meeting-index") || !dashboard.includes("openMeetingListModal(ticketId)")) {
   throw new Error("Dashboard meeting icon integration is missing");
 }
+for (const expected of ["라벨 필터", "selectedKinds", "To-Do로 만들기", "일괄 생성", '"pending"']) {
+  if (!main.includes(expected)) throw new Error(`Meeting action/filter feature is missing: ${expected}`);
+}
+for (const expected of ["🗓️ 회의록", "renderMeetingOverview()", "selectedMeetingKinds", "opus-meeting-overview-card"]) {
+  if (!dashboard.includes(expected)) throw new Error(`Dashboard meeting overview is missing: ${expected}`);
+}
 
 const functionSource = name => {
   const source = main.match(new RegExp(`function ${name}\\([^]*?\\n\\}`))?.[0];
@@ -104,7 +112,8 @@ const parser = Function(`
   ${functionSource("meetingSection")}
   ${functionSource("buildMeetingNoteMarkdown")}
   ${functionSource("buildMeetingAnalysisPrompt")}
-  return { parseMeetingDate, buildMeetingNoteMarkdown, buildMeetingAnalysisPrompt };
+  ${functionSource("extractMeetingActionItems")}
+  return { parseMeetingDate, buildMeetingNoteMarkdown, buildMeetingAnalysisPrompt, extractMeetingActionItems };
 `)();
 if (parser.parseMeetingDate("CR000000 회의 - 2026_09_11 09_30 KST.md") !== "2026-09-11T09:30") {
   throw new Error("Gemini filename date/time parsing regressed");
@@ -151,6 +160,10 @@ for (const expected of ["기존 누적 분석", "새 회의 원문", "이전 분
 }
 if (analysisPrompt.indexOf("첫 번째 회의 원문") > analysisPrompt.indexOf("두 번째 회의 원문")) {
   throw new Error("Meeting analysis prompt is not chronological");
+}
+const actionItems = parser.extractMeetingActionItems(`## 5. Action Items\n\n| 할 일 | 담당자 | 목표일 |\n|---|---|---|\n| API 확인 | Lucas | 2026-09-18 |\n| 회귀 테스트 | QA | 확인 필요 |\n\n## 6. Current Status`);
+if (actionItems.length !== 2 || actionItems[0].title !== "API 확인" || actionItems[0].owner !== "Lucas" || actionItems[0].dueDate !== "2026-09-18") {
+  throw new Error("Meeting Action Items table parsing regressed");
 }
 
 console.log("Meeting-minutes Drive import, analysis, deletion, sorting, and dashboard checks passed");

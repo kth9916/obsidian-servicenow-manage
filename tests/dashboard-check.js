@@ -833,7 +833,7 @@ function loadSettings() {
                     : defaults.searchKeyword,
 
             activeView:
-                ["table", "todo"].includes(saved.activeView)
+                ["table", "todo", "meeting"].includes(saved.activeView)
                     ? saved.activeView
                     : defaults.activeView,
 
@@ -2536,6 +2536,21 @@ tr:last-child td {
 .opus-todo-board-area {
     width: 100%;
 }
+
+.opus-meeting-overview-toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.opus-meeting-overview-toolbar input[type="search"] { flex: 1 1 260px; min-width: 220px; }
+.opus-meeting-kind-filters { align-items: center; display: flex; gap: 10px; }
+.opus-meeting-kind-filters label { align-items: center; display: flex; gap: 5px; white-space: nowrap; }
+.opus-meeting-overview-list { display: grid; gap: 14px; }
+.opus-meeting-ticket-group { background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 12px; }
+.opus-meeting-ticket-title { font-weight: 750; margin-bottom: 9px; }
+.opus-meeting-overview-card { align-items: center; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 9px; display: grid; gap: 10px; grid-template-columns: minmax(145px, .55fr) minmax(140px, .65fr) minmax(260px, 2fr); margin-top: 7px; padding: 10px 12px; }
+.opus-meeting-overview-date { color: var(--interactive-accent); font-family: var(--font-monospace); font-weight: 700; white-space: nowrap; }
+.opus-meeting-overview-kind { background: var(--background-modifier-hover); border-radius: 999px; font-size: var(--font-ui-smaller); padding: 3px 8px; width: fit-content; white-space: nowrap; }
+.opus-jira-sortable-header { cursor: pointer; padding-right: 22px !important; position: relative; user-select: none; }
+.opus-jira-sortable-header:hover { background: var(--background-modifier-hover); }
+.opus-jira-sortable-header[data-sort-direction="asc"]::after { content: " ↑"; color: var(--interactive-accent); }
+.opus-jira-sortable-header[data-sort-direction="desc"]::after { content: " ↓"; color: var(--interactive-accent); }
 
 .opus-todo-board-toolbar {
     display: flex;
@@ -4582,6 +4597,9 @@ const todoViewButton = dv.el(
 
 todoViewButton.classList.add("opus-view-tab");
 
+const meetingViewButton = dv.el("button", "🗓️ 회의록", { container: viewTabs });
+meetingViewButton.classList.add("opus-view-tab");
+
 const toolbar = dv.el(
     "div",
     "",
@@ -4753,6 +4771,9 @@ const todoBoardArea = dv.el(
 todoBoardArea.classList.add(
     "opus-todo-board-area"
 );
+
+const meetingArea = dv.el("div", "", { container });
+meetingArea.classList.add("opus-meeting-overview-area");
 
 
 // ================================================================
@@ -8874,6 +8895,8 @@ function openJiraExportModal() {
     let excludeCompleted = false;
     let collapseSameTicket = true;
     let translateTodoToEnglish = false;
+    let jiraSortKey = "";
+    let jiraSortDirection = "asc";
     let exportFormat = "table";
     let translationWorking = false;
     const jiraEnglishCache = new Map();
@@ -9020,7 +9043,17 @@ function openJiraExportModal() {
             details: selectedFieldKeys.has("todoDetails") ? (jiraEnglishCache.get(`${task.id}:todoDetails:${task.details || ""}`) || task.details) : task.details
         };
     });
-    const exportTasks = () => collapseSameTicket ? collapseJiraTasksByTicket(translatedTasks()) : translatedTasks();
+    const exportTasks = () => {
+        const tasks = collapseSameTicket ? collapseJiraTasksByTicket(translatedTasks()) : translatedTasks();
+        if (!jiraSortKey || jiraSortKey === "number") return tasks;
+        const field = JIRA_EXPORT_FIELDS.find(item => item.key === jiraSortKey);
+        if (!field) return tasks;
+        return tasks.map((task, index) => ({ task, index, value: jiraExportValue(field, task, index) }))
+            .sort((left, right) => {
+                const compared = String(left.value || "").localeCompare(String(right.value || ""), "ko", { numeric: true, sensitivity: "base" });
+                return (jiraSortDirection === "asc" ? compared : -compared) || left.index - right.index;
+            }).map(item => item.task);
+    };
     function syncTranslationOption() {
         const visible = needsTodoTranslation();
         translationBox.style.display = visible ? "grid" : "none";
@@ -9085,6 +9118,17 @@ function openJiraExportModal() {
             preview.replaceChildren(pre);
         } else {
             preview.innerHTML = buildJiraExportPayload(tasks.slice(0, 30), fields).html;
+            preview.querySelectorAll("th[data-jira-field]").forEach(th => {
+                const key = th.dataset.jiraField;
+                th.classList.add("opus-jira-sortable-header");
+                th.title = "클릭하여 이 필드로 정렬";
+                if (jiraSortKey === key) th.dataset.sortDirection = jiraSortDirection;
+                th.addEventListener("click", () => {
+                    if (jiraSortKey === key) jiraSortDirection = jiraSortDirection === "asc" ? "desc" : "asc";
+                    else { jiraSortKey = key; jiraSortDirection = "asc"; }
+                    renderPreview();
+                });
+            });
         }
     }
     function renderFields() {
@@ -9730,12 +9774,92 @@ function renderTodoBoard() {
 // 29. 전체 렌더링
 // ================================================================
 
+let meetingSearchKeyword = "";
+const selectedMeetingKinds = new Set(["gemini", "analysis"]);
+
+function renderMeetingOverview() {
+    meetingArea.innerHTML = "";
+    const toolbar = document.createElement("div");
+    toolbar.className = "opus-meeting-overview-toolbar";
+    const search = document.createElement("input");
+    search.type = "search";
+    search.placeholder = "티켓 번호 또는 회의 제목 검색";
+    search.value = meetingSearchKeyword;
+    const kinds = document.createElement("div");
+    kinds.className = "opus-meeting-kind-filters";
+    [["gemini", "Gemini 회의록"], ["analysis", "AI 회의록 분석"]].forEach(([kind, labelText]) => {
+        const label = document.createElement("label");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = selectedMeetingKinds.has(kind);
+        checkbox.addEventListener("change", () => {
+            checkbox.checked ? selectedMeetingKinds.add(kind) : selectedMeetingKinds.delete(kind);
+            renderMeetingOverview();
+        });
+        label.append(checkbox, document.createTextNode(labelText));
+        kinds.appendChild(label);
+    });
+    toolbar.append(search, kinds);
+    meetingArea.appendChild(toolbar);
+    const list = document.createElement("div");
+    list.className = "opus-meeting-overview-list";
+    const needle = meetingSearchKeyword.trim().toLowerCase();
+    const meetings = app.vault.getMarkdownFiles().map(file => {
+        const fm = app.metadataCache.getFileCache(file)?.frontmatter || {};
+        const kind = String(fm.meeting_kind || "").toLowerCase();
+        const ticketId = String(fm.ticket || "").toUpperCase();
+        return { file, fm, kind, ticketId };
+    }).filter(item => item.ticketId && selectedMeetingKinds.has(item.kind))
+      .filter(item => !needle || [item.ticketId, item.file.basename, item.fm.source_name].some(value => String(value || "").toLowerCase().includes(needle)))
+      .sort((a, b) => String(b.fm.meeting_date || b.file.stat.ctime).localeCompare(String(a.fm.meeting_date || a.file.stat.ctime)));
+    const groups = new Map();
+    meetings.forEach(meeting => {
+        if (!groups.has(meeting.ticketId)) groups.set(meeting.ticketId, []);
+        groups.get(meeting.ticketId).push(meeting);
+    });
+    for (const [ticketId, groupMeetings] of groups) {
+        const group = document.createElement("section");
+        group.className = "opus-meeting-ticket-group";
+        const heading = document.createElement("div");
+        heading.className = "opus-meeting-ticket-title";
+        heading.textContent = `${ticketId} · ${groupMeetings.length}개`;
+        group.appendChild(heading);
+        groupMeetings.forEach(meeting => {
+            const card = document.createElement("a");
+            card.className = "opus-meeting-overview-card internal-link";
+            card.href = meeting.file.path;
+            card.dataset.href = meeting.file.path;
+            const date = document.createElement("span");
+            date.className = "opus-meeting-overview-date";
+            date.textContent = String(meeting.fm.meeting_date || "일시 미지정").replace("T", " ");
+            const kind = document.createElement("span");
+            kind.className = "opus-meeting-overview-kind";
+            kind.textContent = meeting.kind === "analysis" ? "AI 회의록 분석" : "Gemini 회의록";
+            const title = document.createElement("span");
+            title.textContent = meeting.file.basename;
+            card.append(date, kind, title);
+            group.appendChild(card);
+        });
+        list.appendChild(group);
+    }
+    if (!meetings.length) list.innerHTML = '<div class="opus-empty">조건에 맞는 회의록이 없습니다.</div>';
+    meetingArea.appendChild(list);
+    search.addEventListener("input", event => {
+        meetingSearchKeyword = event.target.value;
+        window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(renderMeetingOverview, 180);
+    });
+}
+
 function renderAll() {
     const tableMode = activeView === "table";
+    const todoMode = activeView === "todo";
+    const meetingMode = activeView === "meeting";
 
     tableViewButton.classList.toggle("active", tableMode);
-    todoViewButton.classList.toggle("active", !tableMode);
-    title.textContent = tableMode ? "📋 전체 업무 현황" : "✅ To-Do 보드";
+    todoViewButton.classList.toggle("active", todoMode);
+    meetingViewButton.classList.toggle("active", meetingMode);
+    title.textContent = tableMode ? "📋 전체 업무 현황" : todoMode ? "✅ To-Do 보드" : "🗓️ 회의록";
     actions.classList.toggle("opus-hidden", !tableMode);
     const showControlBar =
         tableMode
@@ -9746,13 +9870,16 @@ function renderAll() {
 
     controlBar.classList.toggle("opus-hidden", !showControlBar);
     tableArea.classList.toggle("opus-hidden", !tableMode);
-    todoBoardArea.classList.toggle("opus-hidden", tableMode);
+    todoBoardArea.classList.toggle("opus-hidden", !todoMode);
+    meetingArea.classList.toggle("opus-hidden", !meetingMode);
 
     if (!tableMode) {
         sortMenuOpen = false;
         filterMenuOpen = false;
         fieldMenuOpen = false;
     }
+
+    if (meetingMode) renderMeetingOverview();
 
     sortButton.classList.toggle(
         "active",
@@ -9794,11 +9921,16 @@ function renderAll() {
         renderFieldMenu();
         renderControlBar();
         renderTable();
-    } else {
+    } else if (todoMode) {
         sortMenu.style.display = "none";
         filterMenu.style.display = "none";
         fieldMenu.style.display = "none";
         renderTodoBoard();
+    } else {
+        sortMenu.style.display = "none";
+        filterMenu.style.display = "none";
+        fieldMenu.style.display = "none";
+        summary.textContent = "티켓별 회의록을 검색하고 라벨로 필터링할 수 있습니다.";
     }
 }
 
@@ -9818,6 +9950,13 @@ tableViewButton.addEventListener("click", () => {
 
 todoViewButton.addEventListener("click", () => {
     activeView = "todo";
+    settings.activeView = activeView;
+    saveSettings();
+    renderAll();
+});
+
+meetingViewButton.addEventListener("click", () => {
+    activeView = "meeting";
     settings.activeView = activeView;
     saveSettings();
     renderAll();
