@@ -5176,7 +5176,6 @@ class CltServiceNowWorkNotes extends Plugin {
       open.createDiv({ cls: "clt-meeting-card-title", text: meeting.title });
       const meta = open.createDiv({ cls: "clt-meeting-card-meta" });
       meta.createSpan({ text: meeting.sourceName || (meeting.kind === "analysis" ? "AI 분석" : "회의록") });
-      meta.createSpan({ text: "열기 ›" });
       open.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();

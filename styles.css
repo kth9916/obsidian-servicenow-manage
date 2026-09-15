@@ -1007,9 +1007,8 @@
 
 .clt-meeting-card-date { color: var(--interactive-accent); font-family: var(--font-monospace); font-size: var(--font-ui-smaller); font-weight: 700; }
 .clt-meeting-card-title { font-size: 1.02em; font-weight: 720; }
-.clt-meeting-card-meta { color: var(--text-muted); display: flex; font-size: var(--font-ui-smaller); gap: 8px; justify-content: flex-start; padding-right: 54px; }
-.clt-meeting-card-meta > span:last-child { bottom: 8px; position: absolute; right: 13px; }
-.clt-meeting-card { min-height: 66px; }
+.clt-meeting-card-meta { color: var(--text-muted); display: block; font-size: var(--font-ui-smaller); overflow: hidden; padding-right: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.clt-meeting-card { min-height: 54px; }
 .clt-meeting-empty { background: var(--background-secondary); border-radius: 12px; color: var(--text-muted); padding: 24px; text-align: center; }
 
 .markdown-preview-view.clt-meeting-note .markdown-preview-sizer,
