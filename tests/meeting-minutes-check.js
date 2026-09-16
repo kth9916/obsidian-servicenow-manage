@@ -16,7 +16,7 @@ for (const expected of [
   "function buildMeetingNoteMarkdown(",
   "function buildMeetingAnalysisPrompt(",
   "async importMeetingFiles(ticketId, files, options = {})",
-  "async searchGoogleDriveMeetingDocuments(ticketId)",
+  "async searchGoogleDriveMeetingDocuments(ticketId, searchText = \"\")",
   "async importGoogleDriveMeeting(ticketId, candidate)",
   "async deleteTicketMeeting(meeting)",
   "listTicketMeetings(ticketId, sortDirection = \"desc\")",
@@ -52,6 +52,12 @@ if (!main.includes('Parent: "[[${normalized}]]"') || !main.includes("async migra
 if (!main.includes("name contains '${normalized}' and name contains 'Gemini가 작성한 회의록'")) {
   throw new Error("Google Drive meeting search does not enforce the required AND condition");
 }
+if (!main.includes('cls: "clt-meeting-drive-search"') || !main.includes('text: "직접 검색"') || !main.includes('text: "자동 검색"')) {
+  throw new Error("Google Drive meeting direct-search controls are missing");
+}
+if (!main.includes('searchTerms.map((term)') || !main.includes('searchTerms.every((term)')) {
+  throw new Error("Google Drive meeting title-keyword search is missing");
+}
 if (!main.includes('mimeType: "text/markdown"') || !main.includes('mimeType: "application/pdf"')) {
   throw new Error("Google Docs Markdown import or optional PDF preservation is missing");
 }
@@ -83,6 +89,9 @@ if (!(guideIndex < ticketAiIndex && ticketAiIndex < analysisIndex && analysisInd
 }
 if (!styles.includes(".clt-meeting-card") || !styles.includes(".clt-meeting-note h1")) {
   throw new Error("Meeting list or note visual styles are missing");
+}
+if (!styles.includes(".clt-meeting-drive-search") || !styles.includes(".clt-meeting-drive-results")) {
+  throw new Error("Drive meeting direct-search layout styles are missing");
 }
 if (!styles.includes(".clt-meeting-analysis-note h1") || !styles.includes(".clt-meeting-type-badge.is-analysis")) {
   throw new Error("AI meeting-analysis visual distinction is missing");

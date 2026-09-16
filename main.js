@@ -1781,22 +1781,48 @@ class DriveMeetingCandidateModal extends Modal {
       cls: "clt-meeting-import-lead",
       text: `파일명에 '${this.ticketId}'와 'Gemini가 작성한 회의록'이 모두 포함된 Google Docs만 검색합니다.`
     });
-    const loading = this.contentEl.createDiv({ cls: "clt-meeting-empty", text: "Google Drive에서 회의록을 찾는 중…" });
+    const searchBar = this.contentEl.createDiv({ cls: "clt-meeting-drive-search" });
+    const searchInput = searchBar.createEl("input", { type: "search", placeholder: "Google Drive 파일 제목 직접 검색" });
+    const searchButton = searchBar.createEl("button", { text: "직접 검색" });
+    const resetButton = searchBar.createEl("button", { text: "자동 검색" });
+    this.resultsEl = this.contentEl.createDiv({ cls: "clt-meeting-drive-results" });
+    const runSearch = async (query = "") => {
+      this.selectedIds.clear();
+      this.resultsEl.empty();
+      const loading = this.resultsEl.createDiv({ cls: "clt-meeting-empty", text: query ? `'${query}' 검색 중…` : "Google Drive에서 회의록을 찾는 중…" });
+      searchButton.disabled = true;
+      resetButton.disabled = true;
+      try {
+        const candidates = await this.plugin.searchGoogleDriveMeetingDocuments(this.ticketId, query);
+        loading.remove();
+        this.renderCandidates(candidates, Boolean(query));
+      } catch (error) {
+        console.error(`[ServiceNow Manage] ${this.ticketId} Drive 회의록 후보 표시 실패`, error);
+        loading.setText(`회의록 검색 실패: ${error.message || error}`);
+      } finally {
+        searchButton.disabled = false;
+        resetButton.disabled = false;
+      }
+    };
+    searchButton.addEventListener("click", () => {
+      const query = searchInput.value.trim();
+      if (!query) return new Notice("검색할 Google Drive 파일 제목을 입력해 주세요.");
+      void runSearch(query);
+    });
+    resetButton.addEventListener("click", () => { searchInput.value = ""; void runSearch(); });
+    searchInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); searchButton.click(); } });
     try {
-      const candidates = await this.plugin.searchGoogleDriveMeetingDocuments(this.ticketId);
-      this.renderCandidates(candidates);
-      loading.remove();
+      await runSearch();
     } catch (error) {
       console.error(`[ServiceNow Manage] ${this.ticketId} Drive 회의록 후보 표시 실패`, error);
-      loading.setText(`회의록 검색 실패: ${error.message || error}`);
     }
   }
 
-  renderCandidates(candidates) {
+  renderCandidates(candidates, manualSearch = false) {
     const imported = new Set(this.plugin.listTicketMeetings(this.ticketId).map((meeting) => meeting.sourceDriveId).filter(Boolean));
-    const list = this.contentEl.createDiv({ cls: "clt-meeting-drive-candidates" });
+    const list = this.resultsEl.createDiv({ cls: "clt-meeting-drive-candidates" });
     if (!candidates.length) {
-      list.createDiv({ cls: "clt-meeting-empty", text: "조건에 맞는 Gemini 회의록을 찾지 못했습니다." });
+      list.createDiv({ cls: "clt-meeting-empty", text: manualSearch ? "입력한 제목과 일치하는 Google Docs를 찾지 못했습니다." : "조건에 맞는 Gemini 회의록을 찾지 못했습니다." });
     }
     for (const candidate of candidates) {
       const row = list.createEl("label", { cls: `clt-meeting-drive-candidate${imported.has(candidate.id) ? " is-imported" : ""}` });
@@ -1816,7 +1842,7 @@ class DriveMeetingCandidateModal extends Modal {
       });
       row.dataset.candidateId = candidate.id;
     }
-    const actions = this.contentEl.createDiv({ cls: "clt-sn-document-actions" });
+    const actions = this.resultsEl.createDiv({ cls: "clt-sn-document-actions" });
     const cancel = actions.createEl("button", { text: "취소" });
     cancel.addEventListener("click", () => this.close());
     const submit = actions.createEl("button", { text: "선택한 회의록 추가", cls: "mod-cta" });
@@ -7348,10 +7374,16 @@ class CltServiceNowWorkNotes extends Plugin {
     return groups;
   }
 
-  async searchGoogleDriveMeetingDocuments(ticketId) {
+  async searchGoogleDriveMeetingDocuments(ticketId, searchText = "") {
     const normalized = normalizeTicketId(ticketId);
+    const manualQuery = String(searchText || "").trim();
+    const searchTerms = manualQuery.split(/\s+/).filter(Boolean);
+    const escapeDriveQuery = (value) => String(value).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    const nameQuery = searchTerms.length
+      ? searchTerms.map((term) => `name contains '${escapeDriveQuery(term)}'`).join(" and ")
+      : `name contains '${normalized}' and name contains 'Gemini가 작성한 회의록'`;
     const baseQuery = {
-      q: `name contains '${normalized}' and name contains 'Gemini가 작성한 회의록' and mimeType = 'application/vnd.google-apps.document' and trashed = false`,
+      q: `${nameQuery} and mimeType = 'application/vnd.google-apps.document' and trashed = false`,
       fields: "files(id,name,mimeType,createdTime,modifiedTime,webViewLink,owners(displayName,emailAddress))",
       orderBy: "modifiedTime desc",
       pageSize: 100,
@@ -7373,6 +7405,10 @@ class CltServiceNowWorkNotes extends Plugin {
     return [...files.values()]
       .filter((file) => {
         const name = String(file.name || "");
+        if (searchTerms.length) {
+          const comparableName = name.toLocaleLowerCase();
+          return searchTerms.every((term) => comparableName.includes(term.toLocaleLowerCase()));
+        }
         return name.toUpperCase().includes(normalized) && name.includes("Gemini가 작성한 회의록");
       })
       .map((file) => {
