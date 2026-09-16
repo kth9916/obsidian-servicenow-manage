@@ -1122,7 +1122,7 @@ function extractWorkLogs(markdown) {
                             ""
                         )
                         .replace(
-                            /^[\s*_`~:.,-]+/,
+                            /^[\s*_`~:.,]+/,
                             ""
                         )
                         .trim();
@@ -2556,6 +2556,11 @@ tr:last-child td {
 .opus-jira-sortable-header:hover { background: var(--background-modifier-hover); }
 .opus-jira-sortable-header[data-sort-direction="asc"]::after { content: " ↑"; color: var(--interactive-accent); }
 .opus-jira-sortable-header[data-sort-direction="desc"]::after { content: " ↓"; color: var(--interactive-accent); }
+.opus-jira-export-memo-editor { display: grid; gap: 8px; margin-bottom: 10px; }
+.opus-jira-export-memo-heading { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.opus-jira-export-memo-editor label { align-items: start; display: grid; gap: 8px; grid-template-columns: minmax(110px, .35fr) minmax(220px, 1fr); }
+.opus-jira-export-memo-editor label > span { font-family: var(--font-monospace); font-weight: 700; padding-top: 7px; }
+.opus-jira-export-memo-editor textarea { min-height: 58px; resize: vertical; width: 100%; }
 
 .opus-todo-board-toolbar {
     display: flex;
@@ -8698,6 +8703,7 @@ const JIRA_EXPORT_FIELDS = [
     { key: "status", label: "Status", jiraLabel: "Status", default: true, value: task => JIRA_EXPORT_STATUS[task.status] || task.status },
     { key: "todo", label: "To-Do (할 일)", jiraLabel: "To-Do", value: task => task.text },
     { key: "todoDetails", label: "To-Do Details (상세 내용)", jiraLabel: "To-Do Details", value: task => task.details || "" },
+    { key: "memo", label: "Memo (임시 메모)", jiraLabel: "Memo", value: task => task.jiraMemo || "" },
     { key: "dueDate", label: "Due Date (완료 예정일)", jiraLabel: "Due Date", value: task => task.dueDate },
     { key: "createdAt", label: "To-Do Created (등록일)", jiraLabel: "To-Do Created", value: task => task.dateTime },
     { key: "completedAt", label: "To-Do Completed (완료일)", jiraLabel: "To-Do Completed", value: task => task.completedAt },
@@ -8816,6 +8822,11 @@ function buildJiraCellTextPayload(tasks, fields) {
     return { rows: rows.map(row => fields.map(field => row.values[field.key])), text };
 }
 
+function buildJiraJsonPayload(tasks, fields) {
+    const rows = tasks.map((task, index) => Object.fromEntries(fields.map(field => [field.jiraLabel || field.label, jiraExportValue(field, task, index)])));
+    return { rows, text: JSON.stringify(rows, null, 2) };
+}
+
 function collapseJiraTasksByTicket(tasks) {
     const groups = new Map();
     tasks.forEach(task => {
@@ -8900,6 +8911,7 @@ function openJiraExportModal() {
     let excludeCompleted = false;
     let collapseSameTicket = true;
     let translateTodoToEnglish = false;
+    const jiraMemoValues = new Map();
     let jiraSortKey = "";
     let jiraSortDirection = "asc";
     let exportFormat = "table";
@@ -8983,9 +8995,9 @@ function openJiraExportModal() {
     const translationLabel = document.createElement("label");
     const translationCheckbox = document.createElement("input");
     translationCheckbox.type = "checkbox";
-    translationLabel.append(translationCheckbox, document.createTextNode("선택한 To-Do를 영어로 번역"));
+    translationLabel.append(translationCheckbox, document.createTextNode("선택한 To-Do와 임시 메모를 영어로 번역"));
     const translationHelp = document.createElement("small");
-    translationHelp.textContent = "To-Do 제목 또는 상세 내용 필드를 선택하면 Export 결과만 영어로 번역합니다. 원본 To-Do는 변경하지 않습니다.";
+    translationHelp.textContent = "To-Do 제목·상세 내용 또는 임시 메모를 선택하면 Export 결과만 영어로 번역합니다. 원본 노트는 변경하지 않습니다.";
     translationBox.append(translationLabel, translationHelp);
     const fieldsEl = document.createElement("div");
     fieldsEl.className = "opus-jira-export-fields";
@@ -8997,7 +9009,7 @@ function openJiraExportModal() {
     const previewTitle = document.createElement("h4");
     previewTitle.textContent = "3. 미리보기";
     const formatSelect = document.createElement("select");
-    [["table", "Jira 표"], ["cellText", "한 셀용 텍스트"]].forEach(([value, label]) => {
+    [["table", "Jira 표"], ["cellText", "한 셀용 텍스트"], ["json", "JSON"]].forEach(([value, label]) => {
         const option = document.createElement("option");
         option.value = value;
         option.textContent = label;
@@ -9005,6 +9017,9 @@ function openJiraExportModal() {
     });
     previewHeading.append(previewTitle, formatSelect);
     previewPanel.appendChild(previewHeading);
+    const memoEditor = document.createElement("div");
+    memoEditor.className = "opus-jira-export-memo-editor";
+    previewPanel.appendChild(memoEditor);
     const preview = document.createElement("div");
     preview.className = "opus-jira-export-preview";
     previewPanel.appendChild(preview);
@@ -9039,13 +9054,16 @@ function openJiraExportModal() {
         return true;
     }
     const selectedTasks = () => todoItems.filter(task => selectedTaskIds.has(task.id) && matchesExportFilters(task));
-    const needsTodoTranslation = () => selectedFieldKeys.has("todo") || selectedFieldKeys.has("todoDetails");
+    const memoKey = task => task.ticketId || task.id;
+    const needsTodoTranslation = () => selectedFieldKeys.has("todo") || selectedFieldKeys.has("todoDetails") || selectedFieldKeys.has("memo");
     const translatedTasks = () => selectedTasks().map(task => {
-        if (!translateTodoToEnglish) return task;
+        const memo = jiraMemoValues.get(memoKey(task)) || "";
+        if (!translateTodoToEnglish) return { ...task, jiraMemo: memo };
         return {
             ...task,
             text: selectedFieldKeys.has("todo") ? (jiraEnglishCache.get(`${task.id}:todo:${task.text}`) || task.text) : task.text,
-            details: selectedFieldKeys.has("todoDetails") ? (jiraEnglishCache.get(`${task.id}:todoDetails:${task.details || ""}`) || task.details) : task.details
+            details: selectedFieldKeys.has("todoDetails") ? (jiraEnglishCache.get(`${task.id}:todoDetails:${task.details || ""}`) || task.details) : task.details,
+            jiraMemo: selectedFieldKeys.has("memo") ? (jiraEnglishCache.get(`${memoKey(task)}:memo:${memo}`) || memo) : ""
         };
     });
     const exportTasks = () => {
@@ -9083,11 +9101,12 @@ function openJiraExportModal() {
             for (const task of selectedTasks()) {
                 const targets = [
                     ["todo", task.text || ""],
-                    ["todoDetails", task.details || ""]
+                    ["todoDetails", task.details || ""],
+                    ["memo", jiraMemoValues.get(memoKey(task)) || ""]
                 ];
                 for (const [field, source] of targets) {
                     if (!source || !selectedFieldKeys.has(field)) continue;
-                    const key = `${task.id}:${field}:${source}`;
+                    const key = `${field === "memo" ? memoKey(task) : task.id}:${field}:${source}`;
                     if (!jiraEnglishCache.has(key)) jiraEnglishCache.set(key, await plugin.translateTextForExport(source, "en"));
                 }
             }
@@ -9114,12 +9133,41 @@ function openJiraExportModal() {
             ? `선택 ${selected.length}개 · 티켓 ${tasks.length}건으로 묶음 · 필드 ${fields.length}개`
             : `선택 ${tasks.length}개 · 필드 ${fields.length}개`;
         copyButton.disabled = translationWorking || !tasks.length || !fields.length;
+        memoEditor.innerHTML = "";
+        if (selectedFieldKeys.has("memo") && tasks.length) {
+            const heading = document.createElement("div");
+            heading.className = "opus-jira-export-memo-heading";
+            heading.textContent = "Export 전용 임시 메모 · 원본 노트에는 저장되지 않습니다.";
+            memoEditor.appendChild(heading);
+            const seen = new Set();
+            tasks.forEach(task => {
+                const key = memoKey(task);
+                if (seen.has(key)) return;
+                seen.add(key);
+                const label = document.createElement("label");
+                const name = document.createElement("span");
+                name.textContent = task.ticketId || task.text || "티켓 없음";
+                const input = document.createElement("textarea");
+                input.rows = 2;
+                input.placeholder = "회의에서 공유할 메모를 입력하세요.";
+                input.value = jiraMemoValues.get(key) || "";
+                input.addEventListener("input", () => { jiraMemoValues.set(key, input.value); });
+                input.addEventListener("change", renderPreview);
+                label.append(name, input);
+                memoEditor.appendChild(label);
+            });
+        }
         if (!tasks.length || !fields.length) {
             preview.innerHTML = '<div class="opus-jira-export-empty">To-Do와 필드를 선택해 주세요.</div>';
         } else if (exportFormat === "cellText") {
             const pre = document.createElement("pre");
             pre.className = "opus-jira-export-cell-text";
             pre.textContent = buildJiraCellTextPayload(tasks.slice(0, 30), fields).text;
+            preview.replaceChildren(pre);
+        } else if (exportFormat === "json") {
+            const pre = document.createElement("pre");
+            pre.className = "opus-jira-export-cell-text";
+            pre.textContent = buildJiraJsonPayload(tasks.slice(0, 30), fields).text;
             preview.replaceChildren(pre);
         } else {
             preview.innerHTML = buildJiraExportPayload(tasks.slice(0, 30), fields).html;
@@ -9255,14 +9303,14 @@ function openJiraExportModal() {
     collapseCheckbox.addEventListener("change", () => { collapseSameTicket = collapseCheckbox.checked; renderPreview(); });
     formatSelect.addEventListener("change", () => {
         exportFormat = formatSelect.value;
-        copyButton.textContent = exportFormat === "cellText" ? "한 셀용 텍스트 복사" : "Jira 표 복사";
+        copyButton.textContent = exportFormat === "cellText" ? "한 셀용 텍스트 복사" : exportFormat === "json" ? "JSON 복사" : "Jira 표 복사";
         renderPreview();
     });
     translationCheckbox.addEventListener("change", async () => {
         translateTodoToEnglish = translationCheckbox.checked;
         if (translateTodoToEnglish) await ensureEnglishTranslations();
         else {
-            translationHelp.textContent = "To-Do 제목 또는 상세 내용 필드를 선택하면 Export 결과만 영어로 번역합니다. 원본 To-Do는 변경하지 않습니다.";
+            translationHelp.textContent = "To-Do 제목·상세 내용 또는 임시 메모를 선택하면 Export 결과만 영어로 번역합니다. 원본 노트는 변경하지 않습니다.";
             renderPreview();
         }
     });
@@ -9273,10 +9321,10 @@ function openJiraExportModal() {
             const fields = orderedFields();
             const payload = exportFormat === "cellText"
                 ? buildJiraCellTextPayload(tasks, fields)
-                : buildJiraExportPayload(tasks, fields);
-            if (exportFormat === "cellText") await copyJiraCellTextPayload(payload);
+                : exportFormat === "json" ? buildJiraJsonPayload(tasks, fields) : buildJiraExportPayload(tasks, fields);
+            if (exportFormat === "cellText" || exportFormat === "json") await copyJiraCellTextPayload(payload);
             else await copyJiraExportPayload(payload);
-            new Notice(`${exportFormat === "cellText" ? "한 셀용 텍스트" : "Jira 표"} ${payload.rows.length}건을 복사했습니다.`);
+            new Notice(`${exportFormat === "cellText" ? "한 셀용 텍스트" : exportFormat === "json" ? "JSON" : "Jira 표"} ${payload.rows.length}건을 복사했습니다.`);
         } catch (error) {
             new Notice(`Jira 표 복사 실패: ${error.message || error}`);
         }

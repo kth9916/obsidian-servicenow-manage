@@ -4,6 +4,7 @@ const path = require("path");
 const root = path.resolve(__dirname, "..");
 const main = fs.readFileSync(path.join(root, "main.js"), "utf8");
 const styles = fs.readFileSync(path.join(root, "styles.css"), "utf8");
+const dashboard = fs.readFileSync(path.join(root, "resources", "업무현황.md"), "utf8");
 
 if (!main.includes("function extractTicketWorkLogs(markdown)")) throw new Error("Work-log parser is missing");
 const formatterSource = main.match(/function formatMarkdownListEntry\(prefix, content\) \{[\s\S]*?\n\}/)?.[0];
@@ -21,6 +22,7 @@ const stripWorkLogEntryPrefix = Function(`${prefixStripperSource}; return stripW
 if (stripWorkLogEntryPrefix("2026-08-26 16:54 : - 테스트3\n- 테스트4", "2026-08-26 16:54") !== "- 테스트3\n- 테스트4") {
   throw new Error("Existing work-log first bullet is not preserved");
 }
+if (!dashboard.includes('/^[\\s*_`~:.,]+/')) throw new Error("Dashboard work-log parser still removes the first Markdown bullet");
 if (!main.includes("renderTicketWorkLogCards(sourceList, ticketId, workLogs")) throw new Error("Ticket work-log card renderer is missing");
 if (!main.includes("await mountWorkLogCards()")) throw new Error("Ticket work-log cards are not mounted");
 if (!main.includes('sourceList.dataset.cltWorklogView || "latest"')) throw new Error("Recent work-log view is not the default");
