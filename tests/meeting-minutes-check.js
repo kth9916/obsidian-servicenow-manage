@@ -76,6 +76,12 @@ if (!main.includes('const actions = toolbar.createDiv({ cls: "clt-meeting-list-a
 if (!main.includes('text: "새로고침"') || !main.includes('this.plugin.app.vault.on("create", refreshIfRelevant)')) {
   throw new Error("Meeting list manual or automatic refresh is missing");
 }
+if (!main.includes('this.selectedKinds = new Set(["gemini", "analysis"])') || !main.includes('this.eventRefs.forEach(([emitter, eventRef]) => emitter?.offref?.(eventRef))')) {
+  throw new Error("Meeting-list modal filters or safe event cleanup are missing");
+}
+if (!main.includes("위의 'Drive에서 가져오기' 또는 '＋ 파일로 추가'로 첫 회의록을 등록")) {
+  throw new Error("Meeting-list modal empty-state guidance is missing");
+}
 if (!main.includes('text: "이미 분석됨"') || !main.includes("기존 분석 자료를 기준으로 새 회의만 이어서 분석")) {
   throw new Error("Incremental meeting-analysis UI is missing");
 }

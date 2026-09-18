@@ -2108,21 +2108,25 @@ class MeetingListModal extends Modal {
     this.plugin = plugin;
     this.ticketId = normalizeTicketId(ticketId);
     this.sortDirection = "desc";
+    this.selectedKinds = new Set(["gemini", "analysis"]);
+    this.eventRefs = [];
   }
   async onOpen() {
     this.modalEl.addClass("clt-meeting-list-modal");
     this.titleEl.setText(`${this.ticketId} 회의록`);
+    await this.render();
     const refreshIfRelevant = (file, oldPath = "") => {
       const folder = `${this.plugin.ticketMeetingsFolder(this.ticketId)}/`;
       if (!String(file?.path || "").startsWith(folder) && !String(oldPath || "").startsWith(folder)) return;
       window.setTimeout(() => this.render(), 120);
     };
-    this.registerEvent(this.app.vault.on("create", refreshIfRelevant));
-    this.registerEvent(this.app.vault.on("delete", refreshIfRelevant));
-    this.registerEvent(this.app.vault.on("rename", refreshIfRelevant));
-    this.registerEvent(this.app.vault.on("modify", refreshIfRelevant));
-    this.registerEvent(this.app.metadataCache.on("changed", refreshIfRelevant));
-    await this.render();
+    this.eventRefs = [
+      [this.app.vault, this.app.vault.on("create", refreshIfRelevant)],
+      [this.app.vault, this.app.vault.on("delete", refreshIfRelevant)],
+      [this.app.vault, this.app.vault.on("rename", refreshIfRelevant)],
+      [this.app.vault, this.app.vault.on("modify", refreshIfRelevant)],
+      [this.app.metadataCache, this.app.metadataCache.on("changed", refreshIfRelevant)]
+    ];
   }
   async render() {
     this.contentEl.empty();
@@ -2134,6 +2138,19 @@ class MeetingListModal extends Modal {
       this.sortDirection = this.sortDirection === "desc" ? "asc" : "desc";
       await this.render();
     });
+    const filter = actions.createEl("details", { cls: "clt-meeting-label-filter" });
+    filter.createEl("summary", { text: "라벨 필터" });
+    const filterMenu = filter.createDiv({ cls: "clt-meeting-label-filter-menu" });
+    [["gemini", "Gemini 회의록"], ["analysis", "AI 회의록 분석"]].forEach(([kind, label]) => {
+      const option = filterMenu.createEl("label");
+      const checkbox = option.createEl("input", { type: "checkbox" });
+      checkbox.checked = this.selectedKinds.has(kind);
+      option.createSpan({ text: label });
+      checkbox.addEventListener("change", () => {
+        checkbox.checked ? this.selectedKinds.add(kind) : this.selectedKinds.delete(kind);
+        void this.render();
+      });
+    });
     const drive = actions.createEl("button", { text: "Drive에서 가져오기" });
     drive.addEventListener("click", () => new DriveMeetingCandidateModal(this.app, this.plugin, this.ticketId, () => this.render()).open());
     const refresh = actions.createEl("button", { text: "새로고침", attr: { title: "회의록 목록 새로고침" } });
@@ -2141,13 +2158,20 @@ class MeetingListModal extends Modal {
     const add = actions.createEl("button", { text: "＋ 파일로 추가", cls: "mod-cta" });
     add.addEventListener("click", () => new MeetingImportModal(this.app, this.plugin, this.ticketId, () => this.render()).open());
     const list = this.contentEl.createDiv({ cls: "clt-meeting-list" });
-    const meetings = this.plugin.listTicketMeetings(this.ticketId, this.sortDirection);
-    count.setText(`${meetings.length}개의 회의 기록`);
+    const allMeetings = this.plugin.listTicketMeetings(this.ticketId, this.sortDirection);
+    const meetings = allMeetings.filter((meeting) => this.selectedKinds.has(meeting.kind));
+    count.setText(`${meetings.length}개의 회의 기록${meetings.length !== allMeetings.length ? ` · 전체 ${allMeetings.length}개` : ""}`);
     list.dataset.sortDirection = this.sortDirection;
     list.addEventListener("clt-meeting-deleted", () => this.render());
-    this.plugin.renderMeetingCards(list, meetings, { emptyText: "아직 등록된 회의록이 없습니다." });
+    this.plugin.renderMeetingCards(list, meetings, {
+      emptyText: allMeetings.length
+        ? "선택한 라벨에 해당하는 회의록이 없습니다. 라벨 필터를 변경해 주세요."
+        : "아직 등록된 회의록이 없습니다. 위의 'Drive에서 가져오기' 또는 '＋ 파일로 추가'로 첫 회의록을 등록할 수 있습니다."
+    });
   }
   onClose() {
+    this.eventRefs.forEach(([emitter, eventRef]) => emitter?.offref?.(eventRef));
+    this.eventRefs = [];
     this.modalEl.removeClass("clt-meeting-list-modal");
     this.contentEl.empty();
   }
