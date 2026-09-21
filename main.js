@@ -1821,6 +1821,7 @@ class MeetingImportModal extends Modal {
       if (!visible.length) ticketList.createDiv({ cls: "clt-meeting-ticket-empty", text: "일치하는 티켓이 없습니다." });
     };
     ticketSearch.addEventListener("input", renderTicketOptions);
+    let titleEdited = false;
     fileInput.addEventListener("change", () => {
       selected.empty();
       const files = [...(fileInput.files || [])];
@@ -1829,6 +1830,8 @@ class MeetingImportModal extends Modal {
         ticketPicker.addClass("is-hidden");
       } else {
         files.forEach((file) => selected.createDiv({ text: `${file.name} · ${Math.max(1, Math.round(file.size / 1024))} KB` }));
+        const textFile = files.find((file) => /\.(?:md|txt)$/i.test(file.name));
+        if (textFile && !titleEdited) titleInput.value = textFile.name.replace(/\.(?:md|txt)$/i, "");
         ticketPicker.removeClass("is-hidden");
       }
     });
@@ -1836,9 +1839,11 @@ class MeetingImportModal extends Modal {
     const titleLabel = grid.createEl("label");
     titleLabel.createSpan({ text: "회의 제목 (선택)" });
     const titleInput = titleLabel.createEl("input", { type: "text", placeholder: `${this.ticketId} 회의` });
+    titleInput.addEventListener("input", () => { titleEdited = true; });
     const dateLabel = grid.createEl("label");
     dateLabel.createSpan({ text: "회의 일시 (선택)" });
     const dateInput = dateLabel.createEl("input", { type: "datetime-local" });
+    dateInput.value = localIsoDateTime().replace(" ", "T").slice(0, 16);
     renderTicketOptions();
     updateTicketSummary();
     const actions = this.contentEl.createDiv({ cls: "clt-sn-document-actions" });

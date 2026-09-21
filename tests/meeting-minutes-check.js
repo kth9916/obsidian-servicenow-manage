@@ -53,6 +53,9 @@ if (!main.includes('Parent: "[[${normalized}]]"') || !main.includes("async migra
 if (!main.includes("normalizeMeetingTicketIds") || !main.includes("CR/SR 번호 검색 · 여러 개 선택 가능") || !main.includes("ticketsYaml")) {
   throw new Error("Multi-ticket meeting selection or metadata is missing");
 }
+if (!main.includes('textFile.name.replace(/\\.(?:md|txt)$/i, "")') || !main.includes('dateInput.value = localIsoDateTime().replace(" ", "T").slice(0, 16)')) {
+  throw new Error("Meeting file name or current-time form defaults are missing");
+}
 if (!main.includes("1. 가져올 회의록 선택") || !main.includes("2. 관련 티켓 선택") || !main.includes("복수 티켓 선택하기") || !main.includes("importGoogleDriveMeeting([...this.selectedTicketIds], candidate)")) {
   throw new Error("Google Drive meeting import does not support multi-ticket linking");
 }
