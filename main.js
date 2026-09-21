@@ -13,8 +13,44 @@
 } = require("obsidian");
 const crypto = require("crypto");
 const http = require("http");
+const https = require("https");
 const zlib = require("zlib");
 const { shell } = require("electron");
+
+function isClientAuthCertificateError(error) {
+  return /ERR_SSL_CLIENT_AUTH_CERT_NEEDED|SSL_CLIENT_AUTH_CERT_NEEDED/i.test(
+    `${String(error?.code || "")} ${String(error?.message || error || "")}`
+  );
+}
+
+function nodeHttpsRequest(options) {
+  return new Promise((resolve, reject) => {
+    const requestBody = options.body == null ? null : Buffer.from(String(options.body));
+    const headers = { ...(options.headers || {}) };
+    if (requestBody && !Object.keys(headers).some((key) => key.toLowerCase() === "content-length")) {
+      headers["Content-Length"] = String(requestBody.byteLength);
+    }
+    const request = https.request(options.url, {
+      method: options.method || "GET",
+      headers
+    }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on("end", () => {
+        const bytes = Buffer.concat(chunks);
+        const text = bytes.toString("utf8");
+        let json = null;
+        try { json = text ? JSON.parse(text) : null; } catch (_) { /* non-JSON response */ }
+        const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        resolve({ status: Number(response.statusCode || 0), headers: response.headers || {}, text, json, arrayBuffer });
+      });
+    });
+    request.setTimeout(30_000, () => request.destroy(new Error("ServiceNow 요청 시간이 초과되었습니다.")));
+    request.on("error", reject);
+    if (requestBody) request.write(requestBody);
+    request.end();
+  });
+}
 
 function formatMarkdownListEntry(prefix, content) {
   const lines = String(content || "").trim().split(/\r?\n/);
@@ -6578,7 +6614,7 @@ class CltServiceNowWorkNotes extends Plugin {
   }
 
   async tokenRequest(params) {
-    const response = await requestUrl({
+    const response = await this.serviceNowRequest({
       url: `${cleanInstanceUrl(this.settings.instanceUrl)}/oauth_token.do`,
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
@@ -6662,7 +6698,7 @@ class CltServiceNowWorkNotes extends Plugin {
     if (this.settings.authMode === "oauth") {
       for (const token of tokens) {
         try {
-          await requestUrl({
+          await this.serviceNowRequest({
             url: `${cleanInstanceUrl(this.settings.instanceUrl)}/oauth_revoke_token.do?token=${encodeURIComponent(token)}`,
             method: "GET",
             throw: false
@@ -7608,7 +7644,7 @@ class CltServiceNowWorkNotes extends Plugin {
       if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
     });
     const url = `${cleanInstanceUrl(this.settings.instanceUrl)}${path}${params.size ? `?${params}` : ""}`;
-    const response = await requestUrl({
+    const response = await this.serviceNowRequest({
       url,
       method: "GET",
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
@@ -7626,6 +7662,16 @@ class CltServiceNowWorkNotes extends Plugin {
     return response.json;
   }
 
+  async serviceNowRequest(options) {
+    try {
+      return await requestUrl(options);
+    } catch (error) {
+      if (!isClientAuthCertificateError(error)) throw error;
+      console.warn("[ServiceNow Manage] Obsidian requestUrl 인증서 오류로 Node HTTPS 재시도", error);
+      return nodeHttpsRequest(options);
+    }
+  }
+
   async attachmentImageDataUrl(entry) {
     const attachmentId = String(entry?.attachmentId || "").trim();
     if (!attachmentId) throw new Error("첨부파일 ID가 없습니다.");
@@ -7633,7 +7679,7 @@ class CltServiceNowWorkNotes extends Plugin {
     if (this.attachmentImageCache.has(attachmentId)) return this.attachmentImageCache.get(attachmentId);
     const loading = (async () => {
       const token = await this.validAccessToken();
-      const response = await requestUrl({
+      const response = await this.serviceNowRequest({
         url: `${cleanInstanceUrl(this.settings.instanceUrl)}/api/now/attachment/${encodeURIComponent(attachmentId)}/file`,
         method: "GET",
         headers: { Authorization: `Bearer ${token}`, Accept: entry.contentType || "image/*" },
@@ -7705,7 +7751,7 @@ class CltServiceNowWorkNotes extends Plugin {
     entry.localPath = path;
     if (this.app.vault.getAbstractFileByPath(path)) return path;
     const token = await this.validAccessToken();
-    const response = await requestUrl({
+    const response = await this.serviceNowRequest({
       url: `${cleanInstanceUrl(this.settings.instanceUrl)}/api/now/attachment/${encodeURIComponent(attachmentId)}/file`,
       method: "GET",
       headers: { Authorization: `Bearer ${token}`, Accept: entry.contentType || "video/*" },
