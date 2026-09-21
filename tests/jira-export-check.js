@@ -30,7 +30,10 @@ const required = [
   "opus-jira-sortable-header",
   'key: "memo"',
   "jiraMemoValues",
-  "opus-jira-export-memo-editor",
+  "opus-jira-memo-editor",
+  'memoButton.textContent = "메모 입력"',
+  "function openMemoEditor()",
+  "opus-jira-memo-ticket-list",
   'basisSelect',
   'startInput.type = "date"',
   'endInput.type = "date"',
@@ -57,6 +60,11 @@ for (const marker of required) {
 
 if (!dashboard.includes("ticketCheckbox.indeterminate")) {
   throw new Error("Ticket and individual task selection are not synchronized");
+}
+if (!dashboard.includes('memoButton.classList.toggle("has-memo"')
+    || !dashboard.includes("jiraMemoValues.set(selectedKey, textarea.value)")
+    || !dashboard.includes('memoButton.addEventListener("click", openMemoEditor)')) {
+  throw new Error("Jira Memo dialog does not update the live export preview");
 }
 if (!dashboard.includes("[fieldOrder[index - 1], fieldOrder[index]]")) {
   throw new Error("Export field reordering is missing");
