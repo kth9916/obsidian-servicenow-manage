@@ -921,6 +921,8 @@
   padding: 12px;
 }
 
+.clt-meeting-ticket-picker.is-hidden { display: none; }
+
 .clt-meeting-ticket-picker-heading {
   align-items: center;
   display: flex;
@@ -958,16 +960,12 @@
   font-weight: 700;
 }
 
-.clt-meeting-drive-ticket-picker {
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  margin-bottom: 12px;
-  padding: 9px 11px;
+.clt-meeting-step-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-weight: 700;
+  margin: 2px 2px 8px;
 }
-
-.clt-meeting-drive-ticket-picker summary { cursor: pointer; font-weight: 700; }
-.clt-meeting-drive-ticket-picker > input { margin: 9px 0; width: 100%; }
 
 .clt-meeting-file-drop {
   align-items: center;

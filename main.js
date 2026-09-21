@@ -1784,13 +1784,26 @@ class MeetingImportModal extends Modal {
     guide.createDiv({ cls: "is-recommended", text: "권장 · Markdown — 제목, 체크박스, 링크, 스크립트 시간을 정확히 보존" });
     guide.createDiv({ text: "선택 · PDF — 보기 좋은 원본을 회의록 노트와 함께 보관" });
     const form = this.contentEl.createDiv({ cls: "clt-meeting-import-form" });
-    const ticketPicker = form.createDiv({ cls: "clt-meeting-ticket-picker" });
+    const fileLabel = form.createEl("label", { cls: "clt-meeting-file-drop" });
+    fileLabel.createDiv({ cls: "clt-meeting-file-icon", text: "⇧" });
+    fileLabel.createEl("strong", { text: "1. 회의록 파일 선택" });
+    fileLabel.createSpan({ text: ".md 또는 .txt 1개 + 선택 PDF 1개" });
+    const fileInput = fileLabel.createEl("input", { type: "file" });
+    fileInput.accept = ".md,.txt,.pdf,text/markdown,text/plain,application/pdf";
+    fileInput.multiple = true;
+    const selected = form.createDiv({ cls: "clt-meeting-selected-files", text: "선택된 파일 없음" });
+    const ticketPicker = form.createDiv({ cls: "clt-meeting-ticket-picker is-hidden" });
     const ticketHeading = ticketPicker.createDiv({ cls: "clt-meeting-ticket-picker-heading" });
-    ticketHeading.createStrong({ text: "관련 티켓" });
+    ticketHeading.createEl("strong", { text: "2. 관련 티켓 선택" });
     const ticketCount = ticketHeading.createSpan();
     const ticketSearch = ticketPicker.createEl("input", { type: "search", placeholder: "CR/SR 번호 검색 · 여러 개 선택 가능" });
     const ticketList = ticketPicker.createDiv({ cls: "clt-meeting-ticket-options" });
     const ticketIds = this.plugin.rootTicketFiles().map((file) => this.plugin.rootTicketIdFromFile(file)).filter(Boolean).sort();
+    const updateTicketSummary = () => {
+      const count = this.selectedTicketIds.size;
+      ticketCount.setText(count ? `${count}개 선택` : "티켓 없이 등록");
+      titleInput.placeholder = count === 1 ? `${[...this.selectedTicketIds][0]} 회의` : "회의 제목";
+    };
     const renderTicketOptions = () => {
       ticketList.empty();
       const needle = ticketSearch.value.trim().toUpperCase();
@@ -1807,25 +1820,17 @@ class MeetingImportModal extends Modal {
       });
       if (!visible.length) ticketList.createDiv({ cls: "clt-meeting-ticket-empty", text: "일치하는 티켓이 없습니다." });
     };
-    const updateTicketSummary = () => {
-      const count = this.selectedTicketIds.size;
-      ticketCount.setText(count ? `${count}개 선택` : "티켓 없이 등록");
-      if (typeof titleInput !== "undefined") titleInput.placeholder = count === 1 ? `${[...this.selectedTicketIds][0]} 회의` : "회의 제목";
-    };
     ticketSearch.addEventListener("input", renderTicketOptions);
-    const fileLabel = form.createEl("label", { cls: "clt-meeting-file-drop" });
-    fileLabel.createDiv({ cls: "clt-meeting-file-icon", text: "⇧" });
-    fileLabel.createStrong({ text: "회의록 파일 선택" });
-    fileLabel.createSpan({ text: ".md 또는 .txt 1개 + 선택 PDF 1개" });
-    const fileInput = fileLabel.createEl("input", { type: "file" });
-    fileInput.accept = ".md,.txt,.pdf,text/markdown,text/plain,application/pdf";
-    fileInput.multiple = true;
-    const selected = form.createDiv({ cls: "clt-meeting-selected-files", text: "선택된 파일 없음" });
     fileInput.addEventListener("change", () => {
       selected.empty();
       const files = [...(fileInput.files || [])];
-      if (!files.length) selected.setText("선택된 파일 없음");
-      else files.forEach((file) => selected.createDiv({ text: `${file.name} · ${Math.max(1, Math.round(file.size / 1024))} KB` }));
+      if (!files.length) {
+        selected.setText("선택된 파일 없음");
+        ticketPicker.addClass("is-hidden");
+      } else {
+        files.forEach((file) => selected.createDiv({ text: `${file.name} · ${Math.max(1, Math.round(file.size / 1024))} KB` }));
+        ticketPicker.removeClass("is-hidden");
+      }
     });
     const grid = form.createDiv({ cls: "clt-meeting-import-grid" });
     const titleLabel = grid.createEl("label");
@@ -1868,45 +1873,23 @@ class MeetingImportModal extends Modal {
 }
 
 class DriveMeetingCandidateModal extends Modal {
-  constructor(app, plugin, ticketId, onImported = null) {
+  constructor(app, plugin, ticketId, onImported = null, multiTicketMode = false) {
     super(app);
     this.plugin = plugin;
     this.ticketId = normalizeTicketId(ticketId);
     this.onImported = onImported;
     this.selectedIds = new Set();
     this.selectedTicketIds = new Set(this.ticketId ? [this.ticketId] : []);
+    this.multiTicketMode = multiTicketMode;
   }
 
   async onOpen() {
     this.modalEl.addClass("clt-meeting-drive-modal");
-    this.titleEl.setText(`${this.ticketId} Google Drive 회의록 가져오기`);
+    this.titleEl.setText(this.multiTicketMode ? "복수 티켓 Google Drive 회의록 가져오기" : `${this.ticketId} Google Drive 회의록 가져오기`);
     this.contentEl.createDiv({
       cls: "clt-meeting-import-lead",
-      text: `파일명에 '${this.ticketId}'와 'Gemini가 작성한 회의록'이 모두 포함된 Google Docs만 검색합니다.`
+      text: `먼저 가져올 회의록을 선택한 뒤 관련 티켓을 선택합니다. 자동 검색은 '${this.ticketId}'와 'Gemini가 작성한 회의록'이 모두 포함된 Google Docs를 찾습니다.`
     });
-    const linkedTickets = this.contentEl.createEl("details", { cls: "clt-meeting-drive-ticket-picker" });
-    const linkedSummary = linkedTickets.createEl("summary");
-    const updateLinkedSummary = () => linkedSummary.setText(`관련 티켓 · ${this.selectedTicketIds.size}개 선택`);
-    const linkedSearch = linkedTickets.createEl("input", { type: "search", placeholder: "추가로 연결할 CR/SR 검색" });
-    const linkedOptions = linkedTickets.createDiv({ cls: "clt-meeting-ticket-options" });
-    const allTicketIds = this.plugin.rootTicketFiles().map((file) => this.plugin.rootTicketIdFromFile(file)).filter(Boolean).sort();
-    const renderLinkedOptions = () => {
-      linkedOptions.empty();
-      const needle = linkedSearch.value.trim().toUpperCase();
-      allTicketIds.filter((id) => !needle || id.includes(needle)).forEach((ticketId) => {
-        const option = linkedOptions.createEl("label", { cls: "clt-meeting-ticket-option" });
-        const checkbox = option.createEl("input", { type: "checkbox" });
-        checkbox.checked = this.selectedTicketIds.has(ticketId);
-        option.createSpan({ text: ticketId });
-        checkbox.addEventListener("change", () => {
-          checkbox.checked ? this.selectedTicketIds.add(ticketId) : this.selectedTicketIds.delete(ticketId);
-          updateLinkedSummary();
-        });
-      });
-    };
-    linkedSearch.addEventListener("input", renderLinkedOptions);
-    updateLinkedSummary();
-    renderLinkedOptions();
     const searchBar = this.contentEl.createDiv({ cls: "clt-meeting-drive-search" });
     const searchInput = searchBar.createEl("input", { type: "search", placeholder: "Google Drive 파일 제목 직접 검색" });
     const searchButton = searchBar.createEl("button", { text: "직접 검색" });
@@ -1950,6 +1933,33 @@ class DriveMeetingCandidateModal extends Modal {
     if (!candidates.length) {
       list.createDiv({ cls: "clt-meeting-empty", text: manualSearch ? "입력한 제목과 일치하는 Google Docs를 찾지 못했습니다." : "조건에 맞는 Gemini 회의록을 찾지 못했습니다." });
     }
+    const linkedTickets = this.resultsEl.createDiv({ cls: "clt-meeting-ticket-picker is-hidden" });
+    const linkedHeading = linkedTickets.createDiv({ cls: "clt-meeting-ticket-picker-heading" });
+    linkedHeading.createEl("strong", { text: "2. 관련 티켓 선택" });
+    const linkedCount = linkedHeading.createSpan();
+    const linkedSearch = linkedTickets.createEl("input", { type: "search", placeholder: "추가로 연결할 CR/SR 검색" });
+    const linkedOptions = linkedTickets.createDiv({ cls: "clt-meeting-ticket-options" });
+    const allTicketIds = this.plugin.rootTicketFiles().map((file) => this.plugin.rootTicketIdFromFile(file)).filter(Boolean).sort();
+    const updateLinkedSummary = () => linkedCount.setText(this.selectedTicketIds.size ? `${this.selectedTicketIds.size}개 선택` : "티켓 없이 등록");
+    const renderLinkedOptions = () => {
+      linkedOptions.empty();
+      const needle = linkedSearch.value.trim().toUpperCase();
+      allTicketIds.filter((id) => !needle || id.includes(needle)).forEach((ticketId) => {
+        const option = linkedOptions.createEl("label", { cls: "clt-meeting-ticket-option" });
+        const checkbox = option.createEl("input", { type: "checkbox" });
+        checkbox.checked = this.selectedTicketIds.has(ticketId);
+        option.createSpan({ text: ticketId });
+        checkbox.addEventListener("change", () => {
+          checkbox.checked ? this.selectedTicketIds.add(ticketId) : this.selectedTicketIds.delete(ticketId);
+          updateLinkedSummary();
+        });
+      });
+    };
+    linkedSearch.addEventListener("input", renderLinkedOptions);
+    updateLinkedSummary();
+    renderLinkedOptions();
+    const updateStep = () => this.selectedIds.size ? linkedTickets.removeClass("is-hidden") : linkedTickets.addClass("is-hidden");
+    list.createDiv({ cls: "clt-meeting-step-label", text: "1. 가져올 회의록 선택" });
     for (const candidate of candidates) {
       const row = list.createEl("label", { cls: `clt-meeting-drive-candidate${imported.has(candidate.id) ? " is-imported" : ""}` });
       const checkbox = row.createEl("input", { type: "checkbox" });
@@ -1965,6 +1975,7 @@ class DriveMeetingCandidateModal extends Modal {
       checkbox.addEventListener("change", () => {
         if (checkbox.checked) this.selectedIds.add(candidate.id);
         else this.selectedIds.delete(candidate.id);
+        updateStep();
       });
       row.dataset.candidateId = candidate.id;
     }
@@ -2018,13 +2029,16 @@ class GlobalDriveMeetingTicketModal extends Modal {
     });
     const actions = this.contentEl.createDiv({ cls: "clt-sn-document-actions" });
     actions.createEl("button", { text: "취소" }).addEventListener("click", () => this.close());
-    const next = actions.createEl("button", { text: "Drive 검색", cls: "mod-cta" });
-    next.addEventListener("click", () => {
+    const openSearch = (multiTicketMode) => {
       const ticketId = normalizeTicketId(select.value);
       if (!ticketId) return new Notice("티켓을 선택해 주세요.");
       this.close();
-      new DriveMeetingCandidateModal(this.app, this.plugin, ticketId, this.onImported).open();
-    });
+      new DriveMeetingCandidateModal(this.app, this.plugin, ticketId, this.onImported, multiTicketMode).open();
+    };
+    const next = actions.createEl("button", { text: "단일 티켓 검색" });
+    next.addEventListener("click", () => openSearch(false));
+    const multi = actions.createEl("button", { text: "복수 티켓 선택하기", cls: "mod-cta" });
+    multi.addEventListener("click", () => openSearch(true));
   }
   onClose() { this.contentEl.empty(); }
 }
