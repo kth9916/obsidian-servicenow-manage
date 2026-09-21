@@ -1874,6 +1874,7 @@ class DriveMeetingCandidateModal extends Modal {
     this.ticketId = normalizeTicketId(ticketId);
     this.onImported = onImported;
     this.selectedIds = new Set();
+    this.selectedTicketIds = new Set(this.ticketId ? [this.ticketId] : []);
   }
 
   async onOpen() {
@@ -1883,6 +1884,29 @@ class DriveMeetingCandidateModal extends Modal {
       cls: "clt-meeting-import-lead",
       text: `파일명에 '${this.ticketId}'와 'Gemini가 작성한 회의록'이 모두 포함된 Google Docs만 검색합니다.`
     });
+    const linkedTickets = this.contentEl.createEl("details", { cls: "clt-meeting-drive-ticket-picker" });
+    const linkedSummary = linkedTickets.createEl("summary");
+    const updateLinkedSummary = () => linkedSummary.setText(`관련 티켓 · ${this.selectedTicketIds.size}개 선택`);
+    const linkedSearch = linkedTickets.createEl("input", { type: "search", placeholder: "추가로 연결할 CR/SR 검색" });
+    const linkedOptions = linkedTickets.createDiv({ cls: "clt-meeting-ticket-options" });
+    const allTicketIds = this.plugin.rootTicketFiles().map((file) => this.plugin.rootTicketIdFromFile(file)).filter(Boolean).sort();
+    const renderLinkedOptions = () => {
+      linkedOptions.empty();
+      const needle = linkedSearch.value.trim().toUpperCase();
+      allTicketIds.filter((id) => !needle || id.includes(needle)).forEach((ticketId) => {
+        const option = linkedOptions.createEl("label", { cls: "clt-meeting-ticket-option" });
+        const checkbox = option.createEl("input", { type: "checkbox" });
+        checkbox.checked = this.selectedTicketIds.has(ticketId);
+        option.createSpan({ text: ticketId });
+        checkbox.addEventListener("change", () => {
+          checkbox.checked ? this.selectedTicketIds.add(ticketId) : this.selectedTicketIds.delete(ticketId);
+          updateLinkedSummary();
+        });
+      });
+    };
+    linkedSearch.addEventListener("input", renderLinkedOptions);
+    updateLinkedSummary();
+    renderLinkedOptions();
     const searchBar = this.contentEl.createDiv({ cls: "clt-meeting-drive-search" });
     const searchInput = searchBar.createEl("input", { type: "search", placeholder: "Google Drive 파일 제목 직접 검색" });
     const searchButton = searchBar.createEl("button", { text: "직접 검색" });
@@ -1957,13 +1981,13 @@ class DriveMeetingCandidateModal extends Modal {
         let importedCount = 0;
         const warnings = [];
         for (const candidate of selected) {
-          const result = await this.plugin.importGoogleDriveMeeting(this.ticketId, candidate);
+          const result = await this.plugin.importGoogleDriveMeeting([...this.selectedTicketIds], candidate);
           if (result?.note) importedCount += 1;
           warnings.push(...(result?.warnings || []));
         }
         if (typeof this.onImported === "function") await this.onImported();
         this.close();
-        new Notice(`${this.ticketId} 회의록 ${importedCount}건을 추가했습니다.${warnings.length ? `\n${warnings.join("\n")}` : ""}`, 9000);
+        new Notice(`티켓 ${this.selectedTicketIds.size}개에 회의록 ${importedCount}건을 추가했습니다.${warnings.length ? `\n${warnings.join("\n")}` : ""}`, 9000);
       } catch (error) {
         new Notice(`회의록 가져오기 실패: ${error.message || error}`, 9000);
         submit.disabled = false;
@@ -7573,11 +7597,13 @@ class CltServiceNowWorkNotes extends Plugin {
   }
 
   async importGoogleDriveMeeting(ticketId, candidate) {
-    const normalized = normalizeTicketId(ticketId);
-    const rootFile = this.rootTicketFile(normalized);
-    if (!(rootFile instanceof TFile)) throw new Error(`${normalized} 원본 티켓 노트를 찾을 수 없습니다.`);
+    const ticketIds = normalizeMeetingTicketIds(ticketId);
+    const normalized = ticketIds[0] || "";
+    const rootFiles = ticketIds.map((id) => ({ id, file: this.rootTicketFile(id) }));
+    const missing = rootFiles.filter(({ file }) => !(file instanceof TFile)).map(({ id }) => id);
+    if (missing.length) throw new Error(`${missing.join(", ")} 원본 티켓 노트를 찾을 수 없습니다.`);
     if (!candidate?.id) throw new Error("Google Drive 회의록 ID가 없습니다.");
-    if (this.listTicketMeetings(normalized).some((meeting) => meeting.sourceDriveId === candidate.id)) {
+    if (ticketIds.some((id) => this.listTicketMeetings(id).some((meeting) => meeting.sourceDriveId === candidate.id))) {
       return { note: null, warnings: [`${candidate.name}: 이미 추가된 회의록입니다.`] };
     }
     const encodedId = encodeURIComponent(candidate.id);
@@ -7586,7 +7612,7 @@ class CltServiceNowWorkNotes extends Plugin {
     });
     const sourceText = new TextDecoder("utf-8").decode(markdownData);
     if (!sourceText.trim()) throw new Error(`${candidate.name}의 Markdown 내용이 비어 있습니다.`);
-    const folder = this.ticketMeetingsFolder(normalized);
+    const folder = ticketIds.length === 1 ? this.ticketMeetingsFolder(normalized) : this.generalMeetingsFolder();
     await this.ensureFolder(folder);
     const meetingDate = candidate.meetingDate || parseMeetingDate(candidate.name);
     const titleFromBody = sourceText.match(/^##\s+(?:\*\*)?(.+?)(?:\*\*)?\s*$/m)?.[1] || candidate.name;
@@ -7606,6 +7632,7 @@ class CltServiceNowWorkNotes extends Plugin {
     const notePath = await this.uniqueVaultPath(`${folder}/${fileStem}.md`);
     const markdown = buildMeetingNoteMarkdown({
       ticketId: normalized,
+      ticketIds,
       sourceName: candidate.name,
       sourceText,
       meetingDate,
@@ -7614,7 +7641,7 @@ class CltServiceNowWorkNotes extends Plugin {
       sourceDriveId: candidate.id
     });
     const note = await this.app.vault.create(notePath, markdown);
-    await this.ensureMeetingSection(rootFile, normalized);
+    for (const { id, file } of rootFiles) await this.ensureMeetingSection(file, id);
     return { note, warnings };
   }
 
