@@ -2559,21 +2559,13 @@ tr:last-child td {
 .opus-jira-export-preview-actions { align-items: center; display: flex; gap: 7px; }
 .opus-jira-export-memo-button.has-memo::after { color: var(--interactive-accent); content: " ●"; }
 .opus-jira-memo-backdrop { z-index: 10030; }
-.opus-jira-memo-dialog { display: flex; flex-direction: column; max-height: min(680px, 88vh); width: min(760px, 94vw); }
-.opus-jira-memo-body { display: grid; gap: 12px; grid-template-columns: minmax(190px, .7fr) minmax(300px, 1.3fr); min-height: 0; padding: 14px; }
-.opus-jira-memo-ticket-list { display: grid; gap: 6px; max-height: 460px; overflow-y: auto; }
-.opus-jira-memo-ticket { background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 7px; display: grid; gap: 3px; padding: 9px 10px; text-align: left; }
-.opus-jira-memo-ticket.is-selected { border-color: var(--interactive-accent); box-shadow: inset 3px 0 var(--interactive-accent); }
-.opus-jira-memo-ticket-id { font-family: var(--font-monospace); font-weight: 700; }
-.opus-jira-memo-ticket-state { color: var(--text-muted); font-size: var(--font-ui-smaller); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opus-jira-memo-dialog { display: flex; flex-direction: column; max-height: min(520px, 86vh); width: min(620px, 94vw); }
+.opus-jira-memo-body { display: grid; gap: 12px; min-height: 0; padding: 14px; }
+.opus-jira-memo-ticket-select { min-height: 34px; width: 100%; }
 .opus-jira-memo-editor { display: flex; flex-direction: column; min-height: 0; }
 .opus-jira-memo-editor-label { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-bottom: 7px; }
 .opus-jira-memo-editor textarea { flex: 1; min-height: 180px; resize: vertical; width: 100%; }
 .opus-jira-memo-help { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 8px; }
-@media (max-width: 680px) {
-  .opus-jira-memo-body { grid-template-columns: 1fr; }
-  .opus-jira-memo-ticket-list { max-height: 180px; }
-}
 
 .opus-todo-board-toolbar {
     display: flex;
@@ -9172,8 +9164,8 @@ function openJiraExportModal() {
         header.append(title, closeMemo);
         const memoBody = document.createElement("div");
         memoBody.className = "opus-jira-memo-body";
-        const ticketList = document.createElement("div");
-        ticketList.className = "opus-jira-memo-ticket-list";
+        const ticketSelect = document.createElement("select");
+        ticketSelect.className = "opus-jira-memo-ticket-select";
         const editor = document.createElement("div");
         editor.className = "opus-jira-memo-editor";
         const editorLabel = document.createElement("div");
@@ -9184,7 +9176,7 @@ function openJiraExportModal() {
         help.className = "opus-jira-memo-help";
         help.textContent = "입력 내용은 현재 Jira Export 창에서만 유지되며 원본 노트에는 저장되지 않습니다.";
         editor.append(editorLabel, textarea, help);
-        memoBody.append(ticketList, editor);
+        memoBody.append(ticketSelect, editor);
         memoDialog.append(header, memoBody);
         memoBackdrop.appendChild(memoDialog);
         const closeEditor = () => { memoBackdrop.remove(); renderPreview(); };
@@ -9192,26 +9184,19 @@ function openJiraExportModal() {
             selectedKey = memoKey(task);
             editorLabel.textContent = `${task.ticketId || "티켓 없음"} 메모`;
             textarea.value = jiraMemoValues.get(selectedKey) || "";
-            ticketList.querySelectorAll(".opus-jira-memo-ticket").forEach(button => {
-                button.classList.toggle("is-selected", button.dataset.memoKey === selectedKey);
-            });
+            ticketSelect.value = selectedKey;
             textarea.focus();
         };
         uniqueTasks.forEach(task => {
             const key = memoKey(task);
-            const button = document.createElement("button");
-            button.type = "button";
-            button.className = "opus-jira-memo-ticket";
-            button.dataset.memoKey = key;
-            const ticket = document.createElement("span");
-            ticket.className = "opus-jira-memo-ticket-id";
-            ticket.textContent = task.ticketId || "티켓 없음";
-            const state = document.createElement("span");
-            state.className = "opus-jira-memo-ticket-state";
-            state.textContent = task.description || task.text || "";
-            button.append(ticket, state);
-            button.addEventListener("click", () => selectTask(task));
-            ticketList.appendChild(button);
+            const option = document.createElement("option");
+            option.value = key;
+            option.textContent = task.ticketId || "티켓 없음";
+            ticketSelect.appendChild(option);
+        });
+        ticketSelect.addEventListener("change", () => {
+            const task = uniqueTasks.find(item => memoKey(item) === ticketSelect.value);
+            if (task) selectTask(task);
         });
         textarea.addEventListener("input", () => {
             jiraMemoValues.set(selectedKey, textarea.value);

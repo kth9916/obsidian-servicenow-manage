@@ -33,7 +33,7 @@ const required = [
   "opus-jira-memo-editor",
   'memoButton.textContent = "메모 입력"',
   "function openMemoEditor()",
-  "opus-jira-memo-ticket-list",
+  "opus-jira-memo-ticket-select",
   'basisSelect',
   'startInput.type = "date"',
   'endInput.type = "date"',
@@ -63,7 +63,8 @@ if (!dashboard.includes("ticketCheckbox.indeterminate")) {
 }
 if (!dashboard.includes('memoButton.classList.toggle("has-memo"')
     || !dashboard.includes("jiraMemoValues.set(selectedKey, textarea.value)")
-    || !dashboard.includes('memoButton.addEventListener("click", openMemoEditor)')) {
+    || !dashboard.includes('memoButton.addEventListener("click", openMemoEditor)')
+    || !dashboard.includes('ticketSelect.addEventListener("change"')) {
   throw new Error("Jira Memo dialog does not update the live export preview");
 }
 if (!dashboard.includes("[fieldOrder[index - 1], fieldOrder[index]]")) {
