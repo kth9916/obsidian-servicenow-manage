@@ -9962,18 +9962,22 @@ function renderMeetingOverview() {
         const fm = app.metadataCache.getFileCache(file)?.frontmatter || {};
         const kind = String(fm.meeting_kind || "").toLowerCase();
         const ticketId = String(fm.ticket || "").toUpperCase();
-        return { file, fm, kind, ticketId };
+        const rawTickets = Array.isArray(fm.tickets) ? fm.tickets : [ticketId];
+        const ticketIds = [...new Set(rawTickets.map(value => String(value || "").replace(/^\[\[/, "").replace(/\]\]$/, "").split("|")[0].trim().toUpperCase()).filter(Boolean))];
+        return { file, fm, kind, ticketId: ticketIds[0] || ticketId, ticketIds };
     }).filter(item => selectedMeetingKinds.has(item.kind))
-      .filter(item => !needle || [item.ticketId, item.file.basename, item.fm.source_name].some(value => String(value || "").toLowerCase().includes(needle)))
+      .filter(item => !needle || [...item.ticketIds, item.file.basename, item.fm.source_name].some(value => String(value || "").toLowerCase().includes(needle)))
       .sort((a, b) => {
           const compared = String(a.fm.meeting_date || a.file.stat.ctime).localeCompare(String(b.fm.meeting_date || b.file.stat.ctime));
           return meetingSortDirection === "asc" ? compared : -compared;
       });
     const groups = new Map();
     meetings.forEach(meeting => {
-        const groupKey = meeting.ticketId || "티켓 없음";
-        if (!groups.has(groupKey)) groups.set(groupKey, []);
-        groups.get(groupKey).push(meeting);
+        const groupKeys = meeting.ticketIds.length ? meeting.ticketIds : ["티켓 없음"];
+        groupKeys.forEach(groupKey => {
+            if (!groups.has(groupKey)) groups.set(groupKey, []);
+            groups.get(groupKey).push(meeting);
+        });
     });
     for (const [ticketId, groupMeetings] of groups) {
         const group = document.createElement("section");

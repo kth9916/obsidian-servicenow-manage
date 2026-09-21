@@ -912,6 +912,52 @@
   gap: 12px;
 }
 
+.clt-meeting-ticket-picker {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+}
+
+.clt-meeting-ticket-picker-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.clt-meeting-ticket-picker-heading span,
+.clt-meeting-ticket-empty {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.clt-meeting-ticket-picker > input { width: 100%; }
+.clt-meeting-ticket-options {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
+  max-height: 160px;
+  overflow: auto;
+}
+
+.clt-meeting-ticket-option {
+  align-items: center;
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  display: flex;
+  gap: 7px;
+  padding: 7px 9px;
+}
+
+.clt-meeting-ticket-option:has(input:checked) {
+  border-color: var(--interactive-accent);
+  color: var(--interactive-accent);
+  font-weight: 700;
+}
+
 .clt-meeting-file-drop {
   align-items: center;
   background: var(--background-primary-alt);

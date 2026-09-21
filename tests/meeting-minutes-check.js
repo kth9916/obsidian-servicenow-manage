@@ -15,6 +15,7 @@ for (const expected of [
   "function extractMeetingActionItems(markdown)",
   "function buildMeetingNoteMarkdown(",
   "function buildMeetingAnalysisPrompt(",
+  "function extractTicketFocusedMeetingContent(",
   "async importMeetingFiles(ticketId, files, options = {})",
   "async searchGoogleDriveMeetingDocuments(ticketId, searchText = \"\")",
   "async importGoogleDriveMeeting(ticketId, candidate)",
@@ -48,6 +49,12 @@ if (!main.includes('cssclasses:\\n  - clt-meeting-note')) {
 }
 if (!main.includes('Parent: "[[${normalized}]]"') || !main.includes("async migrateMeetingParentLinks()")) {
   throw new Error("Meeting notes do not link back to their parent ticket");
+}
+if (!main.includes("normalizeMeetingTicketIds") || !main.includes("CR/SR 번호 검색 · 여러 개 선택 가능") || !main.includes("ticketsYaml")) {
+  throw new Error("Multi-ticket meeting selection or metadata is missing");
+}
+if (!main.includes("extractTicketFocusedMeetingContent(rawContent, normalized)") || !main.includes("다른 티켓의 논의는 결론이나 할 일에 포함하지 마세요")) {
+  throw new Error("Shared-meeting ticket-focused AI analysis is missing");
 }
 if (!main.includes("name contains '${normalized}' and name contains 'Gemini가 작성한 회의록'")) {
   throw new Error("Google Drive meeting search does not enforce the required AND condition");
@@ -124,14 +131,16 @@ const parser = Function(`
   const normalizeTicketId = value => String(value || "").toUpperCase();
   const localIsoDateTime = () => "2026-09-14 12:00";
   const safeFileName = value => String(value || "");
+  ${functionSource("normalizeMeetingTicketIds")}
   ${functionSource("escapeRegExp")}
   ${functionSource("parseMeetingDate")}
   ${functionSource("cleanMeetingTitle")}
   ${functionSource("meetingSection")}
   ${functionSource("buildMeetingNoteMarkdown")}
   ${functionSource("buildMeetingAnalysisPrompt")}
+  ${functionSource("extractTicketFocusedMeetingContent")}
   ${functionSource("extractMeetingActionItems")}
-  return { parseMeetingDate, buildMeetingNoteMarkdown, buildMeetingAnalysisPrompt, extractMeetingActionItems };
+  return { parseMeetingDate, buildMeetingNoteMarkdown, buildMeetingAnalysisPrompt, extractTicketFocusedMeetingContent, extractMeetingActionItems };
 `)();
 if (parser.parseMeetingDate("CR000000 회의 - 2026_09_11 09_30 KST.md") !== "2026-09-11T09:30") {
   throw new Error("Gemini filename date/time parsing regressed");
@@ -144,6 +153,19 @@ const generated = parser.buildMeetingNoteMarkdown({
 });
 for (const expected of ["meeting_date: \"2026-09-11T09:30\"", "meeting_kind: gemini", "회의 핵심", "API 전송 합의", "담당자 확인", "상세 논의", "스크립트 펼치기"]) {
   if (!generated.includes(expected)) throw new Error(`Generated meeting note lost content: ${expected}`);
+}
+const sharedGenerated = parser.buildMeetingNoteMarkdown({
+  ticketIds: ["CR000000", "CR000001"],
+  sourceName: "ITO Weekly.md",
+  sourceText: sample,
+  title: "ITO Weekly"
+});
+for (const expected of ['tickets:\n  - "CR000000"\n  - "CR000001"', '[[CR000000|CR000000]] · [[CR000001|CR000001]]']) {
+  if (!sharedGenerated.includes(expected)) throw new Error(`Shared meeting note metadata is incomplete: ${expected}`);
+}
+const focused = parser.extractTicketFocusedMeetingContent(`1. CR000000 : First\n- Memo: keep this\n\n2. CR000001 : Second\n- Memo: exclude this`, "CR000000");
+if (!focused.includes("keep this") || focused.includes("exclude this")) {
+  throw new Error("Shared meeting ticket section extraction regressed");
 }
 
 const analysisPrompt = parser.buildMeetingAnalysisPrompt({
