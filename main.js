@@ -2261,8 +2261,7 @@ class MeetingListModal extends Modal {
     this.titleEl.setText(`${this.ticketId} 회의록`);
     await this.render();
     const refreshIfRelevant = (file, oldPath = "") => {
-      const folder = `${this.plugin.ticketMeetingsFolder(this.ticketId)}/`;
-      if (!String(file?.path || "").startsWith(folder) && !String(oldPath || "").startsWith(folder)) return;
+      if (!this.plugin.isMeetingFileRelevantToTicket(file, this.ticketId, oldPath)) return;
       window.setTimeout(() => this.render(), 120);
     };
     this.eventRefs = [
@@ -3133,9 +3132,9 @@ class MeetingSectionRenderChild extends MarkdownRenderChild {
     this.refreshTimer = null;
   }
   onload() {
+    this.plugin.registerView(this.ticketId, this);
     const refreshIfRelevant = (file, oldPath = "") => {
-      const folder = `${this.plugin.ticketMeetingsFolder(this.ticketId)}/`;
-      if (!String(file?.path || "").startsWith(folder) && !String(oldPath || "").startsWith(folder)) return;
+      if (!this.plugin.isMeetingFileRelevantToTicket(file, this.ticketId, oldPath)) return;
       window.clearTimeout(this.refreshTimer);
       this.refreshTimer = window.setTimeout(() => this.render(), 120);
     };
@@ -3148,6 +3147,7 @@ class MeetingSectionRenderChild extends MarkdownRenderChild {
   }
   onunload() {
     window.clearTimeout(this.refreshTimer);
+    this.plugin.unregisterView(this.ticketId, this);
   }
   render() {
     this.containerEl.empty();
@@ -5309,6 +5309,21 @@ class CltServiceNowWorkNotes extends Plugin {
     return this.rootTicketFiles().find((file) => this.rootTicketIdFromFile(file) === normalized) || null;
   }
 
+  meetingTicketIdsForFile(file) {
+    const pending = this.pendingMeetingTicketLinks?.get(file?.path) || [];
+    const frontmatter = file instanceof TFile ? this.app.metadataCache.getFileCache(file)?.frontmatter || {} : {};
+    return normalizeMeetingTicketIds([pending, frontmatter.tickets || frontmatter.ticket]);
+  }
+
+  isMeetingFileRelevantToTicket(file, ticketId, oldPath = "") {
+    const normalized = normalizeTicketId(ticketId);
+    const directFolder = `${this.ticketMeetingsFolder(normalized)}/`;
+    const paths = [String(file?.path || ""), String(oldPath || "")];
+    if (paths.some((path) => path.startsWith(directFolder))) return true;
+    if (!paths.some((path) => path.startsWith(`${this.generalMeetingsFolder()}/`))) return false;
+    return this.meetingTicketIdsForFile(file).includes(normalized);
+  }
+
   listTicketMeetings(ticketId, sortDirection = "desc") {
     const normalizedTicketId = normalizeTicketId(ticketId);
     const folder = `${this.ticketMeetingsFolder(normalizedTicketId)}/`;
@@ -5318,7 +5333,7 @@ class CltServiceNowWorkNotes extends Plugin {
         if (file.path.startsWith(folder)) return true;
         if (!file.path.startsWith(generalFolder)) return false;
         const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
-        return normalizeMeetingTicketIds(frontmatter.tickets || frontmatter.ticket).includes(normalizedTicketId);
+        return this.meetingTicketIdsForFile(file).includes(normalizedTicketId);
       })
       .map((file) => {
         const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
@@ -5587,7 +5602,10 @@ class CltServiceNowWorkNotes extends Plugin {
       pdfPath
     });
     const note = await this.app.vault.create(notePath, markdown);
+    this.pendingMeetingTicketLinks ||= new Map();
+    this.pendingMeetingTicketLinks.set(note.path, ticketIds);
     for (const { id, file } of rootFiles) await this.ensureMeetingSection(file, id);
+    ticketIds.forEach((id) => this.refreshViews(id));
     return note;
   }
 
@@ -7660,7 +7678,10 @@ class CltServiceNowWorkNotes extends Plugin {
       sourceDriveId: candidate.id
     });
     const note = await this.app.vault.create(notePath, markdown);
+    this.pendingMeetingTicketLinks ||= new Map();
+    this.pendingMeetingTicketLinks.set(note.path, ticketIds);
     for (const { id, file } of rootFiles) await this.ensureMeetingSection(file, id);
+    ticketIds.forEach((id) => this.refreshViews(id));
     return { note, warnings };
   }
 

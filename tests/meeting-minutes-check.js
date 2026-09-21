@@ -28,6 +28,7 @@ for (const expected of [
   "class MeetingSectionRenderChild extends MarkdownRenderChild",
   "latestMeetingAnalysis(ticketId)",
   "meetingCoveredByAnalysis(meeting, analysis)",
+  "isMeetingFileRelevantToTicket(file, ticketId, oldPath = \"\")",
   "clt-ticket-meeting-actions",
   "ticketMeetingsFolder(ticketId)",
   "마크다운(.md)으로 내려받아 등록하는 방식을 권장"
@@ -88,6 +89,9 @@ if (!main.includes('const actions = toolbar.createDiv({ cls: "clt-meeting-list-a
 }
 if (!main.includes('text: "새로고침"') || !main.includes('this.plugin.app.vault.on("create", refreshIfRelevant)')) {
   throw new Error("Meeting list manual or automatic refresh is missing");
+}
+if (!main.includes("this.pendingMeetingTicketLinks.set(note.path, ticketIds)") || !main.includes("ticketIds.forEach((id) => this.refreshViews(id))") || !main.includes("this.plugin.registerView(this.ticketId, this)")) {
+  throw new Error("Shared meeting creation does not refresh every linked ticket view");
 }
 if (!main.includes('this.selectedKinds = new Set(["gemini", "analysis"])') || !main.includes('this.eventRefs.forEach(([emitter, eventRef]) => emitter?.offref?.(eventRef))')) {
   throw new Error("Meeting-list modal filters or safe event cleanup are missing");
