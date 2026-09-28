@@ -1902,3 +1902,16 @@ button.mod-warning:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.clt-ticket-mini-card-result {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 8px;
+  padding-top: 7px;
+}
+
+.clt-ticket-mini-card-result > strong {
+  color: var(--text-muted);
+  display: block;
+  font-size: var(--font-ui-smaller);
+  margin-bottom: 3px;
+}

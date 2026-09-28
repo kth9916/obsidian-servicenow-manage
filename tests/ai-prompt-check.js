@@ -145,5 +145,10 @@ if (!main.includes("class TodoEntryModal extends Modal") || !main.includes("open
 if (main.includes("SECONDARY_GOOGLE_REFRESH_TOKEN_KEY") || main.includes("42815")) {
   throw new Error("Removed secondary Google OAuth flow still exists");
 }
+if (!main.includes("async googleWorkspaceDirectExport(fileId, mimeType)")
+    || !main.includes("https://docs.google.com/${product}/d/${encodeURIComponent(fileId)}/export?format=${format}")
+    || !main.includes("/too large|large to be exported|export size/i")) {
+  throw new Error("Large Google Workspace document export fallback is missing");
+}
 
 console.log("AI prompt template checks passed");

@@ -42,6 +42,10 @@ if (!dashboard.includes("}, 140);")) throw new Error("To-Do search rendering is 
 if (!dashboard.includes(".opus-todo-load-more {")) throw new Error("To-Do load-more UI is missing");
 if (!dashboard.includes('details.className = "opus-filter-multi-select"')) throw new Error("Multi-value select filter is missing");
 if (!dashboard.includes('!filterValues.includes(normalizedValue)')) throw new Error("Multi-value not-equals filtering is missing");
+if (!dashboard.includes("const activeCount = activeFilters.filter(filter => filter.columnKey === column.key).length")) {
+  throw new Error("Same-field filter count is missing");
+}
+if (dashboard.includes("button.disabled = alreadyActive")) throw new Error("Same-field filter is still disabled after one condition");
 if (dashboard.includes("const EXCLUDED_STATUSES")) throw new Error("Hard-coded closed status exclusion remains");
 if (!dashboard.includes(".markdown-preview-sizer:has(.opus-dashboard)")) throw new Error("Dashboard readable-line-length override is missing");
 if (!dashboard.includes('summaryCard.className = "opus-worklog-ticket-summary"')) throw new Error("Work-log ticket summary is missing");

@@ -45,6 +45,7 @@ const required = [
   "function collapseJiraTasksByTicket(tasks)",
   'label: "To-Do (할 일)"',
   'label: "To-Do Details (상세 내용)"',
+  'label: "To-Do Result (처리 내용)"',
   'document.createTextNode("선택한 To-Do와 임시 메모를 영어로 번역")',
   "function syncTranslationOption()",
   "async function ensureEnglishTranslations()",
@@ -133,8 +134,8 @@ if (normalizeStart < 0 || payloadStart < 0) throw new Error("Jira To-Do detail f
 const detailHelpers = dashboard.slice(normalizeStart, payloadStart);
 const collapse = Function(`${detailHelpers}\n${dashboard.slice(collapseStart, collapseEnd)}; return collapseJiraTasksByTicket;`)();
 const grouped = collapse([
-  { ticketId: "CR1", status: "done", text: "첫 번째", details: "상세 A", dueDate: "2026-08-24" },
-  { ticketId: "CR1", status: "in-progress", text: "두 번째", details: "상세 B", dueDate: "2026-08-25" },
+  { ticketId: "CR1", status: "done", text: "첫 번째", details: "상세 A", result: "처리 A", dueDate: "2026-08-24" },
+  { ticketId: "CR1", status: "in-progress", text: "두 번째", details: "상세 B", result: "처리 B", dueDate: "2026-08-25" },
   { ticketId: "SR1", status: "pending", text: "세 번째", details: "" }
 ]);
 if (grouped.length !== 2) throw new Error("Same-ticket Jira rows were not collapsed");
@@ -144,5 +145,6 @@ if (grouped[0].status !== "in-progress" || !grouped[0].text.includes("첫 번째
 if (!grouped[0].details.includes("1. 첫 번째\n   - 상세 A") || grouped[0].details.includes("• -")) {
   throw new Error("Grouped Jira To-Do details are not separated into clean numbered bullet blocks");
 }
+if (grouped[0].result !== "처리 A\n처리 B") throw new Error("Grouped Jira row did not preserve To-Do results");
 
 console.log("Jira export checks passed");

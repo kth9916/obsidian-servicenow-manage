@@ -9,7 +9,10 @@ const required = [
   "opus-ticket-todo-list-pane",
   "opus-ticket-todo-detail-pane",
   "appendLinkedText(description, selectedTask.text)",
-  "navigator.clipboard.writeText([selectedTask.text, selectedTask.details]",
+  "navigator.clipboard.writeText([selectedTask.text, selectedTask.details, selectedTask.result]",
+  'let selectedStatus = "in-progress"',
+  "opus-ticket-todo-status-filters",
+  "visibleTasks()",
   "openTodoDetailModal(selectedTask, () => refreshTasks(selectedId))",
   "function handleTodoListClick(event)",
   'tableArea.addEventListener("click", handleTodoListClick)'

@@ -12,7 +12,9 @@ const requiredMainMarkers = [
   "encodeTodoDetail(value)",
   "decodeTodoDetail(value)",
   "clt-todo-detail:",
+  "clt-todo-result:",
   "details: detail.value",
+  "result: result.value",
   "openTodoDetailEntryModal(task, onSaved = null)",
   "async readTodoTasks(ticketId)",
   "async updateTodoTaskDetails(task, changes = {})",
@@ -73,5 +75,16 @@ if (!styles.includes(".clt-todo-detail-layout") || !styles.includes("grid-templa
   throw new Error("To-Do ticket context side panel styling is missing");
 }
 if (!dashboard.includes('key: "todoDetails"')) throw new Error("Dashboard/Jira To-Do detail field is missing");
+if (!dashboard.includes('key: "todoResult"')) throw new Error("Dashboard/Jira To-Do result field is missing");
+if (!dashboard.includes("detailInput.value, resultInput.value")
+    || !dashboard.includes("result: resultInput.value")) {
+  throw new Error("Dashboard fallback To-Do result editing is missing");
+}
+if (!main.includes('text: "처리 내용"') || !main.includes("this.task.result || \"\"")) {
+  throw new Error("Optional To-Do result editor is missing");
+}
+if (!main.includes("clt-ticket-mini-card-result") || !styles.includes(".clt-ticket-mini-card-result")) {
+  throw new Error("Ticket-note To-Do result preview is missing");
+}
 
 console.log("Shared To-Do detail integration checks passed");

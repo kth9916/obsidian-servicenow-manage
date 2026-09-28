@@ -1244,11 +1244,15 @@ function extractTodos(markdown, page) {
         let details = "";
         try { details = decodeURIComponent(match[3].match(/<!--\s*clt-todo-detail:([^>]*)\s*-->/i)?.[1]?.trim() || ""); }
         catch (_) { details = match[3].match(/<!--\s*clt-todo-detail:([^>]*)\s*-->/i)?.[1]?.trim() || ""; }
+        let result = "";
+        try { result = decodeURIComponent(match[3].match(/<!--\s*clt-todo-result:([^>]*)\s*-->/i)?.[1]?.trim() || ""); }
+        catch (_) { result = match[3].match(/<!--\s*clt-todo-result:([^>]*)\s*-->/i)?.[1]?.trim() || ""; }
         const rawContent = match[3]
             .replace(/\s*<!--\s*clt-todo:(?:pending|in-progress|done)\s*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-due:\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?\s*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-completed:[^>]+-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-detail:[^>]*-->\s*/gi, " ")
+            .replace(/\s*<!--\s*clt-todo-result:[^>]*-->\s*/gi, " ")
             .trim();
         const dateTime = rawContent.match(/\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?/)?.[0] || "";
         const text = stripMarkdown(rawContent)
@@ -1267,6 +1271,7 @@ function extractTodos(markdown, page) {
             dueDate,
             completedAt,
             details,
+            result,
             text: text || rawContent,
             rawContent,
             status: completed ? "done" : markedProgress ? "in-progress" : "pending"
@@ -1372,6 +1377,7 @@ async function updateTodoDetails(task, changes = {}) {
             .replace(/\s*<!--\s*clt-todo-due:\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?\s*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-completed:[^>]+-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-detail:[^>]*-->\s*/gi, " ")
+            .replace(/\s*<!--\s*clt-todo-result:[^>]*-->\s*/gi, " ")
             .trim();
         const originalDateTime = cleanContent.match(/\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?/)?.[0] || task.dateTime || formatDateTime();
         const originalText = stripMarkdown(cleanContent)
@@ -1381,13 +1387,15 @@ async function updateTodoDetails(task, changes = {}) {
         const nextText = String(changes.text ?? originalText).replace(/\r?\n+/g, " ").trim();
         const nextDueDate = String(changes.dueDate ?? task.dueDate ?? "").trim();
         const nextDetails = String(changes.details ?? task.details ?? "").trim();
+        const nextResult = String(changes.result ?? task.result ?? "").trim();
         const nextCompletedAt = completionTimestamp;
         const checkbox = nextStatus === "done" ? "x" : " ";
         const statusMarker = nextStatus === "in-progress" ? " <!-- clt-todo:in-progress -->" : "";
         const dueMarker = nextDueDate ? ` <!-- clt-todo-due:${nextDueDate} -->` : "";
         const completedMarker = nextCompletedAt ? ` <!-- clt-todo-completed:${nextCompletedAt} -->` : "";
         const detailMarker = nextDetails ? ` <!-- clt-todo-detail:${encodeURIComponent(nextDetails)} -->` : "";
-        section.lines[targetLine] = `${match[1]}${match[2]} [${checkbox}] ${originalDateTime} : ${nextText}${statusMarker}${dueMarker}${completedMarker}${detailMarker}`;
+        const resultMarker = nextResult ? ` <!-- clt-todo-result:${encodeURIComponent(nextResult)} -->` : "";
+        section.lines[targetLine] = `${match[1]}${match[2]} [${checkbox}] ${originalDateTime} : ${nextText}${statusMarker}${dueMarker}${completedMarker}${detailMarker}${resultMarker}`;
         return section.lines.join("\n");
     });
     await touchTodoLastChecked(file);
@@ -1395,17 +1403,19 @@ async function updateTodoDetails(task, changes = {}) {
     task.text = String(changes.text ?? task.text).trim();
     task.dueDate = String(changes.dueDate ?? task.dueDate ?? "").trim();
     task.details = String(changes.details ?? task.details ?? "").trim();
+    task.result = String(changes.result ?? task.result ?? "").trim();
     task.completedAt = completionTimestamp;
 }
 
-function appendTodoToMarkdown(markdown, dateTime, content, dueDate = "", status = "pending", details = "") {
+function appendTodoToMarkdown(markdown, dateTime, content, dueDate = "", status = "pending", details = "", result = "") {
     const normalizedContent = String(content || "").replace(/\r?\n+/g, " ").trim();
     const checkbox = status === "done" ? "x" : " ";
     const statusMarker = status === "in-progress" ? " <!-- clt-todo:in-progress -->" : "";
     const dueMarker = dueDate ? ` <!-- clt-todo-due:${dueDate} -->` : "";
     const completedMarker = status === "done" ? ` <!-- clt-todo-completed:${formatDateTime()} -->` : "";
     const detailMarker = String(details || "").trim() ? ` <!-- clt-todo-detail:${encodeURIComponent(String(details).trim())} -->` : "";
-    const newEntry = `- [${checkbox}] ${dateTime} : ${normalizedContent}${statusMarker}${dueMarker}${completedMarker}${detailMarker}`;
+    const resultMarker = String(result || "").trim() ? ` <!-- clt-todo-result:${encodeURIComponent(String(result).trim())} -->` : "";
+    const newEntry = `- [${checkbox}] ${dateTime} : ${normalizedContent}${statusMarker}${dueMarker}${completedMarker}${detailMarker}${resultMarker}`;
     const section = findTodoSection(markdown);
     if (!section) {
         return [markdown.trimEnd(), "", "## ✅ To-Do", "", newEntry, ""].join("\n");
@@ -1422,7 +1432,7 @@ function appendTodoToMarkdown(markdown, dateTime, content, dueDate = "", status 
     return lines.join("\n");
 }
 
-async function addTodo(item, content, dueDate = "", status = "pending", details = "") {
+async function addTodo(item, content, dueDate = "", status = "pending", details = "", result = "") {
     const normalizedContent = String(content || "").trim();
     if (!normalizedContent) throw new Error("할 일을 입력해 주세요.");
     let file = null;
@@ -1444,7 +1454,8 @@ async function addTodo(item, content, dueDate = "", status = "pending", details 
         normalizedContent,
         dueDate,
         status,
-        details
+        details,
+        result
     ));
     if (item?.page) {
         const today = await touchTodoLastChecked(file);
@@ -3313,6 +3324,41 @@ tr:last-child td {
     color: var(--text-muted);
     font-size: 12px;
     margin: 0 3px 9px;
+}
+
+.opus-ticket-todo-status-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin: 0 0 9px;
+}
+
+.opus-ticket-todo-status-filter {
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 999px;
+    font-size: 11px;
+    height: 28px;
+    padding: 0 9px;
+}
+
+.opus-ticket-todo-status-filter.active {
+    background: var(--interactive-accent);
+    border-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.opus-todo-card-result {
+    border-top: 1px solid var(--background-modifier-border);
+    margin-top: 8px;
+    padding-top: 7px;
+}
+
+.opus-todo-card-result > strong {
+    color: var(--text-muted);
+    display: block;
+    font-size: 11px;
+    margin-bottom: 3px;
 }
 
 .opus-ticket-todo-list-item {
@@ -5682,12 +5728,7 @@ function renderFilterMenu() {
     filterMenu.appendChild(grid);
 
     for (const column of columns) {
-        const alreadyActive =
-            activeFilters.some(
-                filter =>
-                    filter.columnKey
-                    === column.key
-            );
+        const activeCount = activeFilters.filter(filter => filter.columnKey === column.key).length;
 
         const button =
             document.createElement(
@@ -5696,18 +5737,14 @@ function renderFilterMenu() {
 
         button.className = [
             "opus-popup-field",
-            alreadyActive
-                ? "disabled"
+            activeCount
+                ? "has-filter"
                 : ""
         ]
             .filter(Boolean)
             .join(" ");
 
-        button.textContent =
-            column.label;
-
-        button.disabled =
-            alreadyActive;
+        button.textContent = `${column.label}${activeCount ? ` · ${activeCount}` : ""}`;
 
         button.addEventListener(
             "click",
@@ -6930,6 +6967,22 @@ function openTodoCreateModal(preselectedItem = null, preselectedStatus = "pendin
     contentInput.placeholder = "처리할 내용을 입력하세요.";
     contentField.append(contentLabel, contentInput);
 
+    const detailField = document.createElement("label");
+    detailField.className = "opus-todo-form-field";
+    const detailLabel = document.createElement("span");
+    detailLabel.textContent = "상세 내용 (선택)";
+    const detailInput = document.createElement("textarea");
+    detailInput.placeholder = "배경, 확인할 내용, 참고 링크 등을 입력하세요.";
+    detailField.append(detailLabel, detailInput);
+
+    const resultField = document.createElement("label");
+    resultField.className = "opus-todo-form-field";
+    const resultLabel = document.createElement("span");
+    resultLabel.textContent = "처리 내용 (선택)";
+    const resultInput = document.createElement("textarea");
+    resultInput.placeholder = "실제로 처리한 내용이나 결과를 입력하세요.";
+    resultField.append(resultLabel, resultInput);
+
     const dateField = document.createElement("label");
     dateField.className = "opus-todo-form-field";
     const dateLabel = document.createElement("span");
@@ -6952,7 +7005,7 @@ function openTodoCreateModal(preselectedItem = null, preselectedStatus = "pendin
     });
     statusField.append(statusLabel, statusSelect);
 
-    body.append(ticketField, contentField, dateField, statusField);
+    body.append(ticketField, contentField, detailField, resultField, dateField, statusField);
 
     const actions = document.createElement("div");
     actions.className = "opus-todo-create-actions";
@@ -6991,7 +7044,7 @@ function openTodoCreateModal(preselectedItem = null, preselectedStatus = "pendin
         saveButton.disabled = true;
         saveButton.textContent = "추가 중…";
         try {
-            await addTodo(selectedItem, contentInput.value, dateInput.value, statusSelect.value);
+            await addTodo(selectedItem, contentInput.value, dateInput.value, statusSelect.value, detailInput.value, resultInput.value);
             new Notice(selectedItem ? `${selectedItem.page.id || selectedItem.page.file.name}에 To-Do를 추가했습니다.` : "To-Do를 추가했습니다.");
             close();
             if (activeView === "todo") renderTodoBoard();
@@ -7012,7 +7065,9 @@ function openTicketTodoListModal(item) {
     const ticketId = String(item.page.id || item.page.file.name || "");
     let tasks = [...(item.todos || [])]
         .sort((left, right) => String(right.dateTime || "").localeCompare(String(left.dateTime || "")));
-    let selectedTask = tasks[0] || null;
+    let selectedStatus = "in-progress";
+    const visibleTasks = () => selectedStatus === "all" ? tasks : tasks.filter(task => task.status === selectedStatus);
+    let selectedTask = visibleTasks()[0] || null;
     const backdrop = document.createElement("div");
     backdrop.className = "opus-modal-backdrop";
     const modal = document.createElement("div");
@@ -7081,7 +7136,8 @@ function openTicketTodoListModal(item) {
         item.todos = await readTodos(item.page);
         tasks = [...(item.todos || [])]
             .sort((left, right) => String(right.dateTime || "").localeCompare(String(left.dateTime || "")));
-        selectedTask = tasks.find(task => task.id === preferredId) || tasks[0] || null;
+        const filtered = visibleTasks();
+        selectedTask = filtered.find(task => task.id === preferredId) || filtered[0] || null;
         todoItems = pages.flatMap(pageItem => pageItem.todos || []);
         renderList();
         renderDetail();
@@ -7091,19 +7147,35 @@ function openTicketTodoListModal(item) {
 
     const renderList = () => {
         listPane.innerHTML = "";
+        const statusFilters = document.createElement("div");
+        statusFilters.className = "opus-ticket-todo-status-filters";
+        [["all", "전체", "☷"], ...TODO_STATUSES.map(status => [status.key, status.label, status.icon])].forEach(([key, label, icon]) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = `opus-ticket-todo-status-filter${selectedStatus === key ? " active" : ""}`;
+            button.textContent = `${icon} ${label}`;
+            button.addEventListener("click", () => {
+                selectedStatus = key;
+                selectedTask = visibleTasks()[0] || null;
+                renderList();
+                renderDetail();
+            });
+            statusFilters.appendChild(button);
+        });
         const activeCount = tasks.filter(task => task.status !== "done").length;
         const summary = document.createElement("div");
         summary.className = "opus-ticket-todo-list-summary";
-        summary.textContent = `전체 ${tasks.length}개 · 미완료 ${activeCount}개`;
-        listPane.appendChild(summary);
-        if (!tasks.length) {
+        const filteredTasks = visibleTasks();
+        summary.textContent = `표시 ${filteredTasks.length}개 · 전체 ${tasks.length}개 · 미완료 ${activeCount}개`;
+        listPane.append(statusFilters, summary);
+        if (!filteredTasks.length) {
             const empty = document.createElement("div");
             empty.className = "opus-ticket-todo-detail-empty";
-            empty.textContent = "등록된 To-Do가 없습니다.";
+            empty.textContent = `${selectedStatus === "all" ? "등록된" : (TODO_STATUSES.find(status => status.key === selectedStatus)?.label || "선택한 상태의")} To-Do가 없습니다.`;
             listPane.appendChild(empty);
             return;
         }
-        tasks.forEach(task => {
+        filteredTasks.forEach(task => {
             const button = document.createElement("button");
             button.className = `opus-ticket-todo-list-item${task.id === selectedTask?.id ? " selected" : ""}`;
             const heading = document.createElement("div");
@@ -7148,6 +7220,13 @@ function openTicketTodoListModal(item) {
         const detailBody = document.createElement("div");
         appendLinkedText(detailBody, selectedTask.details || "등록된 상세 내용이 없습니다.");
         detailDescription.append(detailLabel, detailBody);
+        const resultDescription = document.createElement("div");
+        resultDescription.className = "opus-ticket-todo-detail-text opus-ticket-todo-detail-secondary";
+        const resultLabel = document.createElement("strong");
+        resultLabel.textContent = "처리 내용";
+        const resultBody = document.createElement("div");
+        appendLinkedText(resultBody, selectedTask.result || "등록된 처리 내용이 없습니다.");
+        resultDescription.append(resultLabel, resultBody);
         const grid = document.createElement("div");
         grid.className = "opus-todo-detail-grid";
         grid.style.marginTop = "12px";
@@ -7165,7 +7244,7 @@ function openTicketTodoListModal(item) {
         copyButton.textContent = "내용 복사";
         copyButton.addEventListener("click", async () => {
             try {
-                await navigator.clipboard.writeText([selectedTask.text, selectedTask.details].filter(Boolean).join("\n\n"));
+                await navigator.clipboard.writeText([selectedTask.text, selectedTask.details, selectedTask.result].filter(Boolean).join("\n\n"));
                 new Notice("To-Do 내용을 복사했습니다.");
             } catch (error) {
                 new Notice(`복사 실패: ${error?.message || error}`);
@@ -7186,7 +7265,7 @@ function openTicketTodoListModal(item) {
             openTodoDetailModal(selectedTask, () => refreshTasks(selectedId));
         });
         actions.append(copyButton, openButton, editButton);
-        detailPane.append(description, detailDescription, grid, actions);
+        detailPane.append(description, detailDescription, resultDescription, grid, actions);
     };
 
     renderList();
@@ -7264,6 +7343,14 @@ function openTodoDetailModal(task, afterSaved = null) {
             const description = document.createElement("div");
             description.className = "opus-todo-detail-description";
             description.textContent = task.text;
+            const detailDescription = document.createElement("div");
+            detailDescription.className = "opus-ticket-todo-detail-text opus-ticket-todo-detail-secondary";
+            detailDescription.innerHTML = `<strong>상세 내용</strong>`;
+            appendLinkedText(detailDescription, task.details || "등록된 상세 내용이 없습니다.");
+            const resultDescription = document.createElement("div");
+            resultDescription.className = "opus-ticket-todo-detail-text opus-ticket-todo-detail-secondary";
+            resultDescription.innerHTML = `<strong>처리 내용</strong>`;
+            appendLinkedText(resultDescription, task.result || "등록된 처리 내용이 없습니다.");
             const grid = document.createElement("div");
             grid.className = "opus-todo-detail-grid";
             const statusLabel = TODO_STATUSES.find(status => status.key === task.status)?.label || task.status;
@@ -7274,7 +7361,7 @@ function openTodoDetailModal(task, afterSaved = null) {
                 detailItem("완료 예정일", task.dueDate),
                 detailItem("완료일", task.completedAt)
             );
-            body.append(description, grid);
+            body.append(description, detailDescription, resultDescription, grid);
 
             const openButton = document.createElement("button");
             openButton.className = "opus-note-action-button";
@@ -7304,6 +7391,22 @@ function openTodoDetailModal(task, afterSaved = null) {
         contentInput.value = task.text;
         contentField.append(contentLabel, contentInput);
 
+        const detailField = document.createElement("label");
+        detailField.className = "opus-todo-form-field";
+        const detailLabel = document.createElement("span");
+        detailLabel.textContent = "상세 내용";
+        const detailInput = document.createElement("textarea");
+        detailInput.value = task.details || "";
+        detailField.append(detailLabel, detailInput);
+
+        const resultField = document.createElement("label");
+        resultField.className = "opus-todo-form-field";
+        const resultLabel = document.createElement("span");
+        resultLabel.textContent = "처리 내용";
+        const resultInput = document.createElement("textarea");
+        resultInput.value = task.result || "";
+        resultField.append(resultLabel, resultInput);
+
         const dateField = document.createElement("label");
         dateField.className = "opus-todo-form-field";
         const dateLabel = document.createElement("span");
@@ -7326,7 +7429,7 @@ function openTodoDetailModal(task, afterSaved = null) {
             statusSelect.appendChild(option);
         });
         statusField.append(statusLabel, statusSelect);
-        body.append(contentField, dateField, statusField);
+        body.append(contentField, detailField, resultField, dateField, statusField);
 
         const cancelButton = document.createElement("button");
         cancelButton.className = "opus-note-action-button";
@@ -7342,6 +7445,8 @@ function openTodoDetailModal(task, afterSaved = null) {
             try {
                 await updateTodoDetails(task, {
                     text: contentInput.value,
+                    details: detailInput.value,
+                    result: resultInput.value,
                     dueDate: dateInput.value,
                     status: statusSelect.value
                 });
@@ -8639,6 +8744,19 @@ function createTodoCard(task, showTicket) {
         }
         card.appendChild(detail);
     }
+    if (task.result) {
+        const result = document.createElement("div");
+        result.className = "opus-todo-card-detail opus-todo-card-result markdown-rendered";
+        const label = document.createElement("strong");
+        label.textContent = "처리 내용";
+        result.appendChild(label);
+        const body = document.createElement("div");
+        const sharedPlugin = app.plugins.getPlugin("servicenow-manage");
+        if (typeof sharedPlugin?.renderMarkdownInto === "function") void sharedPlugin.renderMarkdownInto(body, task.result, task.filePath || "");
+        else body.textContent = task.result;
+        result.appendChild(body);
+        card.appendChild(result);
+    }
 
     const footer = document.createElement("div");
     footer.className = "opus-todo-card-footer";
@@ -8717,6 +8835,7 @@ const JIRA_EXPORT_FIELDS = [
     { key: "status", label: "Status", jiraLabel: "Status", default: true, value: task => JIRA_EXPORT_STATUS[task.status] || task.status },
     { key: "todo", label: "To-Do (할 일)", jiraLabel: "To-Do", value: task => task.text },
     { key: "todoDetails", label: "To-Do Details (상세 내용)", jiraLabel: "To-Do Details", value: task => task.details || "" },
+    { key: "todoResult", label: "To-Do Result (처리 내용)", jiraLabel: "To-Do Result", value: task => task.result || "" },
     { key: "memo", label: "Memo (임시 메모)", jiraLabel: "Memo", value: task => task.jiraMemo || "" },
     { key: "dueDate", label: "Due Date (완료 예정일)", jiraLabel: "Due Date", value: task => task.dueDate },
     { key: "createdAt", label: "To-Do Created (등록일)", jiraLabel: "To-Do Created", value: task => task.dateTime },
@@ -8894,6 +9013,7 @@ function collapseJiraTasksByTicket(tasks) {
             status,
             text: group.map((task, index) => `${index + 1}. ${task.text}`).filter(Boolean).join("\n"),
             details: jiraGroupedTodoDetails(group),
+            result: [...new Set(group.map(task => task.result).filter(Boolean))].join("\n"),
             dueDate: [...new Set(group.map(task => task.dueDate).filter(Boolean))].join("\n"),
             dateTime: [...new Set(group.map(task => task.dateTime).filter(Boolean))].join("\n"),
             completedAt: [...new Set(group.map(task => task.completedAt).filter(Boolean))].join("\n"),
@@ -9108,7 +9228,7 @@ function openJiraExportModal() {
     }
     const selectedTasks = () => todoItems.filter(task => selectedTaskIds.has(task.id) && matchesExportFilters(task));
     const memoKey = task => task.ticketId || task.id;
-    const needsTodoTranslation = () => selectedFieldKeys.has("todo") || selectedFieldKeys.has("todoDetails") || selectedFieldKeys.has("memo");
+    const needsTodoTranslation = () => selectedFieldKeys.has("todo") || selectedFieldKeys.has("todoDetails") || selectedFieldKeys.has("todoResult") || selectedFieldKeys.has("memo");
     const translatedTasks = () => selectedTasks().map(task => {
         const memo = jiraMemoValues.get(memoKey(task)) || "";
         if (!translateTodoToEnglish) return { ...task, jiraMemo: memo };
@@ -9116,6 +9236,7 @@ function openJiraExportModal() {
             ...task,
             text: selectedFieldKeys.has("todo") ? (jiraEnglishCache.get(`${task.id}:todo:${task.text}`) || task.text) : task.text,
             details: selectedFieldKeys.has("todoDetails") ? (jiraEnglishCache.get(`${task.id}:todoDetails:${task.details || ""}`) || task.details) : task.details,
+            result: selectedFieldKeys.has("todoResult") ? (jiraEnglishCache.get(`${task.id}:todoResult:${task.result || ""}`) || task.result) : task.result,
             jiraMemo: selectedFieldKeys.has("memo") ? (jiraEnglishCache.get(`${memoKey(task)}:memo:${memo}`) || memo) : ""
         };
     });
@@ -9155,6 +9276,7 @@ function openJiraExportModal() {
                 const targets = [
                     ["todo", task.text || ""],
                     ["todoDetails", task.details || ""],
+                    ["todoResult", task.result || ""],
                     ["memo", jiraMemoValues.get(memoKey(task)) || ""]
                 ];
                 for (const [field, source] of targets) {
@@ -9807,7 +9929,7 @@ function renderTodoBoard() {
         return String(task.dueDate || "").slice(0, 10);
     };
     const filteredTodoItems = todoItems.filter(task => {
-        const matchesSearch = !needle || [task.ticketId, task.text, task.dueDate, task.completedAt]
+        const matchesSearch = !needle || [task.ticketId, task.text, task.details, task.result, task.dueDate, task.completedAt]
             .some(value => String(value || "").toLowerCase().includes(needle));
         if (!matchesSearch) return false;
         const taskDate = dateFilterValue(task);
