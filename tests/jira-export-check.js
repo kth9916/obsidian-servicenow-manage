@@ -34,6 +34,9 @@ const required = [
   'memoButton.textContent = "메모 입력"',
   "function openMemoEditor()",
   "opus-jira-memo-ticket-select",
+  "opus-jira-memo-ticket-search",
+  'ticketSearch.placeholder = "티켓 번호 또는 Description 검색"',
+  "function jiraHtmlCell(value)",
   'basisSelect',
   'startInput.type = "date"',
   'endInput.type = "date"',
@@ -66,6 +69,13 @@ if (!dashboard.includes('memoButton.classList.toggle("has-memo"')
     || !dashboard.includes('memoButton.addEventListener("click", openMemoEditor)')
     || !dashboard.includes('ticketSelect.addEventListener("change"')) {
   throw new Error("Jira Memo dialog does not update the live export preview");
+}
+if (!dashboard.includes("const renderMemoTickets = () =>") || !dashboard.includes("taskSearchText(task).includes(needle)")) {
+  throw new Error("Jira Memo ticket filtering is missing");
+}
+if (!dashboard.includes('html += `<li>${escapeHtml((unordered || ordered)[1])}</li>`')
+    || !dashboard.includes('if (unordered) return `* ${unordered[1]}`')) {
+  throw new Error("Jira memo Markdown list rendering is missing");
 }
 if (!dashboard.includes("[fieldOrder[index - 1], fieldOrder[index]]")) {
   throw new Error("Export field reordering is missing");

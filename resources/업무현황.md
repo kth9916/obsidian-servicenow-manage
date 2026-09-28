@@ -2561,6 +2561,7 @@ tr:last-child td {
 .opus-jira-memo-backdrop { z-index: 10030; }
 .opus-jira-memo-dialog { display: flex; flex-direction: column; max-height: min(520px, 86vh); width: min(620px, 94vw); }
 .opus-jira-memo-body { display: grid; gap: 12px; min-height: 0; padding: 14px; }
+.opus-jira-memo-ticket-search { width: 100%; }
 .opus-jira-memo-ticket-select { min-height: 34px; width: 100%; }
 .opus-jira-memo-editor { display: flex; flex-direction: column; min-height: 0; }
 .opus-jira-memo-editor-label { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-bottom: 7px; }
@@ -3791,6 +3792,14 @@ tr:last-child td {
     font-weight: 600;
     z-index: 1;
 }
+
+.opus-jira-export-preview td ul,
+.opus-jira-export-preview td ol {
+    margin: 2px 0;
+    padding-inline-start: 1.35em;
+}
+
+.opus-jira-export-preview td li { margin: 1px 0; }
 
 .opus-jira-export-empty {
     padding: 24px;
@@ -8764,7 +8773,42 @@ function jiraExportValue(field, task, index) {
 }
 
 function jiraWikiCell(value) {
-    return String(value ?? "").replace(/\r?\n/g, "<br>").replace(/\|/g, "\\|");
+    return String(value ?? "").split(/\r?\n/).map(line => {
+        const unordered = line.match(/^\s*[-*•]\s+(.+)$/);
+        if (unordered) return `* ${unordered[1]}`;
+        const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+        if (ordered) return `# ${ordered[1]}`;
+        return line;
+    }).join("<br>").replace(/\|/g, "\\|");
+}
+
+function jiraHtmlCell(value) {
+    const lines = String(value ?? "").split(/\r?\n/);
+    let html = "";
+    let listType = "";
+    const closeList = () => {
+        if (listType) html += `</${listType}>`;
+        listType = "";
+    };
+    lines.forEach((line, index) => {
+        const unordered = line.match(/^\s*[-*•]\s+(.+)$/);
+        const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+        const nextType = unordered ? "ul" : ordered ? "ol" : "";
+        if (nextType) {
+            if (listType !== nextType) {
+                closeList();
+                html += `<${nextType}>`;
+                listType = nextType;
+            }
+            html += `<li>${escapeHtml((unordered || ordered)[1])}</li>`;
+            return;
+        }
+        closeList();
+        if (index > 0 && html) html += "<br>";
+        html += escapeHtml(line);
+    });
+    closeList();
+    return html;
 }
 
 function normalizeJiraDetailLines(value) {
@@ -8793,7 +8837,7 @@ function buildJiraExportPayload(tasks, fields) {
     return {
         rows,
         wiki: [`||${fields.map(field => jiraWikiCell(fieldHeader(field))).join("||")}||`, ...rows.map(row => `|${row.map(jiraWikiCell).join("|")}|`)].join("\n"),
-        html: `<table><thead><tr>${fields.map(field => `<th data-jira-field="${escapeAttribute(field.key)}">${escapeHtml(fieldHeader(field))}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${row.map((value, index) => `<td data-jira-field="${escapeAttribute(fields[index].key)}">${escapeHtml(value).replace(/\r?\n/g, "<br>")}</td>`).join("")}</tr>`).join("")}</tbody></table>`
+        html: `<table><thead><tr>${fields.map(field => `<th data-jira-field="${escapeAttribute(field.key)}">${escapeHtml(fieldHeader(field))}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${row.map((value, index) => `<td data-jira-field="${escapeAttribute(fields[index].key)}">${jiraHtmlCell(value)}</td>`).join("")}</tr>`).join("")}</tbody></table>`
     };
 }
 
@@ -9164,6 +9208,10 @@ function openJiraExportModal() {
         header.append(title, closeMemo);
         const memoBody = document.createElement("div");
         memoBody.className = "opus-jira-memo-body";
+        const ticketSearch = document.createElement("input");
+        ticketSearch.type = "search";
+        ticketSearch.className = "opus-jira-memo-ticket-search";
+        ticketSearch.placeholder = "티켓 번호 또는 Description 검색";
         const ticketSelect = document.createElement("select");
         ticketSelect.className = "opus-jira-memo-ticket-select";
         const editor = document.createElement("div");
@@ -9176,7 +9224,7 @@ function openJiraExportModal() {
         help.className = "opus-jira-memo-help";
         help.textContent = "입력 내용은 현재 Jira Export 창에서만 유지되며 원본 노트에는 저장되지 않습니다.";
         editor.append(editorLabel, textarea, help);
-        memoBody.append(ticketSelect, editor);
+        memoBody.append(ticketSearch, ticketSelect, editor);
         memoDialog.append(header, memoBody);
         memoBackdrop.appendChild(memoDialog);
         const closeEditor = () => { memoBackdrop.remove(); renderPreview(); };
@@ -9187,13 +9235,34 @@ function openJiraExportModal() {
             ticketSelect.value = selectedKey;
             textarea.focus();
         };
-        uniqueTasks.forEach(task => {
-            const key = memoKey(task);
-            const option = document.createElement("option");
-            option.value = key;
-            option.textContent = task.ticketId || "티켓 없음";
-            ticketSelect.appendChild(option);
-        });
+        const descriptionField = JIRA_EXPORT_FIELDS.find(field => field.key === "description");
+        const taskSearchText = task => [task.ticketId, descriptionField ? jiraExportValue(descriptionField, task, 0) : ""].join(" ").toLowerCase();
+        const renderMemoTickets = () => {
+            const needle = ticketSearch.value.trim().toLowerCase();
+            const visibleTasks = uniqueTasks.filter(task => !needle || taskSearchText(task).includes(needle));
+            ticketSelect.innerHTML = "";
+            visibleTasks.forEach(task => {
+                const key = memoKey(task);
+                const option = document.createElement("option");
+                option.value = key;
+                const description = descriptionField ? jiraExportValue(descriptionField, task, 0) : "";
+                option.textContent = `${task.ticketId || "티켓 없음"}${description ? ` · ${description}` : ""}`;
+                ticketSelect.appendChild(option);
+            });
+            if (!visibleTasks.length) {
+                const option = document.createElement("option");
+                option.textContent = "일치하는 티켓이 없습니다.";
+                option.disabled = true;
+                ticketSelect.appendChild(option);
+                textarea.disabled = true;
+                editorLabel.textContent = "검색 결과 없음";
+                return;
+            }
+            textarea.disabled = false;
+            const nextTask = visibleTasks.find(task => memoKey(task) === selectedKey) || visibleTasks[0];
+            selectTask(nextTask);
+        };
+        ticketSearch.addEventListener("input", renderMemoTickets);
         ticketSelect.addEventListener("change", () => {
             const task = uniqueTasks.find(item => memoKey(item) === ticketSelect.value);
             if (task) selectTask(task);
@@ -9205,7 +9274,7 @@ function openJiraExportModal() {
         closeMemo.addEventListener("click", closeEditor);
         memoBackdrop.addEventListener("click", event => { if (event.target === memoBackdrop) closeEditor(); });
         document.body.appendChild(memoBackdrop);
-        selectTask(uniqueTasks[0]);
+        renderMemoTickets();
     }
     function renderPreview() {
         const selected = selectedTasks();
