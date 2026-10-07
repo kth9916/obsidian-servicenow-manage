@@ -6,12 +6,13 @@ This is an independent community project. It is not affiliated with, endorsed by
 
 Maintainer: **thkim9916** · `thkim9916@cyberlogitec.com`
 
-## To-Do Pending workflow (unreleased)
+## What's new in 2.15.0
 
 - Not started, In progress, **Pending (waiting)**, and Done are separate states. Existing unchecked tasks remain Not started.
 - Pending supports an optional waiting reason and follow-up date, separate from the completion due date. Cards show the waiting start date and highlight follow-ups due today or earlier; states never resume automatically.
 - Use the Pending / follow-up-needed filters, drag cards between columns, and edit the same task from the ticket note or dashboard. Calendar date filtering and Jira table/JSON export include the new waiting fields.
 - Configure state names, enabled states, and their order from either board or plugin settings. The configuration is shared across ticket notes and the dashboard; creation only offers enabled states. Existing tasks in disabled states remain available in the inactive-state viewer.
+- Work guide pack and Google OAuth JSON import/replacement open visible dialogs with file selection, pasted JSON, validation, and retry, including after initial setup.
 
 
 ## Requirements and disclosures
@@ -34,7 +35,7 @@ See [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
 - Search, sort, filter, translate, copy, and date-filter work notes.
 - Create work logs and To-Dos from ticket notes or a dashboard.
 - Import Gemini meeting minutes from Markdown, optionally preserve the source PDF, and browse chronologically linked meeting notes from either the ticket note or dashboard.
-- View To-Dos as a three-state board with due dates, completion dates, search, details, and pagination.
+- View To-Dos as a configurable four-state board with due dates, completion dates, search, details, and pagination.
 - Maintain a configurable ticket dashboard with persistent columns, sorting, filters, widths, and field order.
 - Optionally discover BS links from a description and FS/DS/UT files from Google Drive naming conventions.
 - Optionally generate organization-specific AI prompts when an organization pack is installed.
