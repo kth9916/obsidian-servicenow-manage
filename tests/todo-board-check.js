@@ -80,7 +80,7 @@ eval(loadFunction("updateTodoStatus"));
   if (!source.includes("openTodoDetailModal") || !source.includes("todoSearchKeyword") || !source.includes("기한 지남")) {
     throw new Error("To-Do details or smart search UI is missing");
   }
-  if (!source.includes('key: "todoSummary"') || !source.includes("opus-todo-summary-counts") || !source.includes("진행 전 ${pending}")) {
+  if (!source.includes('key: "todoSummary"') || !source.includes("opus-todo-summary-counts") || !source.includes('`${state.label} ${state.count}개`')) {
     throw new Error("Ticket-level To-Do summary column is missing");
   }
   if (source.includes("opus-file-todo-add")) throw new Error("Legacy File-cell To-Do button remains");

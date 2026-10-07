@@ -59,7 +59,7 @@ context.app = { vault: { getAbstractFileByPath: () => page.file, process: async 
   assert.equal(sameWait.waitingSince, task.waitingSince);
   const resume = mainContext.todoWaitingChanges({ ...task, status: "in-progress" }, {}, "waiting", "new start");
   assert.equal(resume.waitingSince, "new start");
-  assert(main.includes('["waiting", "Pending · 대기", "⏸"]'));
+  assert(main.includes('key: "waiting", label: "Pending · 대기", icon: "⏸"'));
   assert(dashboard.includes('waiting: "PENDING"'));
   assert(dashboard.includes('key: "todoWaitingReason"'));
   assert(dashboard.includes('key: "followUpDate"'));

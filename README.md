@@ -11,6 +11,7 @@ Maintainer: **thkim9916** · `thkim9916@cyberlogitec.com`
 - Not started, In progress, **Pending (waiting)**, and Done are separate states. Existing unchecked tasks remain Not started.
 - Pending supports an optional waiting reason and follow-up date, separate from the completion due date. Cards show the waiting start date and highlight follow-ups due today or earlier; states never resume automatically.
 - Use the Pending / follow-up-needed filters, drag cards between columns, and edit the same task from the ticket note or dashboard. Calendar date filtering and Jira table/JSON export include the new waiting fields.
+- Configure state names, enabled states, and their order from either board or plugin settings. The configuration is shared across ticket notes and the dashboard; creation only offers enabled states. Existing tasks in disabled states remain available in the inactive-state viewer.
 
 
 ## Requirements and disclosures
