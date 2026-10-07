@@ -6,6 +6,13 @@ This is an independent community project. It is not affiliated with, endorsed by
 
 Maintainer: **thkim9916** · `thkim9916@cyberlogitec.com`
 
+## To-Do Pending workflow (unreleased)
+
+- Not started, In progress, **Pending (waiting)**, and Done are separate states. Existing unchecked tasks remain Not started.
+- Pending supports an optional waiting reason and follow-up date, separate from the completion due date. Cards show the waiting start date and highlight follow-ups due today or earlier; states never resume automatically.
+- Use the Pending / follow-up-needed filters, drag cards between columns, and edit the same task from the ticket note or dashboard. Calendar date filtering and Jira table/JSON export include the new waiting fields.
+
+
 ## Requirements and disclosures
 
 - Obsidian Desktop 1.11.5 or later. Mobile is not supported because the plugin uses desktop OAuth callback and Electron/Node APIs.

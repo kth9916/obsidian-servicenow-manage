@@ -16,6 +16,9 @@ eval(loadFunction("stripMarkdown"));
 eval(loadFunction("formatDateTime"));
 eval(loadFunction("findTodoSection"));
 eval(loadFunction("extractTodos"));
+eval(loadFunction("readTodoWaiting"));
+eval(loadFunction("todoWaitingChanges"));
+eval(loadFunction("todoWaitingMarker"));
 eval(loadFunction("appendTodoToMarkdown"));
 
 let markdown = [
@@ -42,6 +45,7 @@ global.app = {
   }
 };
 eval(loadFunction("updateTodoDetails"));
+eval(loadFunction("touchTodoLastChecked"));
 eval(loadFunction("updateTodoStatus"));
 
 (async () => {

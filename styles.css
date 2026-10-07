@@ -1238,7 +1238,7 @@
 .clt-ticket-mini-todo-board {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 10px 0 20px;
 }
 
@@ -1251,6 +1251,18 @@
   min-width: 0;
   overflow: hidden;
 }
+
+.clt-ticket-mini-column.is-waiting { border-top: 3px solid var(--text-warning, #b7791f); }
+.snm-todo-waiting-editor { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--background-modifier-border); border-radius: 8px; background: var(--background-secondary); }
+.snm-todo-waiting-editor[hidden] { display: none !important; }
+.snm-todo-waiting-editor label { display: grid; gap: 6px; font-weight: 600; }
+.snm-todo-waiting-editor textarea { width: 100%; min-height: 64px; resize: vertical; font-weight: normal; }
+.snm-todo-waiting-editor small { color: var(--text-muted); line-height: 1.5; }
+.snm-todo-waiting-info { padding: 8px 10px; margin: 8px 0; border-left: 3px solid var(--text-warning, #b7791f); border-radius: 5px; background: var(--background-secondary); text-align: left; overflow-wrap: anywhere; }
+.snm-todo-waiting-meta { margin-top: 5px; font-size: .82em; color: var(--text-muted); }
+.snm-todo-waiting-info.needs-follow-up { border-left-color: var(--text-error); }
+.snm-todo-waiting-info.needs-follow-up .snm-todo-waiting-meta { color: var(--text-error); font-weight: 600; }
+@media (max-width: 1100px) { .clt-ticket-mini-todo-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .clt-ticket-mini-column.drag-over {
   border-color: var(--interactive-accent);

@@ -485,7 +485,8 @@ const columns = [
         value: (_page, item) => {
             const pending = item?.todos?.filter(todo => todo.status === "pending").length || 0;
             const inProgress = item?.todos?.filter(todo => todo.status === "in-progress").length || 0;
-            return `진행 전 ${pending} 진행 중 ${inProgress}`;
+            const waiting = item?.todos?.filter(todo => todo.status === "waiting").length || 0;
+            return `진행 전 ${pending} 진행 중 ${inProgress} Pending ${waiting}`;
         },
         type: "todoSummary",
         filterType: "text",
@@ -863,12 +864,12 @@ function loadSettings() {
                     : defaults.todoSearchKeyword,
 
             todoQuickView:
-                ["all", "open", "pending", "in-progress", "today", "overdue", "done"].includes(saved.todoQuickView)
+                ["all", "open", "pending", "in-progress", "waiting", "follow-up", "today", "overdue", "done"].includes(saved.todoQuickView)
                     ? saved.todoQuickView
                     : defaults.todoQuickView,
 
             todoDateBasis:
-                ["created", "due", "completed"].includes(saved.todoDateBasis)
+                ["created", "due", "completed", "follow-up"].includes(saved.todoDateBasis)
                     ? saved.todoDateBasis
                     : defaults.todoDateBasis,
 
@@ -884,7 +885,7 @@ function loadSettings() {
 
             todoCollapsedColumns:
                 Array.isArray(saved.todoCollapsedColumns)
-                    ? saved.todoCollapsedColumns.filter(value => ["pending", "in-progress", "done"].includes(value))
+                    ? saved.todoCollapsedColumns.filter(value => ["pending", "in-progress", "waiting", "done"].includes(value))
                     : defaults.todoCollapsedColumns,
 
             showAppliedFilters:
@@ -1239,6 +1240,7 @@ function extractTodos(markdown, page) {
         if (!match) continue;
         const completed = match[2].toLowerCase() === "x";
         const markedProgress = /<!--\s*clt-todo:in-progress\s*-->/i.test(match[3]);
+        const markedWaiting = /<!--\s*clt-todo:waiting\s*-->/i.test(match[3]);
         const dueDate = match[3].match(/<!--\s*clt-todo-due:(\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?)\s*-->/i)?.[1] || "";
         const completedAt = match[3].match(/<!--\s*clt-todo-completed:([^>]+?)\s*-->/i)?.[1]?.trim() || "";
         let details = "";
@@ -1248,11 +1250,12 @@ function extractTodos(markdown, page) {
         try { result = decodeURIComponent(match[3].match(/<!--\s*clt-todo-result:([^>]*)\s*-->/i)?.[1]?.trim() || ""); }
         catch (_) { result = match[3].match(/<!--\s*clt-todo-result:([^>]*)\s*-->/i)?.[1]?.trim() || ""; }
         const rawContent = match[3]
-            .replace(/\s*<!--\s*clt-todo:(?:pending|in-progress|done)\s*-->\s*/gi, " ")
+            .replace(/\s*<!--\s*clt-todo:(?:pending|in-progress|waiting|done)\s*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-due:\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?\s*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-completed:[^>]+-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-detail:[^>]*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-result:[^>]*-->\s*/gi, " ")
+            .replace(/\s*<!--\s*clt-todo-wait:[^>]*-->\s*/gi, " ")
             .trim();
         const dateTime = rawContent.match(/\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?/)?.[0] || "";
         const text = stripMarkdown(rawContent)
@@ -1274,10 +1277,86 @@ function extractTodos(markdown, page) {
             result,
             text: text || rawContent,
             rawContent,
-            status: completed ? "done" : markedProgress ? "in-progress" : "pending"
+            ...readTodoWaiting(match[3]),
+            status: completed ? "done" : markedWaiting ? "waiting" : markedProgress ? "in-progress" : "pending"
         });
     }
     return todos;
+}
+
+function readTodoWaiting(raw) {
+  const encoded = String(raw || "").match(/<!--\s*clt-todo-wait:([^>]*)\s*-->/i)?.[1]?.trim();
+  try {
+    const value = JSON.parse(decodeURIComponent(encoded || "%7B%7D"));
+    return { waitingReason: String(value.reason || ""), followUpDate: String(value.followUp || ""),
+      waitingSince: String(value.since || "") };
+  } catch (_) { return { waitingReason: "", followUpDate: "", waitingSince: "" }; }
+}
+
+function todoWaitingChanges(task, changes, status, now) {
+  return {
+    waitingReason: String(changes.waitingReason ?? task.waitingReason ?? "").trim(),
+    followUpDate: String(changes.followUpDate ?? task.followUpDate ?? "").trim(),
+    waitingSince: status === "waiting" && (task.status !== "waiting" || !task.waitingSince)
+      ? now : String(task.waitingSince || "")
+  };
+}
+
+function todoWaitingMarker(value) {
+  if (!value.waitingReason && !value.followUpDate && !value.waitingSince) return "";
+  return ` <!-- clt-todo-wait:${encodeURIComponent(JSON.stringify({
+    reason: value.waitingReason || "", followUp: value.followUpDate || "", since: value.waitingSince || ""
+  }))} -->`;
+}
+
+function todoFollowUpInfo(task, now = new Date()) {
+  if (task.status !== "waiting" || !task.followUpDate) return null;
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return { needsFollowUp: task.followUpDate <= today,
+    label: `${task.followUpDate <= today ? "확인 필요" : "다음 확인"} · ${task.followUpDate}` };
+}
+
+function renderTodoWaitingInfo(container, task) {
+  if (task.status !== "waiting") return;
+  const panel = document.createElement("div");
+  panel.className = "snm-todo-waiting-info";
+  const info = todoFollowUpInfo(task);
+  if (info?.needsFollowUp) panel.classList.add("needs-follow-up");
+  const reason = document.createElement("div");
+  reason.className = "snm-todo-waiting-reason";
+  reason.textContent = `⏸ ${task.waitingReason || "대기 사유를 추가해 주세요."}`;
+  panel.appendChild(reason);
+  const meta = document.createElement("div");
+  meta.className = "snm-todo-waiting-meta";
+  const since = String(task.waitingSince || "").slice(0, 10);
+  meta.textContent = [since ? `대기 시작 ${since}` : "", info?.label || "다음 확인일 미지정"].filter(Boolean).join(" · ");
+  panel.appendChild(meta);
+  container.appendChild(panel);
+}
+
+function createTodoWaitingEditor(container, statusSelect, task = {}) {
+  const panel = document.createElement("div");
+  panel.className = "snm-todo-waiting-editor";
+  const reasonLabel = document.createElement("label");
+  reasonLabel.textContent = "대기 사유 · 선택";
+  const reason = document.createElement("textarea");
+  reason.placeholder = "예: CLV 답변 대기 / 고객 승인 대기";
+  reason.value = task.waitingReason || "";
+  reasonLabel.appendChild(reason);
+  const dateLabel = document.createElement("label");
+  dateLabel.textContent = "다음 확인일 · 선택 (완료 예정일과 별도)";
+  const date = document.createElement("input");
+  date.type = "date";
+  date.value = task.followUpDate || "";
+  dateLabel.appendChild(date);
+  const note = document.createElement("small");
+  note.textContent = "확인일이 오면 ‘확인 필요’로 표시합니다. 진행 재개는 사용자가 상태를 변경합니다.";
+  panel.append(reasonLabel, dateLabel, note);
+  container.appendChild(panel);
+  const toggle = () => { panel.hidden = statusSelect.value !== "waiting"; };
+  statusSelect.addEventListener("change", toggle);
+  toggle();
+  return { values: () => ({ waitingReason: reason.value, followUpDate: date.value }) };
 }
 
 async function readTodos(page) {
@@ -1354,8 +1433,9 @@ async function deleteTodo(task) {
 
 async function updateTodoDetails(task, changes = {}) {
     const nextStatus = changes.status ?? task.status;
-    if (!["pending", "in-progress", "done"].includes(nextStatus)) return;
+    if (!["pending", "in-progress", "waiting", "done"].includes(nextStatus)) return;
     const previousStatus = task.status;
+    const waiting = todoWaitingChanges(task, changes, nextStatus, formatDateTime());
     const completionTimestamp = nextStatus === "done"
         ? String(changes.completedAt || task.completedAt || (previousStatus !== "done" ? formatDateTime() : "")).trim()
         : "";
@@ -1373,11 +1453,12 @@ async function updateTodoDetails(task, changes = {}) {
         const match = section.lines[targetLine].match(/^(\s*)([-*+])\s+\[[ xX]\]\s+(.+)$/);
         if (!match) throw new Error("할 일 형식을 확인할 수 없습니다.");
         const cleanContent = match[3]
-            .replace(/\s*<!--\s*clt-todo:(?:pending|in-progress|done)\s*-->\s*/gi, " ")
+            .replace(/\s*<!--\s*clt-todo:(?:pending|in-progress|waiting|done)\s*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-due:\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?\s*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-completed:[^>]+-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-detail:[^>]*-->\s*/gi, " ")
             .replace(/\s*<!--\s*clt-todo-result:[^>]*-->\s*/gi, " ")
+            .replace(/\s*<!--\s*clt-todo-wait:[^>]*-->\s*/gi, " ")
             .trim();
         const originalDateTime = cleanContent.match(/\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?/)?.[0] || task.dateTime || formatDateTime();
         const originalText = stripMarkdown(cleanContent)
@@ -1390,12 +1471,12 @@ async function updateTodoDetails(task, changes = {}) {
         const nextResult = String(changes.result ?? task.result ?? "").trim();
         const nextCompletedAt = completionTimestamp;
         const checkbox = nextStatus === "done" ? "x" : " ";
-        const statusMarker = nextStatus === "in-progress" ? " <!-- clt-todo:in-progress -->" : "";
+        const statusMarker = ["in-progress", "waiting"].includes(nextStatus) ? ` <!-- clt-todo:${nextStatus} -->` : "";
         const dueMarker = nextDueDate ? ` <!-- clt-todo-due:${nextDueDate} -->` : "";
         const completedMarker = nextCompletedAt ? ` <!-- clt-todo-completed:${nextCompletedAt} -->` : "";
         const detailMarker = nextDetails ? ` <!-- clt-todo-detail:${encodeURIComponent(nextDetails)} -->` : "";
         const resultMarker = nextResult ? ` <!-- clt-todo-result:${encodeURIComponent(nextResult)} -->` : "";
-        section.lines[targetLine] = `${match[1]}${match[2]} [${checkbox}] ${originalDateTime} : ${nextText}${statusMarker}${dueMarker}${completedMarker}${detailMarker}${resultMarker}`;
+        section.lines[targetLine] = `${match[1]}${match[2]} [${checkbox}] ${originalDateTime} : ${nextText}${statusMarker}${dueMarker}${completedMarker}${detailMarker}${resultMarker}${todoWaitingMarker(waiting)}`;
         return section.lines.join("\n");
     });
     await touchTodoLastChecked(file);
@@ -1405,17 +1486,18 @@ async function updateTodoDetails(task, changes = {}) {
     task.details = String(changes.details ?? task.details ?? "").trim();
     task.result = String(changes.result ?? task.result ?? "").trim();
     task.completedAt = completionTimestamp;
+    Object.assign(task, waiting);
 }
 
-function appendTodoToMarkdown(markdown, dateTime, content, dueDate = "", status = "pending", details = "", result = "") {
+function appendTodoToMarkdown(markdown, dateTime, content, dueDate = "", status = "pending", details = "", result = "", waitingDetails = {}) {
     const normalizedContent = String(content || "").replace(/\r?\n+/g, " ").trim();
     const checkbox = status === "done" ? "x" : " ";
-    const statusMarker = status === "in-progress" ? " <!-- clt-todo:in-progress -->" : "";
+    const statusMarker = ["in-progress", "waiting"].includes(status) ? ` <!-- clt-todo:${status} -->` : "";
     const dueMarker = dueDate ? ` <!-- clt-todo-due:${dueDate} -->` : "";
     const completedMarker = status === "done" ? ` <!-- clt-todo-completed:${formatDateTime()} -->` : "";
     const detailMarker = String(details || "").trim() ? ` <!-- clt-todo-detail:${encodeURIComponent(String(details).trim())} -->` : "";
     const resultMarker = String(result || "").trim() ? ` <!-- clt-todo-result:${encodeURIComponent(String(result).trim())} -->` : "";
-    const newEntry = `- [${checkbox}] ${dateTime} : ${normalizedContent}${statusMarker}${dueMarker}${completedMarker}${detailMarker}${resultMarker}`;
+    const newEntry = `- [${checkbox}] ${dateTime} : ${normalizedContent}${statusMarker}${dueMarker}${completedMarker}${detailMarker}${resultMarker}${todoWaitingMarker(todoWaitingChanges({}, waitingDetails, status, dateTime))}`;
     const section = findTodoSection(markdown);
     if (!section) {
         return [markdown.trimEnd(), "", "## ✅ To-Do", "", newEntry, ""].join("\n");
@@ -1432,7 +1514,7 @@ function appendTodoToMarkdown(markdown, dateTime, content, dueDate = "", status 
     return lines.join("\n");
 }
 
-async function addTodo(item, content, dueDate = "", status = "pending", details = "", result = "") {
+async function addTodo(item, content, dueDate = "", status = "pending", details = "", result = "", waitingDetails = {}) {
     const normalizedContent = String(content || "").trim();
     if (!normalizedContent) throw new Error("할 일을 입력해 주세요.");
     let file = null;
@@ -1455,7 +1537,8 @@ async function addTodo(item, content, dueDate = "", status = "pending", details 
         dueDate,
         status,
         details,
-        result
+        result,
+        waitingDetails
     ));
     if (item?.page) {
         const today = await touchTodoLastChecked(file);
@@ -2728,7 +2811,7 @@ tr:last-child td {
 
 .opus-todo-board {
     display: grid;
-    grid-template-columns: repeat(3, minmax(240px, 1fr));
+    grid-template-columns: repeat(4, minmax(220px, 1fr));
     gap: 10px;
     min-height: 0;
     overflow-x: auto;
@@ -2849,6 +2932,9 @@ tr:last-child td {
 }
 
 .opus-todo-calendar-item.status-pending { border-left-color: var(--text-muted); }
+.opus-todo-calendar-item.status-waiting { border-left-color: var(--text-warning, #b7791f); }
+.opus-todo-column[data-todo-status="waiting"] { border-top: 3px solid var(--text-warning, #b7791f); }
+.opus-ticket-todo-status-filters { flex-wrap: wrap; }
 .opus-todo-calendar-item.status-in-progress { border-left-color: var(--interactive-accent); }
 .opus-todo-calendar-item.status-done { border-left-color: var(--color-green); opacity: 0.78; }
 
@@ -5147,12 +5233,14 @@ function formatCell(
         case "todoSummary": {
             const pending = item.todos.filter(todo => todo.status === "pending").length;
             const inProgress = item.todos.filter(todo => todo.status === "in-progress").length;
-            const active = pending + inProgress;
+            const waiting = item.todos.filter(todo => todo.status === "waiting").length;
+            const active = pending + inProgress + waiting;
             return `
                 <div class="opus-todo-summary-cell ${active ? "" : "empty"}">
-                    <span class="opus-todo-summary-counts" title="진행 전 ${pending}개 · 진행 중 ${inProgress}개">
+                    <span class="opus-todo-summary-counts" title="진행 전 ${pending}개 · 진행 중 ${inProgress}개 · Pending ${waiting}개">
                         <span>○ ${pending}</span>
                         <span>◐ ${inProgress}</span>
+                        <span>⏸ ${waiting}</span>
                     </span>
                     <button
                         type="button"
@@ -7008,6 +7096,7 @@ function openTodoCreateModal(preselectedItem = null, preselectedStatus = "pendin
     body.append(ticketField, contentField, detailField, resultField, dateField, statusField);
 
     const actions = document.createElement("div");
+    const waitingEditor = createTodoWaitingEditor(body, statusSelect);
     actions.className = "opus-todo-create-actions";
     const cancelButton = document.createElement("button");
     cancelButton.className = "opus-note-action-button";
@@ -7044,7 +7133,7 @@ function openTodoCreateModal(preselectedItem = null, preselectedStatus = "pendin
         saveButton.disabled = true;
         saveButton.textContent = "추가 중…";
         try {
-            await addTodo(selectedItem, contentInput.value, dateInput.value, statusSelect.value, detailInput.value, resultInput.value);
+            await addTodo(selectedItem, contentInput.value, dateInput.value, statusSelect.value, detailInput.value, resultInput.value, waitingEditor.values());
             new Notice(selectedItem ? `${selectedItem.page.id || selectedItem.page.file.name}에 To-Do를 추가했습니다.` : "To-Do를 추가했습니다.");
             close();
             if (activeView === "todo") renderTodoBoard();
@@ -7213,6 +7302,7 @@ function openTicketTodoListModal(item) {
         const description = document.createElement("div");
         description.className = "opus-ticket-todo-detail-text";
         appendLinkedText(description, selectedTask.text);
+        renderTodoWaitingInfo(detailPane, selectedTask);
         const detailDescription = document.createElement("div");
         detailDescription.className = "opus-ticket-todo-detail-text opus-ticket-todo-detail-secondary";
         const detailLabel = document.createElement("strong");
@@ -7362,6 +7452,7 @@ function openTodoDetailModal(task, afterSaved = null) {
                 detailItem("완료일", task.completedAt)
             );
             body.append(description, detailDescription, resultDescription, grid);
+            renderTodoWaitingInfo(body, task);
 
             const openButton = document.createElement("button");
             openButton.className = "opus-note-action-button";
@@ -7430,6 +7521,7 @@ function openTodoDetailModal(task, afterSaved = null) {
         });
         statusField.append(statusLabel, statusSelect);
         body.append(contentField, detailField, resultField, dateField, statusField);
+        const waitingEditor = createTodoWaitingEditor(body, statusSelect, task);
 
         const cancelButton = document.createElement("button");
         cancelButton.className = "opus-note-action-button";
@@ -7447,6 +7539,7 @@ function openTodoDetailModal(task, afterSaved = null) {
                     text: contentInput.value,
                     details: detailInput.value,
                     result: resultInput.value,
+                    ...waitingEditor.values(),
                     dueDate: dateInput.value,
                     status: statusSelect.value
                 });
@@ -8675,6 +8768,7 @@ tableArea.addEventListener("click", handleTodoQuickAddClick);
 const TODO_STATUSES = [
     { key: "pending", label: "진행 전", icon: "○" },
     { key: "in-progress", label: "진행 중", icon: "◐" },
+    { key: "waiting", label: "Pending · 대기", icon: "⏸" },
     { key: "done", label: "완료", icon: "✓" }
 ];
 
@@ -8733,6 +8827,7 @@ function createTodoCard(task, showTicket) {
     text.className = "opus-todo-card-text";
     text.textContent = task.text;
     card.appendChild(text);
+    renderTodoWaitingInfo(card, task);
     if (task.details) {
         const detail = document.createElement("div");
         detail.className = "opus-todo-card-detail markdown-rendered";
@@ -8817,7 +8912,7 @@ function createTodoCard(task, showTicket) {
     return card;
 }
 
-const JIRA_EXPORT_STATUS = { pending: "TO DO", "in-progress": "IN PROGRESS", done: "DONE" };
+const JIRA_EXPORT_STATUS = { pending: "TO DO", "in-progress": "IN PROGRESS", waiting: "PENDING", done: "DONE" };
 const JIRA_EXPORT_FIELDS = [
     { key: "number", label: "No.", jiraLabel: "No.", default: true, value: (_task, _page, index) => index + 1 },
     { key: "ticket", label: "Ticket No.", jiraLabel: "Ticket No.", default: true, value: task => task.ticketId },
@@ -8836,6 +8931,8 @@ const JIRA_EXPORT_FIELDS = [
     { key: "todo", label: "To-Do (할 일)", jiraLabel: "To-Do", value: task => task.text },
     { key: "todoDetails", label: "To-Do Details (상세 내용)", jiraLabel: "To-Do Details", value: task => task.details || "" },
     { key: "todoResult", label: "To-Do Result (처리 내용)", jiraLabel: "To-Do Result", value: task => task.result || "" },
+    { key: "todoWaitingReason", label: "Waiting Reason (대기 사유)", jiraLabel: "Waiting Reason", value: task => task.waitingReason || "" },
+    { key: "followUpDate", label: "Follow-up Date (다음 확인일)", jiraLabel: "Follow-up Date", value: task => task.followUpDate || "" },
     { key: "memo", label: "Memo (임시 메모)", jiraLabel: "Memo", value: task => task.jiraMemo || "" },
     { key: "dueDate", label: "Due Date (완료 예정일)", jiraLabel: "Due Date", value: task => task.dueDate },
     { key: "createdAt", label: "To-Do Created (등록일)", jiraLabel: "To-Do Created", value: task => task.dateTime },
@@ -9007,7 +9104,7 @@ function collapseJiraTasksByTicket(tasks) {
             ? group[0].status
             : statuses.has("in-progress")
                 ? "in-progress"
-                : statuses.has("pending") ? "pending" : "done";
+                : statuses.has("waiting") ? "waiting" : statuses.has("pending") ? "pending" : "done";
         return {
             ...group[0],
             status,
@@ -9015,6 +9112,8 @@ function collapseJiraTasksByTicket(tasks) {
             details: jiraGroupedTodoDetails(group),
             result: [...new Set(group.map(task => task.result).filter(Boolean))].join("\n"),
             dueDate: [...new Set(group.map(task => task.dueDate).filter(Boolean))].join("\n"),
+            waitingReason: [...new Set(group.map(task => task.waitingReason).filter(Boolean))].join("\n"),
+            followUpDate: [...new Set(group.map(task => task.followUpDate).filter(Boolean))].join("\n"),
             dateTime: [...new Set(group.map(task => task.dateTime).filter(Boolean))].join("\n"),
             completedAt: [...new Set(group.map(task => task.completedAt).filter(Boolean))].join("\n"),
             groupedTaskCount: group.length
@@ -9228,7 +9327,7 @@ function openJiraExportModal() {
     }
     const selectedTasks = () => todoItems.filter(task => selectedTaskIds.has(task.id) && matchesExportFilters(task));
     const memoKey = task => task.ticketId || task.id;
-    const needsTodoTranslation = () => selectedFieldKeys.has("todo") || selectedFieldKeys.has("todoDetails") || selectedFieldKeys.has("todoResult") || selectedFieldKeys.has("memo");
+    const needsTodoTranslation = () => selectedFieldKeys.has("todo") || selectedFieldKeys.has("todoDetails") || selectedFieldKeys.has("todoResult") || selectedFieldKeys.has("todoWaitingReason") || selectedFieldKeys.has("memo");
     const translatedTasks = () => selectedTasks().map(task => {
         const memo = jiraMemoValues.get(memoKey(task)) || "";
         if (!translateTodoToEnglish) return { ...task, jiraMemo: memo };
@@ -9236,6 +9335,7 @@ function openJiraExportModal() {
             ...task,
             text: selectedFieldKeys.has("todo") ? (jiraEnglishCache.get(`${task.id}:todo:${task.text}`) || task.text) : task.text,
             details: selectedFieldKeys.has("todoDetails") ? (jiraEnglishCache.get(`${task.id}:todoDetails:${task.details || ""}`) || task.details) : task.details,
+            waitingReason: selectedFieldKeys.has("todoWaitingReason") ? (jiraEnglishCache.get(`${task.id}:todoWaitingReason:${task.waitingReason || ""}`) || task.waitingReason) : task.waitingReason,
             result: selectedFieldKeys.has("todoResult") ? (jiraEnglishCache.get(`${task.id}:todoResult:${task.result || ""}`) || task.result) : task.result,
             jiraMemo: selectedFieldKeys.has("memo") ? (jiraEnglishCache.get(`${memoKey(task)}:memo:${memo}`) || memo) : ""
         };
@@ -9276,6 +9376,7 @@ function openJiraExportModal() {
                 const targets = [
                     ["todo", task.text || ""],
                     ["todoDetails", task.details || ""],
+                    ["todoWaitingReason", task.waitingReason || ""],
                     ["todoResult", task.result || ""],
                     ["memo", jiraMemoValues.get(memoKey(task)) || ""]
                 ];
@@ -9700,9 +9801,10 @@ function renderTodoCalendar(tasks) {
     const tasksByDate = new Map();
     tasks.forEach(task => {
         const key = String(task.dueDate || "").slice(0, 10);
-        if (!key) return;
-        if (!tasksByDate.has(key)) tasksByDate.set(key, []);
-        tasksByDate.get(key).push(task);
+        const calendarKey = settings.todoDateBasis === "follow-up" ? String(task.followUpDate || "").slice(0, 10) : key;
+        if (!calendarKey) return;
+        if (!tasksByDate.has(calendarKey)) tasksByDate.set(calendarKey, []);
+        tasksByDate.get(calendarKey).push(task);
     });
     dates.forEach(date => {
         const key = todoCalendarKey(date);
@@ -9721,12 +9823,12 @@ function renderTodoCalendar(tasks) {
             const item = document.createElement("button");
             item.type = "button";
             item.className = `opus-todo-calendar-item status-${task.status}`;
-            item.title = `${task.ticketId} · ${task.text}`;
+            item.title = `${task.ticketId} · ${task.text}${task.status === "waiting" ? ` · ${task.waitingReason || "Pending"} · 다음 확인 ${task.followUpDate || "미지정"}` : ""}`;
             const ticket = document.createElement("span");
             ticket.textContent = task.ticketId;
             const text = document.createElement("strong");
             text.textContent = task.text;
-            const time = String(task.dueDate || "").slice(11, 16);
+            const time = settings.todoDateBasis === "follow-up" ? "" : String(task.dueDate || "").slice(11, 16);
             if (time) {
                 const timeLabel = document.createElement("small");
                 timeLabel.textContent = time;
@@ -9803,7 +9905,8 @@ function renderTodoBoard() {
         ["all", "전체"],
         ["open", "미완료"],
         ["pending", "진행 전"],
-        ["in-progress", "진행 중"],
+        ["in-progress", "진행 중"], ["waiting", "Pending · 대기"],
+        ["follow-up", "Pending · 확인 필요"],
         ["today", "오늘까지"],
         ["overdue", "기한 지남"],
         ["done", "완료"]
@@ -9827,7 +9930,8 @@ function renderTodoBoard() {
     [
         ["created", "등록일"],
         ["due", "완료 예정일"],
-        ["completed", "완료일"]
+        ["completed", "완료일"],
+        ["follow-up", "다음 확인일"]
     ].forEach(([value, label]) => {
         const option = document.createElement("option");
         option.value = value;
@@ -9926,10 +10030,11 @@ function renderTodoBoard() {
     const dateFilterValue = task => {
         if (settings.todoDateBasis === "created") return String(task.dateTime || "").slice(0, 10);
         if (settings.todoDateBasis === "completed") return String(task.completedAt || "").slice(0, 10);
+        if (settings.todoDateBasis === "follow-up") return String(task.followUpDate || "").slice(0, 10);
         return String(task.dueDate || "").slice(0, 10);
     };
     const filteredTodoItems = todoItems.filter(task => {
-        const matchesSearch = !needle || [task.ticketId, task.text, task.details, task.result, task.dueDate, task.completedAt]
+        const matchesSearch = !needle || [task.ticketId, task.text, task.details, task.result, task.waitingReason, task.followUpDate, task.dueDate, task.completedAt]
             .some(value => String(value || "").toLowerCase().includes(needle));
         if (!matchesSearch) return false;
         const taskDate = dateFilterValue(task);
@@ -9938,6 +10043,8 @@ function renderTodoBoard() {
         if (quickFilter === "open") return task.status !== "done";
         if (quickFilter === "pending") return task.status === "pending";
         if (quickFilter === "in-progress") return task.status === "in-progress";
+        if (quickFilter === "waiting") return task.status === "waiting";
+        if (quickFilter === "follow-up") return todoFollowUpInfo(task)?.needsFollowUp === true;
         if (quickFilter === "today") return task.status !== "done" && task.dueDate && task.dueDate.slice(0, 10) <= today;
         if (quickFilter === "overdue") return task.status !== "done" && task.dueDate && task.dueDate.slice(0, 10) < today;
         if (quickFilter === "done") return task.status === "done";
@@ -9954,8 +10061,8 @@ function renderTodoBoard() {
 
     if (settings.todoDisplayMode === "calendar") {
         todoBoardArea.appendChild(renderTodoCalendar(filteredTodoItems));
-        const scheduled = filteredTodoItems.filter(task => todoCalendarDate(task.dueDate)).length;
-        summary.textContent = `${resultLabel} · 달력 표시 ${scheduled}개 · 진행 전 ${counts.pending} · 진행 중 ${counts["in-progress"]} · 완료 ${counts.done}`;
+        const scheduled = filteredTodoItems.filter(task => todoCalendarDate(settings.todoDateBasis === "follow-up" ? task.followUpDate : task.dueDate)).length;
+        summary.textContent = `${resultLabel} · 달력 표시 ${scheduled}개 · 진행 전 ${counts.pending} · 진행 중 ${counts["in-progress"]} · Pending ${counts.waiting} · 완료 ${counts.done}`;
         return;
     }
 
@@ -9970,8 +10077,8 @@ function renderTodoBoard() {
                     return String(right.completedAt || right.dateTime || "")
                         .localeCompare(String(left.completedAt || left.dateTime || ""));
                 }
-                const leftDue = left.dueDate || "9999-12-31";
-                const rightDue = right.dueDate || "9999-12-31";
+                const leftDue = (status.key === "waiting" ? left.followUpDate : left.dueDate) || "9999-12-31";
+                const rightDue = (status.key === "waiting" ? right.followUpDate : right.dueDate) || "9999-12-31";
                 return leftDue.localeCompare(rightDue)
                      || String(right.dateTime || "").localeCompare(String(left.dateTime || ""));
             });
@@ -10081,7 +10188,7 @@ function renderTodoBoard() {
     }
 
     todoBoardArea.appendChild(board);
-    summary.textContent = `${resultLabel} · 진행 전 ${counts.pending} · 진행 중 ${counts["in-progress"]} · 완료 ${counts.done}`;
+    summary.textContent = `${resultLabel} · 진행 전 ${counts.pending} · 진행 중 ${counts["in-progress"]} · Pending ${counts.waiting} · 완료 ${counts.done}`;
 }
 
 
