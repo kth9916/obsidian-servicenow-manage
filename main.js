@@ -3320,6 +3320,102 @@ class DocumentCandidateModal extends Modal {
   }
 }
 
+class SettingsJsonImportModal extends Modal {
+  constructor(app, plugin, onDone, kind = "organization-pack") {
+    super(app);
+    this.plugin = plugin;
+    this.onDone = onDone;
+    this.kind = kind;
+    this.busy = false;
+  }
+
+  onOpen() {
+    this.modalEl.addClass("snm-pack-import-modal");
+    const google = this.kind === "google-oauth";
+    this.titleEl.setText(google ? "Google OAuth JSON 가져오기 / 교체" : this.plugin.hasOrganizationPack() ? "업무가이드팩 교체" : "업무가이드팩 JSON 가져오기");
+    const content = this.contentEl;
+    content.createEl("p", { text: "JSON 파일을 선택하거나 JSON 내용 전체를 아래에 붙여넣은 뒤 ‘등록’을 누르세요. 초기 설정 이후에도 사용할 수 있습니다." });
+    if (google) {
+      content.createEl("p", { cls: "snm-pack-import-help", text: "Google Cloud Console에서 받은 Desktop OAuth JSON을 사용하세요. 인증 정보는 기존 SecretStorage 저장 방식을 사용하며 로그에 출력하지 않습니다." });
+    } else if (this.plugin.hasOrganizationPack()) {
+      content.createEl("p", { cls: "snm-pack-import-help", text: "등록하면 현재 팩을 교체합니다. 기존 티켓과 사용자가 수정한 분석 템플릿은 보존합니다." });
+    }
+    const fileLabel = content.createEl("label", { cls: "snm-pack-import-field" });
+    fileLabel.createSpan({ text: "JSON 파일 선택" });
+    // Keep the native file control visible and connected to the active modal.
+    // A detached input.click() can silently fail in an embedded desktop window.
+    const fileInput = fileLabel.createEl("input", { type: "file" });
+    fileInput.accept = ".json,application/json";
+    this.fileInput = fileInput;
+    const jsonLabel = content.createEl("label", { cls: "snm-pack-import-field" });
+    jsonLabel.createSpan({ text: "또는 JSON 내용 붙여넣기" });
+    const jsonInput = jsonLabel.createEl("textarea", { cls: "snm-pack-import-json" });
+    jsonInput.placeholder = '{ "schemaVersion": 1, "packId": "...", "name": "...", ... }';
+    jsonInput.spellcheck = false;
+    this.jsonInput = jsonInput;
+    const status = content.createDiv({ cls: "snm-pack-import-status" });
+    status.setAttr("role", "status");
+    status.setAttr("aria-live", "polite");
+    const actions = content.createDiv({ cls: "clt-sn-document-actions" });
+    const cancel = actions.createEl("button", { text: "취소" });
+    const submit = actions.createEl("button", { text: "등록", cls: "mod-cta" });
+    const setBusy = (busy) => {
+      this.busy = busy;
+      fileInput.disabled = jsonInput.disabled = submit.disabled = cancel.disabled = busy;
+      submit.setText(busy ? "등록 중…" : "등록");
+    };
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files?.[0];
+      if (!file || this.busy) return;
+      setBusy(true);
+      try {
+        jsonInput.value = await file.text();
+        status.setText(`${file.name}을 읽었습니다. 내용을 확인하고 ‘등록’을 누르세요.`);
+      } catch (error) {
+        status.setText(`파일 읽기 실패: ${error.message || error}. JSON 내용을 직접 붙여넣을 수도 있습니다.`);
+      } finally {
+        fileInput.value = "";
+        setBusy(false);
+      }
+    });
+    cancel.addEventListener("click", () => { if (!this.busy) this.close(); });
+    submit.addEventListener("click", async () => {
+      if (this.busy) return;
+      if (!jsonInput.value.trim()) {
+        status.setText("JSON 파일을 선택하거나 JSON 내용을 붙여넣어 주세요.");
+        jsonInput.focus();
+        return;
+      }
+      setBusy(true);
+      try {
+        const value = JSON.parse(jsonInput.value.replace(/^\uFEFF/, ""));
+        if (google) {
+          await this.plugin.applyGoogleOAuthJson(value);
+          new Notice("Google OAuth JSON을 등록했습니다. Google 계정을 연결하거나 다시 연결해 주세요.", 8000);
+        } else {
+          const pack = await this.plugin.applyOrganizationPack(value);
+          const result = this.plugin.lastOrganizationPackApplyResult || {};
+          new Notice(`업무가이드팩을 등록했습니다: ${pack.name}${result.updated ? ` · 기본 템플릿 갱신 ${result.updated}개` : ""}${result.preserved ? ` · 사용자 수정 템플릿 보존 ${result.preserved}개` : ""}`, 8000);
+        }
+      } catch (error) {
+        // Do not echo parser excerpts: OAuth JSON may contain client secrets.
+        const message = error instanceof SyntaxError ? "JSON 문법이 올바르지 않습니다. 내용 전체를 복사했는지 확인해 주세요." : String(error.message || error);
+        status.setText(`${google ? "Google OAuth JSON" : "업무가이드팩"} 등록 실패: ${message}`);
+        setBusy(false);
+        return;
+      }
+      this.close();
+      this.onDone?.();
+    });
+  }
+
+  onClose() {
+    if (this.jsonInput) this.jsonInput.value = "";
+    if (this.fileInput) this.fileInput.value = "";
+    this.contentEl.empty();
+  }
+}
+
 class BearerTokenModal extends Modal {
   constructor(app, plugin) {
     super(app);
@@ -7035,22 +7131,9 @@ class CltServiceNowWorkNotes extends Plugin {
   }
 
   importOrganizationPack(onDone) {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".json,application/json";
-    input.addEventListener("change", async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      try {
-        const pack = await this.applyOrganizationPack(JSON.parse(await file.text()));
-        const templateResult = this.lastOrganizationPackApplyResult || {};
-        new Notice(`업무가이드팩을 등록했습니다: ${pack.name}${templateResult.updated ? ` · 기본 템플릿 갱신 ${templateResult.updated}개` : ""}${templateResult.preserved ? ` · 사용자 수정 템플릿 보존 ${templateResult.preserved}개` : ""}`, 8000);
-        onDone?.();
-      } catch (error) {
-        new Notice(`업무가이드팩 등록 실패: ${error.message || error}`, 10000);
-      }
-    }, { once: true });
-    input.click();
+    const modal = new SettingsJsonImportModal(this.app, this, onDone);
+    modal.open();
+    return modal;
   }
 
   async applyOrganizationPack(value) {
@@ -7122,21 +7205,9 @@ class CltServiceNowWorkNotes extends Plugin {
   }
 
   importGoogleOAuthJson(onDone) {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".json,application/json";
-    input.addEventListener("change", async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      try {
-        await this.applyGoogleOAuthJson(JSON.parse(await file.text()));
-        new Notice("Google Desktop OAuth JSON을 등록했습니다. 이제 Google 계정을 연결할 수 있습니다.", 8000);
-        onDone?.();
-      } catch (error) {
-        new Notice(`Google OAuth JSON 등록 실패: ${error.message || error}`, 10000);
-      }
-    }, { once: true });
-    input.click();
+    const modal = new SettingsJsonImportModal(this.app, this, onDone, "google-oauth");
+    modal.open();
+    return modal;
   }
 
   async applyGoogleOAuthJson(value) {

@@ -1851,6 +1851,12 @@ button.mod-warning:hover {
 
 .clt-worklog-markdown-form { margin-top: 8px; }
 
+.snm-pack-import-modal { width: min(720px, 92vw); }
+.snm-pack-import-field { display: grid; gap: 7px; margin: 14px 0; }
+.snm-pack-import-json { width: 100%; min-height: 210px; max-height: 45vh; box-sizing: border-box; resize: vertical; font-family: var(--font-monospace); }
+.snm-pack-import-help, .snm-pack-import-status { color: var(--text-muted); line-height: 1.5; overflow-wrap: anywhere; }
+.snm-pack-import-status { min-height: 1.5em; margin-top: 8px; }
+
 .clt-rich-markdown-editor {
   background: var(--background-modifier-form-field);
   border: var(--input-border-width) solid var(--background-modifier-border);
