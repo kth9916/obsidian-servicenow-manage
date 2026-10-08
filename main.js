@@ -7949,9 +7949,13 @@ class CltServiceNowWorkNotes extends Plugin {
   }
 
   async searchGoogleDriveDocuments(ticketId) {
+    const normalized = normalizeTicketId(ticketId);
+    if (!normalized) throw new Error("올바른 티켓 번호를 입력해 주세요.");
     const baseQuery = {
-      q: `name contains '${ticketId}_' and trashed = false`,
-      fields: "files(id,name,mimeType,modifiedTime,webViewLink)",
+      // Search the ticket prefix, then enforce the document separator locally.
+      // Titles such as CR0000000 _FS must not be excluded by the API query.
+      q: `name contains '${normalized}' and trashed = false`,
+      fields: "nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink)",
       orderBy: "modifiedTime desc",
       pageSize: 100,
       spaces: "drive",
@@ -7961,7 +7965,15 @@ class CltServiceNowWorkNotes extends Plugin {
     const responses = [];
     for (const corpora of ["user", "allDrives"]) {
       try {
-        responses.push(await this.googleDriveApiGet("/drive/v3/files", { ...baseQuery, corpora }));
+        let pageToken = "";
+        const seenTokens = new Set();
+        do {
+          const response = await this.googleDriveApiGet("/drive/v3/files", { ...baseQuery, corpora, pageToken });
+          responses.push(response);
+          pageToken = response.nextPageToken || "";
+          if (pageToken && seenTokens.has(pageToken)) throw new Error("Google Drive 검색 페이지가 반복되었습니다. 다시 검색해 주세요.");
+          if (pageToken) seenTokens.add(pageToken);
+        } while (pageToken);
       } catch (error) {
         if (corpora === "user") throw error;
         console.warn("[Google Drive] 공유 드라이브 통합 검색 제외", error);
@@ -7973,7 +7985,7 @@ class CltServiceNowWorkNotes extends Plugin {
     [...filesById.values()]
       .sort((left, right) => String(right.modifiedTime || "").localeCompare(String(left.modifiedTime || "")))
       .forEach((file) => {
-      const match = String(file.name || "").toUpperCase().match(new RegExp(`^${ticketId}_(FS|DS|UT)(?:_|\\b)`));
+      const match = String(file.name || "").trim().toUpperCase().match(new RegExp(`^${normalized}\\s*_\\s*(FS|DS|UT)(?:_|\\b)`));
       if (!match) return;
       groups[match[1]].push({
         type: match[1],
