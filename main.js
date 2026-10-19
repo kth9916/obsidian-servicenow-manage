@@ -3286,6 +3286,7 @@ class TodoDetailEntryModal extends Modal {
   }
 
   render() {
+    this.footerEl?.remove();
     this.contentEl.empty();
     this.titleEl.empty();
     const hasTicket = Boolean(this.task.ticketId);
@@ -3380,7 +3381,8 @@ class TodoDetailEntryModal extends Modal {
         item.createEl("strong", { text: value });
       });
 
-    const actions = editor.createDiv({ cls: "clt-sn-document-actions" });
+    const actions = this.modalEl.createDiv({ cls: "clt-sn-document-actions clt-todo-detail-actions" });
+    this.footerEl = actions;
     const remove = actions.createEl("button", { text: "삭제", cls: "mod-warning clt-todo-delete-button" });
     remove.addEventListener("click", () => {
       new ConfirmDeleteModal(this.app, {
@@ -3437,6 +3439,8 @@ class TodoDetailEntryModal extends Modal {
   onClose() {
     this.modalEl.removeClass("clt-todo-detail-modal");
     if (this.workflowRef) this.app.workspace.offref(this.workflowRef);
+    this.footerEl?.remove();
+    this.footerEl = null;
     this.contentEl.empty();
   }
 }

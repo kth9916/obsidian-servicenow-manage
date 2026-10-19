@@ -2036,6 +2036,26 @@ button.mod-warning:hover {
 .clt-todo-detail-layout.no-ticket { max-width: none; }
 .clt-todo-detail-modal .clt-ticket-entry-input { min-height: 72px; }
 .clt-todo-detail-editor .clt-todo-entry-field:nth-child(2) .clt-rich-markdown-editor { min-height: clamp(160px, 24vh, 300px); max-height: 45vh; }
+.clt-todo-detail-modal { container: snm-todo-dialog / inline-size; overflow: hidden; }
+.clt-todo-detail-modal > .modal-title { flex: 0 0 auto; }
+.clt-todo-detail-modal > .modal-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.clt-todo-detail-modal > .clt-todo-detail-actions {
+  align-items: center;
+  background: var(--modal-background, var(--background-primary));
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  margin: 12px 0 0;
+  padding-top: 12px;
+}
+.clt-todo-detail-modal .clt-todo-detail-actions > button { height: auto; min-height: 32px; white-space: nowrap; }
+@container snm-todo-dialog (max-width: 520px) {
+  .clt-todo-detail-modal > .clt-todo-detail-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .clt-todo-detail-actions > button { margin: 0; width: 100%; }
+}
 .clt-todo-entry-field, .clt-todo-due-fields { min-width: 0; }
 .clt-todo-due-fields { grid-template-columns: minmax(0, 1fr) 146px; }
 .clt-todo-entry-field :is(input, select, textarea) { max-width: 100%; min-width: 0; }
