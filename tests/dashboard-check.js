@@ -4891,7 +4891,8 @@ for (const [value, label] of [["active", "활성 업무"], ["all", "전체 · �
 }
 ticketActivitySelect.value = settings.ticketScope || "active";
 const ticketActivityConfigure = document.createElement("button");
-ticketActivityConfigure.textContent = "보관·휴면 설정";
+ticketActivityConfigure.textContent = "활성·휴면·보관 전역 설정";
+ticketActivityConfigure.title = "이 Vault의 모든 티켓에 같은 기준을 적용합니다.";
 ticketActivityConfigure.addEventListener("click", () => dashboardActivityPlugin()?.openTicketLifecycleSettings?.());
 const ticketActivitySummary = document.createElement("span");
 ticketActivitySummary.className = "opus-ticket-activity-summary";

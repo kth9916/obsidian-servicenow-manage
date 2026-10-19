@@ -4,6 +4,14 @@ const dashboard = fs.readFileSync(path.join(__dirname, "..", "resources", "업�
 const context = vm.createContext({ crypto, Date, Map, Set, Promise, console, normalizePath: value => value, PLUGIN_ID: "example", Notice: class {} });
 vm.runInContext(source.slice(source.indexOf("// BEGIN TICKET LIFECYCLE HELPERS"), source.indexOf("// END TICKET LIFECYCLE HELPERS")), context);
 const classify = vm.runInContext("classifyTicketActivity", context), signature = vm.runInContext("ticketBusinessSignature", context), noteSignature = vm.runInContext("ticketNoteSignature", context);
+context.cleanDashboardFrontmatter = value => value;
+vm.runInContext(source.match(/function upgradeDashboardRuntime\([^]*?\n\}/)[0], context);
+const migrateDashboard = vm.runInContext("upgradeDashboardRuntime", context);
+const oldDashboard = dashboard.replace('ticketActivityConfigure.textContent = "활성·휴면·보관 전역 설정";', 'ticketActivityConfigure.textContent = "보관·휴면 설정";');
+const migratedDashboard = migrateDashboard("Manual intro\n" + oldDashboard + "\nManual ending", dashboard);
+assert(migratedDashboard.includes('ticketActivityConfigure.textContent = "활성·휴면·보관 전역 설정";'), "already installed dashboards gain the global settings UI");
+assert(migratedDashboard.startsWith("Manual intro\n") && migratedDashboard.endsWith("\nManual ending"), "migration preserves user content outside the managed block");
+assert.equal(migrateDashboard(migratedDashboard, dashboard), migratedDashboard);
 const now = Date.parse("2026-10-19T09:00:00Z");
 const old = { initialized: true, firstObservedAt: "2026-01-01T00:00:00Z", lastMeaningfulChangeAt: "2026-01-01T00:00:00Z", lastOpenedAt: "", hasOpenTodos: false };
 assert.equal(classify(old, "In Progress", {}, now).kind, "dormant");
@@ -14,8 +22,14 @@ assert.equal(classify(old, "Closed", {}, now).kind, "archived");
 assert.equal(classify({ ...old, lastMeaningfulChangeAt: "2026-10-18T00:00:00Z" }, "Closed", {}, now).kind, "active");
 assert.equal(classify({ ...old, hasOpenTodos: true }, "Closed", {}, now).kind, "active");
 assert.equal(classify({ ...old, hasOpenTodos: true }, "Closed", { protectOpenTodos: false }, now).kind, "archived");
-assert.equal(classify({ ...old, manualMode: "active" }, "Closed", {}, now).kind, "active");
-assert.equal(classify({ ...old, manualMode: "archived", hasOpenTodos: true }, "Open", {}, now).kind, "archived");
+assert.equal(classify({ ...old, manualMode: "active" }, "Closed", {}, now).kind, "archived", "legacy pinning must not override the global policy");
+assert.equal(classify({ ...old, manualMode: "archived", hasOpenTodos: true }, "Open", {}, now).kind, "active", "legacy archiving must not override global unfinished-task protection");
+assert.equal(classify({ ...old, manualMode: "archived", lastOpenedAt: new Date(now).toISOString() }, "Closed", {}, now).kind, "active", "opening a previously archived ticket reactivates it immediately");
+assert.equal(classify({ ...old, manualMode: "archived" }, "Open", {}, now).kind, "dormant");
+for (const record of [old, { ...old, manualMode: "active" }, { ...old, manualMode: "archived" }]) {
+  assert.equal(classify(record, "Closed", { enabled: false }, now).kind, "active", "one global switch applies to every ticket including legacy records");
+  assert.equal(classify(record, "Closed", { archiveStates: [], dormantMonths: 36, unchangedMonths: 60 }, now).kind, "active");
+}
 assert.equal(classify(old, "Closed", { enabled: false }, now).kind, "active");
 assert.equal(vm.runInContext(`ticketMonthsAgo(Date.parse("2024-05-31T00:00:00Z"), 3)`, context), Date.parse("2024-02-29T00:00:00Z"));
 const ticket = { state: "Open", description: "same", entries: [{ id: "note", time: "2026-01-01", content: "original" }] };
@@ -29,7 +43,7 @@ function method(name) {
   return rest.slice(0, end + 1).trim();
 }
 (async () => {
-  const names = ["ticketActivityRecord", "getTicketActivity", "recordTicketOpened", "observeServerTicketActivity", "activeRootTicketFiles", "readTicketNoteSnapshot", "observeTicketNote", "loadTicketActivityStore", "ticketActivityStorePath", "flushTicketActivityStore", "syncAllTickets", "syncAllTicketStatuses"];
+  const names = ["ticketActivityRecord", "getTicketActivity", "recordTicketOpened", "saveTicketLifecycleSettings", "observeServerTicketActivity", "activeRootTicketFiles", "readTicketNoteSnapshot", "observeTicketNote", "loadTicketActivityStore", "ticketActivityStorePath", "flushTicketActivityStore", "syncAllTickets", "syncAllTicketStatuses"];
   const plugin = vm.runInContext(`({${names.map(method).join(",")}})`, context);
   const files = [{ path: "CR0.md", stat: { mtime: 1 } }, { path: "SR0.md", stat: { mtime: 1 } }];
   plugin.settings = {}; plugin.data = { tickets: {} }; plugin.manifest = { dir: ".obsidian/plugins/example" };
@@ -40,13 +54,17 @@ function method(name) {
   plugin.queueTicketActivitySave = () => queued++;
   plugin.notifyTicketActivityChanged = () => {};
   plugin.refreshViews = () => rendered++;
-  plugin.rootTicketIdFromFile = file => file ? file.path.slice(0, 3) : "";
+  plugin.rootTicketIdFromFile = file => files.includes(file) ? file.path.slice(0, 3) : "";
   plugin.rootTicketFiles = () => files;
   plugin.recordTicketOpened(files[0]); assert.equal(queued, 0, "background file must not be a visit");
   active = files[0]; plugin.recordTicketOpened(active);
-  assert.equal(plugin.ticketActivity.tickets.CR0.manualMode, "auto");
+  assert.equal(plugin.ticketActivity.tickets.CR0.manualMode, "archived", "legacy record is preserved without controlling the classification");
   assert(plugin.ticketActivity.tickets.CR0.lastOpenedAt); assert.equal(rendered, 1);
   assert.equal(plugin.getTicketActivity("CR0").kind, "active");
+  assert.equal(reads, 0, "opening does not scan notes or require a network refresh");
+  const beforeNonTicket = queued; active = { path: "dashboard.md" }; plugin.recordTicketOpened(active);
+  assert.equal(queued, beforeNonTicket, "opening a dashboard or other non-root note is not a ticket visit");
+  active = files[0];
   plugin.observeServerTicketActivity("SR0", ticket);
   const changedAt = plugin.ticketActivity.tickets.SR0.lastMeaningfulChangeAt;
   plugin.observeServerTicketActivity("SR0", { ...ticket, lastSyncedAt: "another day" });
@@ -65,8 +83,22 @@ function method(name) {
   let result = await plugin.syncAllTickets({ activeOnly: true }); assert.equal(result.skipped, 1); assert.deepEqual(calls.splice(0), ["SR0"]);
   result = await plugin.syncAllTicketStatuses({ activeOnly: true }); assert.equal(result.skipped, 1); assert.deepEqual(calls.splice(0), ["SR0"]);
   await plugin.syncAllTickets(); assert.deepEqual(calls.splice(0), ["CR0", "SR0"], "explicit inclusive refresh must remain available");
+  plugin.views = new Map([["CR0", {}], ["SR0", {}]]);
+  plugin.savePluginData = async () => {};
+  await plugin.saveTicketLifecycleSettings({ enabled: false, dormantMonths: 3, unchangedMonths: 6, archiveGraceDays: 7 });
+  assert.equal(plugin.getTicketActivity("CR0").kind, "active"); assert.equal(plugin.getTicketActivity("SR0").kind, "active");
+  const savedSettings = plugin.settings.ticketLifecycle;
+  await assert.rejects(plugin.saveTicketLifecycleSettings({ dormantMonths: 0 }), /정수/);
+  assert.equal(plugin.settings.ticketLifecycle, savedSettings);
+  plugin.savePluginData = async () => { throw new Error("simulated settings write failure"); };
+  await assert.rejects(plugin.saveTicketLifecycleSettings({ enabled: true }), /settings write failure/);
+  assert.equal(plugin.settings.ticketLifecycle, savedSettings, "failed global save restores the previous policy");
   await plugin.loadTicketActivityStore(); assert(plugin.ticketActivityWriteBlocked); assert.equal(plugin.getTicketActivity("CR0").kind, "active");
   assert(dashboard.includes('ticketScope: "active"')); assert(dashboard.includes("matchesTicketActivityScope(item, searchKeyword)")); assert(dashboard.includes("exactTicketActivityLookup(item, searchKeyword) || activeFilters.every"));
   assert(source.includes('workspace.on("file-open"')); assert(source.includes('getTicketActivity(id).kind !== "active"')); assert(source.includes("ticket-activity.json"));
+  assert(!source.includes('setTicketActivityMode(')); assert(!source.includes('이 티켓 활성 유지')); assert(!source.includes('이 티켓 지금 보관'));
+  assert(!source.includes('openTicketLifecycleSettings(ticketId)')); assert(dashboard.includes('ticketActivityConfigure.textContent = "활성·휴면·보관 전역 설정"'));
+  const modal = source.slice(source.indexOf("class TicketLifecycleSettingsModal"), source.indexOf("class TodoWorkflowSettingsModal"));
+  assert(!modal.includes("this.ticketId")); assert(modal.includes("모든 티켓에 공통 적용")); assert(modal.includes('text: "전체 티켓에 적용"'));
   console.log("Ticket lifecycle checks passed: calendar thresholds, honest first observation, meaningful-change hashes, protected tasks, direct-root reactivation, snapshot reuse, private persistence, automated exclusion and explicit inclusive refresh.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

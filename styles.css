@@ -1972,3 +1972,9 @@ button.mod-warning:hover {
 .clt-ds-schedule-date { font-variant-numeric: tabular-nums; }
 .clt-ds-review { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; padding: 12px; background: var(--background-secondary); border-radius: 8px; }
 .clt-ds-review > span:last-child { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.clt-related-note-modal { width: min(680px, 94vw); }
+.clt-related-note-title { display: flex; flex-direction: column; gap: 8px; margin: 16px 0 8px; }
+.clt-related-note-title input { width: 100%; box-sizing: border-box; }
+.clt-related-note-preview { color: var(--text-muted); font-size: var(--font-ui-smaller); margin: 8px 0; overflow-wrap: anywhere; }
+.clt-related-note-modal [role="status"] { white-space: pre-line; overflow-wrap: anywhere; }
+.clt-related-note-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
