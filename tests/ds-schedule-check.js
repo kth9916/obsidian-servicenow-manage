@@ -14,7 +14,7 @@ const context = vm.createContext({ Buffer, zlib, crypto, TFile, console, normali
   DocumentCandidateModal: class { constructor(_app, _id, _groups, _current, resolve) { this.resolve = resolve; } open() { this.resolve(context.choice || {}); } }
 });
 vm.runInContext(helpers, context);
-const api = vm.runInContext("({readDsScheduleWorkbook,dsScheduleDate,dsScheduleActivityDetails,dsScheduleZipReader,dsScheduleSourceLine})", context);
+const api = vm.runInContext("({readDsScheduleWorkbook,dsScheduleDate,dsScheduleSelectedDate,dsScheduleActivityDetails,dsScheduleZipReader,dsScheduleSourceLine})", context);
 const plugin = vm.runInContext(`({${["loadLatestDsSchedule", "dsScheduleExistingSources", "createDsScheduleTodos"].map(method).join(",")}})`, context);
 function crc32(bytes) { let result = -1; for (const byte of bytes) { result ^= byte; for (let bit = 0; bit < 8; bit++) result = (result >>> 1) ^ (result & 1 ? 0xedb88320 : 0); } return (result ^ -1) >>> 0; }
 function zip(entries) {
@@ -46,6 +46,11 @@ assert.equal(schedule.length, 3); assert.equal(schedule[0].activity, "Developmen
 assert.equal(schedule[0].dueDate, "2026-10-30T12:00"); assert.equal(schedule[1].start, "2026-10-19");
 assert.equal(schedule[2].end, "계산 결과 없음"); assert.equal(schedule[2].dueDate, ""); assert.equal(schedule[2].dateWarning, true);
 assert.equal(prod.length, 2); assert.equal(prod[0].dueDate, "2026-11-04T14:00"); assert.equal(prod[1].dueDate, "");
+assert.equal(api.dsScheduleSelectedDate(schedule[0], "start"), "2026-10-26");
+assert.equal(api.dsScheduleSelectedDate(prod[0], "start"), "2026-11-03T12:30");
+assert.equal(api.dsScheduleSelectedDate({ start: "", dueDate: "2026-11-01" }, "start"), "", "missing Start must not fall back to End");
+assert.equal(api.dsScheduleSelectedDate({ start: "2026/1/2" }, "start"), "2026-01-02");
+assert.equal(api.dsScheduleSelectedDate(schedule[0]), schedule[0].dueDate);
 for (const [value, expected] of [["2026.1.2", "2026-01-02"], ["10/19/2026", "2026-10-19"], ["2026-02-29", ""], ["2026-10-19T25:00", ""], ["TBD", ""], ["10/19", ""], ["0", ""]]) assert.equal(api.dsScheduleDate(value).due, expected, value);
 assert.equal(api.dsScheduleDate(1).due, "1900-01-01"); assert.equal(api.dsScheduleDate(1, true).due, "1904-01-02");
 for (const activity of ["Development", "Pair Test", "DS", "TAS", "Code Review", "Testing", "IT", "QA", "Approved For Production", "Deployment (Stage)", "Final Verification", "READY FOR PROD", "Implemented"]) assert(!api.dsScheduleActivityDetails(activity).startsWith("DS 일정에 따라"), activity);
@@ -87,6 +92,9 @@ plugin.assertTodoStatusEnabled = status => { if (!["pending", "in-progress", "wa
   assert.equal(markdown, original, "invalid bulk creation is atomic");
   counts = await plugin.createDsScheduleTodos("CR0000000", source, [schedule[1]], "in-progress");
   assert.equal(counts.created, 1); assert(markdown.includes("clt-todo:in-progress"));
+  assert(markdown.includes("clt-todo-due:2026-10-20T15:30"), "date-only End receives batch creation time");
+  counts = await plugin.createDsScheduleTodos("CR0000000", source, [{ ...schedule[2], dueDate: api.dsScheduleSelectedDate(schedule[2], "start") }], "pending");
+  assert.equal(counts.created, 1); assert(markdown.includes("clt-todo-due:2026-10-31T15:30"), "Start receives creation time independently of an invalid End");
   counts = await plugin.createDsScheduleTodos("CR0000000", source, [prod[1]], "done");
   assert.equal(counts.created, 1); assert(markdown.includes("- [x]") && markdown.includes("clt-todo-completed:"));
   plugin.downloadGoogleDriveDocument = async () => { throw new Error("network failed"); };
@@ -98,6 +106,7 @@ plugin.assertTodoStatusEnabled = status => { if (!["pending", "in-progress", "wa
   plugin.searchGoogleDriveDocuments = async () => ({ DS: [{ url: "a" }, { url: "b" }] });
   await assert.rejects(plugin.loadLatestDsSchedule("CR0000000"), /취소/);
   assert(main.includes('text: "일정 생성"') && main.includes("new DsScheduleModal(this.app, this, ticketId).open()"));
+  assert(main.includes('"aria-label": "DS 완료 예정일 기준"') && main.includes('"완료 예정일"].forEach'));
   assert(!method("loadLatestDsSchedule").includes("syncTicket("), "schedule generation does not depend on or mutate ServiceNow");
   console.log("DS schedule checks passed: XLSX tabs/cached cells/dates, activity mapping, fresh-only downloads, atomic To-Dos, state settings, review without dates, deduplication, and failure recovery.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

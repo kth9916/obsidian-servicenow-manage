@@ -4812,7 +4812,10 @@ tr:last-child td {
     .opus-todo-board-toolbar { grid-template-columns: minmax(0, 1fr); }
 }
 @container snm-dashboard (max-width: 850px) {
-    .opus-todo-date-filter { flex-basis: 100%; }
+    .opus-todo-date-filter { flex-basis: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); width: 100%; }
+    .opus-todo-date-filter > select, .opus-todo-date-filter > .opus-todo-date-clear { grid-column: 1 / -1; width: 100%; }
+    .opus-todo-date-separator { display: none; }
+    .opus-todo-date-filter > .snm-now-field { width: 100%; }
 }
 @container snm-dashboard (max-width: 1100px) {
     .opus-toolbar { grid-template-columns: minmax(0, 1fr); }
@@ -7301,16 +7304,22 @@ function openTodoCreateModal(preselectedItem = null, preselectedStatus = "pendin
 
 function openTicketTodoListModal(item) {
     activeTodoStatuses();
+    const sortPlugin = app.plugins.getPlugin("servicenow-manage");
     const ticketId = String(item.page.id || item.page.file.name || "");
     let tasks = [...(item.todos || [])]
         .sort((left, right) => String(right.dateTime || "").localeCompare(String(left.dateTime || "")));
+    if (sortPlugin?.sortTodoTasks) tasks = sortPlugin.sortTodoTasks(tasks);
     let selectedStatus = "in-progress";
     if (!activeTodoStatuses().some(state => state.key === selectedStatus)) selectedStatus = activeTodoStatuses()[0].key;
-    const visibleTasks = () => selectedStatus === "all" ? tasks.filter(task => activeTodoStatuses().some(state => state.key === task.status))
-        : selectedStatus === "inactive" ? tasks.filter(task => !activeTodoStatuses().some(state => state.key === task.status))
-        : tasks.filter(task => task.status === selectedStatus);
+    const visibleTasks = () => {
+        const filtered = selectedStatus === "all" ? tasks.filter(task => activeTodoStatuses().some(state => state.key === task.status))
+            : selectedStatus === "inactive" ? tasks.filter(task => !activeTodoStatuses().some(state => state.key === task.status))
+            : tasks.filter(task => task.status === selectedStatus);
+        return sortPlugin?.sortTodoTasks ? sortPlugin.sortTodoTasks(filtered) : filtered;
+    };
     let selectedTask = visibleTasks()[0] || null;
     let workflowPopupRef = null;
+    let sortPopupRef = null;
     const backdrop = document.createElement("div");
     backdrop.className = "opus-modal-backdrop";
     const modal = document.createElement("div");
@@ -7338,6 +7347,7 @@ function openTicketTodoListModal(item) {
     const close = () => {
         document.removeEventListener("keydown", keyHandler);
         if (workflowPopupRef) app.workspace.offref(workflowPopupRef);
+        if (sortPopupRef) app.workspace.offref(sortPopupRef);
         backdrop.remove();
     };
     const keyHandler = event => { if (event.key === "Escape") close(); };
@@ -7380,6 +7390,7 @@ function openTicketTodoListModal(item) {
         item.todos = await readTodos(item.page);
         tasks = [...(item.todos || [])]
             .sort((left, right) => String(right.dateTime || "").localeCompare(String(left.dateTime || "")));
+        if (sortPlugin?.sortTodoTasks) tasks = sortPlugin.sortTodoTasks(tasks);
         const filtered = visibleTasks();
         selectedTask = filtered.find(task => task.id === preferredId) || filtered[0] || null;
         todoItems = pages.flatMap(pageItem => pageItem.todos || []);
@@ -7412,6 +7423,7 @@ function openTicketTodoListModal(item) {
         const filteredTasks = visibleTasks();
         summary.textContent = `표시 ${filteredTasks.length}개 · 전체 ${tasks.length}개 · 미완료 ${activeCount}개`;
         listPane.append(statusFilters, summary);
+        sortPlugin?.renderTodoSortControl?.(listPane);
         if (!filteredTasks.length) {
             const empty = document.createElement("div");
             empty.className = "opus-ticket-todo-detail-empty";
@@ -7513,6 +7525,10 @@ function openTicketTodoListModal(item) {
         detailPane.append(description, detailDescription, resultDescription, grid, actions);
     };
 
+    sortPopupRef = app.workspace.on("servicenow-manage:todo-sort-changed", () => {
+        if (sortPlugin?.sortTodoTasks) tasks = sortPlugin.sortTodoTasks(tasks);
+        renderList();
+    });
     workflowPopupRef = app.workspace.on("servicenow-manage:todo-workflow-changed", async () => {
         const active = activeTodoStatuses();
         if (!["all", "inactive"].includes(selectedStatus) && !active.some(state => state.key === selectedStatus)) selectedStatus = active[0].key;
@@ -10077,9 +10093,11 @@ function renderTodoCalendar(tasks) {
         dayLabel.className = "opus-todo-calendar-day-label";
         dayLabel.textContent = view === "day" ? `${weekdays[date.getDay()]}요일` : String(date.getDate());
         day.appendChild(dayLabel);
-        const dayTasks = (tasksByDate.get(key) || []).sort((left, right) =>
+        let dayTasks = (tasksByDate.get(key) || []).sort((left, right) =>
             String(left.dueDate || "").localeCompare(String(right.dueDate || ""))
         );
+        const sortPlugin = app.plugins?.getPlugin?.("servicenow-manage");
+        if (sortPlugin?.sortTodoTasks) dayTasks = sortPlugin.sortTodoTasks(dayTasks);
         dayTasks.forEach(task => {
             const item = document.createElement("button");
             item.type = "button";
@@ -10262,6 +10280,7 @@ function renderTodoBoard() {
 
     const displaySwitch = document.createElement("div");
     displaySwitch.className = "opus-todo-display-switch";
+    workflowPlugin?.renderTodoSortControl?.(boardActions);
     [["board", "보드"], ["calendar", "달력"]].forEach(([value, label]) => {
         const button = document.createElement("button");
         button.type = "button";
@@ -10354,7 +10373,7 @@ function renderTodoBoard() {
     board.style.setProperty("--snm-todo-column-count", String(activeStatuses.length));
 
     for (const status of activeStatuses) {
-        const tasks = filteredTodoItems
+        let tasks = filteredTodoItems
             .filter(task => task.status === status.key)
             .sort((left, right) => {
                 if (status.key === "done") {
@@ -10366,6 +10385,7 @@ function renderTodoBoard() {
                 return leftDue.localeCompare(rightDue)
                      || String(right.dateTime || "").localeCompare(String(left.dateTime || ""));
             });
+        if (workflowPlugin?.sortTodoTasks) tasks = workflowPlugin.sortTodoTasks(tasks);
         const visibleLimit = Number(todoVisibleLimits[status.key] || TODO_PAGE_SIZE);
         const visibleTasks = searchActive ? tasks : tasks.slice(0, visibleLimit);
         const column = document.createElement("section");
@@ -10892,6 +10912,12 @@ const todoWorkflowRef = app.workspace.on("servicenow-manage:todo-workflow-change
     await refreshAllTodoItems();
     renderAll();
 });
+const todoSortRef = app.workspace.on("servicenow-manage:todo-sort-changed", () => {
+    if (!dv.container.isConnected) { app.workspace.offref(todoSortRef); return; }
+    renderAll();
+});
+if (typeof dv.component?.registerEvent === "function") dv.component.registerEvent(todoSortRef);
+else dv.component?.register?.(() => app.workspace.offref(todoSortRef));
 const meetingLinksRef = app.workspace.on("servicenow-manage:meeting-links-changed", () => { if (activeView === "meeting") renderMeetingOverview(); });
 if (typeof dv.component?.registerEvent === "function") dv.component.registerEvent(meetingLinksRef);
 else dv.component?.register?.(() => app.workspace.offref(meetingLinksRef));

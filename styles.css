@@ -1965,9 +1965,9 @@ button.mod-warning:hover {
 .clt-ds-schedule-list th, .clt-ds-schedule-list td { padding: 10px 8px; text-align: left; vertical-align: top; overflow-wrap: anywhere; border-bottom: 1px solid var(--background-modifier-border); }
 .clt-ds-schedule-list th { position: sticky; top: 0; background: var(--background-secondary); z-index: 1; }
 .clt-ds-schedule-list th:first-child { width: 5%; }
-.clt-ds-schedule-list th:nth-child(2) { width: 35%; }
-.clt-ds-schedule-list th:nth-child(3) { width: 22%; }
-.clt-ds-schedule-list th:nth-child(n+4) { width: 19%; }
+.clt-ds-schedule-list th:nth-child(2) { width: 29%; }
+.clt-ds-schedule-list th:nth-child(3) { width: 15%; }
+.clt-ds-schedule-list th:nth-child(n+4) { width: 17%; }
 .clt-ds-schedule-description { white-space: pre-line; font-size: var(--font-ui-smaller); color: var(--text-muted); margin-top: 4px; }
 .clt-ds-schedule-date { font-variant-numeric: tabular-nums; }
 .clt-ds-review { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; padding: 12px; background: var(--background-secondary); border-radius: 8px; }
@@ -2057,3 +2057,49 @@ button.mod-warning:hover {
   }
   .opus-modal-backdrop { padding: 12px !important; }
 }
+.snm-now-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 170px;
+  container: snm-now / inline-size;
+}
+.snm-now-field > input {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  max-width: 100%;
+}
+.snm-now-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: var(--font-ui-smaller, 12px);
+  padding: 4px 8px;
+}
+@container snm-now (max-width: 240px) {
+  .snm-now-button { width: 28px; min-width: 28px; padding: 3px; font-size: 0; }
+  .snm-now-button::after { content: "◷"; font-size: 17px; }
+}
+.clt-todo-due-fields.snm-now-pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  container: snm-due / inline-size;
+}
+.snm-now-pair > input[type="date"] { flex: 1 1 120px; width: 120px; min-width: 0; }
+.snm-now-pair > input[type="time"] { flex: 0 1 146px; width: 146px; min-width: 0; }
+.snm-now-pair > .snm-now-button { margin-left: auto; }
+@container snm-due (max-width: 400px) {
+  .snm-now-pair > input[type="time"] { flex-basis: 134px; width: 134px; }
+  .snm-now-button { width: 28px; min-width: 28px; padding: 3px; font-size: 0; }
+  .snm-now-button::after { content: "◷"; font-size: 17px; }
+}
+.opus-last-checked-control:has(.snm-now-field) > .opus-last-checked-today { display: none; }
+.snm-todo-sort-control { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; white-space: nowrap; }
+.snm-todo-sort-control > select { min-width: 0; max-width: 100%; }
+.snm-balanced-actions > .snm-todo-sort-control { white-space: nowrap; }
+.opus-ticket-todo-list-pane > .snm-todo-sort-control { display: flex; margin: 6px 0 10px; }
+.opus-ticket-todo-list-pane > .snm-todo-sort-control > select { flex: 1; }
