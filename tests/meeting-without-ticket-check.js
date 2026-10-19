@@ -15,7 +15,7 @@ const context = vm.createContext({ Date, Set, Map, TextDecoder, console, TFile,
   normalizeTicketId: value => String(value || "").trim().toUpperCase(), normalizePath: value => String(value),
   parseWikiLink: value => String(value || "").replace(/^\[\[/, "").replace(/\]\]$/, ""),
   safeFileName: value => String(value), localIsoDateTime: value => value ? value.toISOString().slice(0, 16).replace("T", " ") : "2026-10-19 12:00" });
-for (const name of ["normalizeMeetingTicketIds", "escapeRegExp", "parseMeetingDate", "cleanMeetingTitle", "meetingSection", "buildMeetingNoteMarkdown", "createMeetingTicketLinkChoice"]) {
+for (const name of ["normalizeMeetingTicketIds", "escapeRegExp", "parseMeetingDate", "cleanMeetingTitle", "meetingSection", "buildMeetingNoteMarkdown"]) {
   assert(functionSource(name), name); vm.runInContext(functionSource(name), context);
 }
 const plugin = vm.runInContext(`({${["importMeetingFiles", "importGoogleDriveMeeting", "listTicketMeetings", "meetingTicketIdsForFile", "isManagedMeetingFile", "searchGoogleDriveMeetingDocuments", "uniqueVaultPath"].map(method).join(",")}})`, context);
@@ -73,13 +73,7 @@ plugin.googleDriveBinaryGet = async (_url, query) => { downloadCount++; return n
   assert.equal(direct.length, 1); assert.equal(direct[0].id, "custom");
   const scoped = await plugin.searchGoogleDriveMeetingDocuments("CR0000000");
   assert.equal(scoped.length, 1); assert.equal(scoped[0].id, "ticket");
-  const selected = new Set(["CR0000000"]), controls = [];
-  const element = { checked: false, createEl() { return this; }, createSpan() {}, addEventListener(_name, handler) { this.change = handler; } };
-  const choice = vm.runInContext("createMeetingTicketLinkChoice", context)(element, selected, () => controls.push(selected.size));
-  assert.equal(choice.checked, false); choice.checked = true; choice.change(); assert.equal(selected.size, 0);
-  choice.checked = false; choice.change(); assert.deepEqual([...selected], ["CR0000000"]);
-  assert.deepEqual(controls, [0, 1]);
-  assert(main.includes('text: "티켓 없이 저장 · 주간/공통 회의"'));
+  assert(main.includes('text: "티켓 없음 (주간·공통 회의)"'));
   assert(dashboard.includes("주간·공통 회의 (티켓 없음)"));
-  console.log("No-ticket meeting checks passed: general-folder Markdown/PDF/Drive storage, empty ticket metadata, no ticket writes, duplicate blocking, general/direct/ticket search, selection restoration and dashboard group.");
+  console.log("No-ticket meeting checks passed: general-folder Markdown/PDF/Drive storage, empty ticket metadata, no ticket writes, duplicate blocking, general/direct/ticket search and dashboard group.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

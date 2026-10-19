@@ -51,13 +51,13 @@ if (!main.includes('cssclasses:\\n  - clt-meeting-note')) {
 if (!main.includes('Parent: "[[${normalized}]]"') || !main.includes("async migrateMeetingParentLinks()")) {
   throw new Error("Meeting notes do not link back to their parent ticket");
 }
-if (!main.includes("normalizeMeetingTicketIds") || !main.includes("CR/SR 번호 검색 · 여러 개 선택 가능") || !main.includes("ticketsYaml")) {
+if (!main.includes("normalizeMeetingTicketIds") || !main.includes("티켓 번호 또는 제목 검색 · 체크하여 여러 개 선택") || !main.includes("ticketsYaml")) {
   throw new Error("Multi-ticket meeting selection or metadata is missing");
 }
 if (!main.includes('textFile.name.replace(/\\.(?:md|txt)$/i, "")') || !main.includes('dateInput.value = localIsoDateTime().replace(" ", "T").slice(0, 16)')) {
   throw new Error("Meeting file name or current-time form defaults are missing");
 }
-if (!main.includes("1. 가져올 회의록 선택") || !main.includes("2. 관련 티켓 선택") || !main.includes("복수 티켓 선택하기") || !main.includes("importGoogleDriveMeeting([...this.selectedTicketIds], candidate)")) {
+if (!main.includes("1. 가져올 회의록 선택") || !main.includes("createMeetingTicketPicker(ticketPickerHost, this.plugin, this.selectedTicketIds)") || main.includes("복수 티켓 선택하기") || !main.includes("importGoogleDriveMeeting(ticketIds, candidate)")) {
   throw new Error("Google Drive meeting import does not support multi-ticket linking");
 }
 if (!main.includes("extractTicketFocusedMeetingContent(rawContent, normalized)") || !main.includes("다른 티켓의 논의는 결론이나 할 일에 포함하지 마세요")) {

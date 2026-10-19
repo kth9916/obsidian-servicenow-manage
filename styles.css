@@ -951,8 +951,8 @@
 .clt-meeting-ticket-options {
   display: grid;
   gap: 6px;
-  grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
-  max-height: 160px;
+  grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr));
+  max-height: 190px;
   overflow: auto;
 }
 
@@ -971,6 +971,16 @@
   color: var(--interactive-accent);
   font-weight: 700;
 }
+
+.clt-meeting-ticket-option > input { flex: 0 0 auto; margin: 0; }
+.clt-meeting-ticket-option-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.clt-meeting-ticket-description { color: var(--text-muted); font-size: var(--font-ui-smaller); font-weight: 400; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.clt-meeting-selected-tickets { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.clt-meeting-ticket-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; border: 1px solid color-mix(in srgb, var(--interactive-accent) 40%, var(--background-modifier-border)); border-radius: 18px; padding: 4px 6px 4px 10px; background: color-mix(in srgb, var(--interactive-accent) 9%, var(--background-primary)); color: var(--text-normal); font-size: var(--font-ui-small); }
+.clt-meeting-ticket-chip > button { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; min-width: 22px; padding: 0; border: 0; border-radius: 50%; background: transparent; box-shadow: none; color: var(--text-muted); font-size: 16px; cursor: pointer; }
+.clt-meeting-ticket-chip > button:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+.clt-meeting-ticket-chip > button:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }
+.clt-meeting-ticket-chip.is-ticketless { padding-right: 10px; color: var(--text-muted); background: var(--background-primary-alt); border-color: var(--background-modifier-border); }
 
 .clt-meeting-step-label {
   color: var(--text-muted);

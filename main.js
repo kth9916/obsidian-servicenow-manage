@@ -1975,18 +1975,85 @@ class TimedEntryModal extends Modal {
   onClose() { this.contentEl.empty(); }
 }
 
-function createMeetingTicketLinkChoice(parent, selectedTicketIds, onChange) {
+function createMeetingTicketPicker(parent, plugin, selectedTicketIds, { noTicketDefault = false, onChange = () => {} } = {}) {
+  const records = new Map();
+  for (const file of plugin.rootTicketFiles()) {
+    const id = normalizeMeetingTicketIds(plugin.rootTicketIdFromFile(file))[0];
+    if (!id) continue;
+    const metadata = plugin.app?.metadataCache?.getFileCache(file)?.frontmatter;
+    records.set(id, { id, title: String(plugin.data?.tickets?.[id]?.shortDescription || metadata?.short_description || "") });
+  }
+  for (const id of normalizeMeetingTicketIds([...selectedTicketIds])) if (!records.has(id)) records.set(id, { id, title: "기존 연결 티켓" });
+  let ticketless = Boolean(noTicketDefault), disabled = false;
+  if (ticketless) selectedTicketIds.clear();
+  const heading = parent.createDiv({ cls: "clt-meeting-ticket-picker-heading" });
+  heading.createEl("strong", { text: "관련 티켓" });
+  const count = heading.createSpan({ attr: { "aria-live": "polite" } });
   const option = parent.createEl("label", { cls: "clt-meeting-no-ticket-choice" });
-  const checkbox = option.createEl("input", { type: "checkbox", attr: { "aria-label": "티켓 없이 저장 (주간·공통 회의)" } });
-  checkbox.checked = selectedTicketIds.size === 0;
-  option.createSpan({ text: "티켓 없이 저장 (주간·공통 회의)" });
-  let previousIds = [...selectedTicketIds];
-  checkbox.addEventListener("change", () => {
-    if (checkbox.checked) { previousIds = [...selectedTicketIds]; selectedTicketIds.clear(); }
-    else previousIds.forEach(id => selectedTicketIds.add(id));
-    onChange();
+  const withoutTicket = option.createEl("input", { type: "checkbox", attr: { "aria-label": "티켓 없음 (주간·공통 회의)" } });
+  withoutTicket.checked = ticketless;
+  option.createSpan({ text: "티켓 없음 (주간·공통 회의)" });
+  const search = parent.createEl("input", { cls: "clt-meeting-ticket-search", type: "search", placeholder: "티켓 번호 또는 제목 검색 · 체크하여 여러 개 선택", attr: { "aria-label": "회의록 연결 티켓 검색" } });
+  const list = parent.createDiv({ cls: "clt-meeting-ticket-options", attr: { role: "group", "aria-label": "회의록 연결 티켓 검색 결과" } });
+  const resultCount = parent.createDiv({ cls: "clt-meeting-ticket-empty" });
+  const chips = parent.createDiv({ cls: "clt-meeting-selected-tickets", attr: { role: "group", "aria-label": "선택한 회의록 티켓" } });
+  const hint = parent.createDiv({ cls: "clt-meeting-ticket-empty" });
+  const getTicketIds = () => ticketless ? [] : [...selectedTicketIds];
+  const syncDisabled = () => {
+    withoutTicket.disabled = disabled;
+    search.disabled = disabled || ticketless;
+    list.querySelectorAll("input").forEach(input => { input.disabled = disabled || ticketless; });
+    chips.querySelectorAll("button").forEach(button => { button.disabled = disabled; });
+  };
+  const renderChips = () => {
+    chips.empty();
+    const ids = getTicketIds();
+    count.setText(ticketless ? "티켓 없음으로 고정" : `${ids.length}개 선택`);
+    if (ticketless) chips.createSpan({ cls: "clt-meeting-ticket-chip is-ticketless", text: "티켓 없음" });
+    for (const id of ids) {
+      const chip = chips.createSpan({ cls: "clt-meeting-ticket-chip", attr: { title: records.get(id)?.title || id } });
+      chip.createSpan({ text: id });
+      chip.createEl("button", { text: "×", attr: { type: "button", "aria-label": `${id} 선택 해제` } }).addEventListener("click", event => {
+        event.preventDefault();
+        if (disabled || ticketless) return;
+        selectedTicketIds.delete(id); render(); onChange(getTicketIds(), { ticketless });
+      });
+    }
+    hint.setText(ticketless ? "티켓 없이 저장합니다. 연결하려면 체크를 해제하고 티켓을 새로 선택하세요. 이전 선택은 복원되지 않습니다."
+      : ids.length ? "선택한 모든 티켓의 회의록 목록에 표시됩니다. 라벨의 ×를 눌러 선택을 해제할 수 있습니다."
+      : "검색 결과를 체크하면 아래에 선택한 티켓이 표시됩니다. 연결이 필요 없으면 ‘티켓 없음’을 체크하세요.");
+    syncDisabled();
+  };
+  const render = () => {
+    list.empty();
+    const terms = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const matches = [...records.values()].filter(record => terms.every(term => `${record.id} ${record.title}`.toLowerCase().includes(term))).sort((a, b) => a.id.localeCompare(b.id));
+    for (const record of matches.slice(0, 30)) {
+      const row = list.createEl("label", { cls: "clt-meeting-ticket-option" });
+      const checkbox = row.createEl("input", { type: "checkbox", attr: { "aria-label": `${record.id} 선택` } });
+      checkbox.checked = !ticketless && selectedTicketIds.has(record.id);
+      const body = row.createSpan({ cls: "clt-meeting-ticket-option-body" });
+      body.createEl("strong", { text: record.id });
+      if (record.title) body.createSpan({ cls: "clt-meeting-ticket-description", text: record.title });
+      checkbox.addEventListener("change", () => {
+        if (disabled || ticketless) { checkbox.checked = !ticketless && selectedTicketIds.has(record.id); return; }
+        checkbox.checked ? selectedTicketIds.add(record.id) : selectedTicketIds.delete(record.id);
+        renderChips(); onChange(getTicketIds(), { ticketless });
+      });
+    }
+    if (!matches.length) list.createDiv({ cls: "clt-meeting-ticket-empty", text: "일치하는 티켓이 없습니다." });
+    resultCount.setText(matches.length > 30 ? `검색 결과 ${matches.length}개 · 처음 30개 표시 (검색어를 입력해 좁혀 주세요)` : `검색 결과 ${matches.length}개`);
+    renderChips();
+  };
+  withoutTicket.addEventListener("change", () => {
+    if (disabled) { withoutTicket.checked = ticketless; return; }
+    ticketless = withoutTicket.checked;
+    if (ticketless) { selectedTicketIds.clear(); search.value = ""; }
+    render(); onChange(getTicketIds(), { ticketless });
   });
-  return checkbox;
+  search.addEventListener("input", render);
+  render(); onChange(getTicketIds(), { ticketless });
+  return { getTicketIds, setDisabled(value) { disabled = Boolean(value); syncDisabled(); } };
 }
 
 function updateMeetingTicketLinksMarkdown(markdown, ticketIds, { expectedTicketIds = null, fallbackTicketIds = [] } = {}) {
@@ -2021,42 +2088,23 @@ class MeetingTicketLinksModal extends Modal {
     this.contentEl.createEl("p", { text: this.file.basename });
     this.contentEl.createDiv({ cls: "clt-meeting-import-lead", text: "기존 회의록에 티켓을 나중에 연결하거나 변경·해제할 수 있습니다. 파일과 PDF는 이동·복사하지 않으며, 회의 내용은 그대로 유지합니다." });
     const picker = this.contentEl.createDiv({ cls: "clt-meeting-ticket-picker" });
-    const summary = picker.createDiv({ cls: "clt-meeting-ticket-empty" });
-    const withoutTicket = createMeetingTicketLinkChoice(picker, this.selectedTicketIds, () => { controls.classList.toggle("is-hidden", withoutTicket.checked); render(); });
-    const controls = picker.createDiv({ cls: "clt-meeting-ticket-link-options" });
-    controls.classList.toggle("is-hidden", withoutTicket.checked);
-    const search = controls.createEl("input", { type: "search", placeholder: "CR/SR 번호 또는 제목 검색 · 여러 개 선택 가능" });
-    const list = controls.createDiv({ cls: "clt-meeting-ticket-options" });
-    const allIds = [...new Set([...this.initialIds, ...this.plugin.rootTicketFiles().map(file => this.plugin.rootTicketIdFromFile(file)).filter(Boolean)])].sort();
-    const updateSummary = () => summary.setText(this.selectedTicketIds.size ? `연결할 티켓 ${this.selectedTicketIds.size}개 · ${[...this.selectedTicketIds].join(" · ")}` : "티켓 없음 · 주간·공통 회의로 표시");
-    const render = () => {
-      updateSummary();
-      list.empty();
-      const needle = search.value.trim().toLowerCase();
-      for (const id of allIds.filter(id => `${id} ${this.plugin.data?.tickets?.[id]?.shortDescription || ""}`.toLowerCase().includes(needle))) {
-        const row = list.createEl("label", { cls: "clt-meeting-ticket-option" });
-        const input = row.createEl("input", { type: "checkbox", attr: { "aria-label": id } }); input.checked = this.selectedTicketIds.has(id);
-        row.createSpan({ text: id });
-        input.addEventListener("change", () => { input.checked ? this.selectedTicketIds.add(id) : this.selectedTicketIds.delete(id); updateSummary(); });
-      }
-      if (!list.children.length) list.createDiv({ cls: "clt-meeting-ticket-empty", text: "일치하는 티켓이 없습니다." });
-    };
-    search.addEventListener("input", render); render();
+    const ticketPicker = createMeetingTicketPicker(picker, this.plugin, this.selectedTicketIds, { noTicketDefault: !this.initialIds.length });
     const status = this.contentEl.createDiv(); status.setAttr("role", "status");
     const actions = this.contentEl.createDiv({ cls: "clt-sn-document-actions" });
     actions.createEl("button", { text: "취소" }).addEventListener("click", () => this.close());
     const save = actions.createEl("button", { text: "연결 저장", cls: "mod-cta" });
     save.addEventListener("click", async () => {
       save.disabled = true;
+      ticketPicker.setDisabled(true);
       try {
-        const result = await this.plugin.updateMeetingTicketLinks(this.file, [...this.selectedTicketIds], { expectedTicketIds: this.initialIds });
+        const result = await this.plugin.updateMeetingTicketLinks(this.file, ticketPicker.getTicketIds(), { expectedTicketIds: this.initialIds });
         this.close();
         if (typeof this.onChanged === "function") {
           try { await this.onChanged(); }
           catch (error) { result.warnings.push(`연결은 저장했지만 목록을 다시 표시하지 못했습니다: ${error.message || error}`); }
         }
         new Notice(`회의록 티켓 연결을 저장했습니다.${result.warnings.length ? `\n${result.warnings.join("\n")}` : ""}`, 7000);
-      } catch (error) { status.setText(error.message || String(error)); save.disabled = false; }
+      } catch (error) { status.setText(error.message || String(error)); save.disabled = false; ticketPicker.setDisabled(false); }
     });
   }
   onClose() { this.contentEl.empty(); }
@@ -2091,54 +2139,17 @@ class MeetingImportModal extends Modal {
     fileInput.accept = ".md,.txt,.pdf,text/markdown,text/plain,application/pdf";
     fileInput.multiple = true;
     const selected = form.createDiv({ cls: "clt-meeting-selected-files", text: "선택된 파일 없음" });
-    const ticketPicker = form.createDiv({ cls: "clt-meeting-ticket-picker is-hidden" });
-    const ticketHeading = ticketPicker.createDiv({ cls: "clt-meeting-ticket-picker-heading" });
-    ticketHeading.createEl("strong", { text: "2. 관련 티켓 선택" });
-    const ticketCount = ticketHeading.createSpan();
-    const withoutTicket = createMeetingTicketLinkChoice(ticketPicker, this.selectedTicketIds, () => {
-      ticketControls.classList.toggle("is-hidden", withoutTicket.checked);
-      renderTicketOptions(); updateTicketSummary();
-    });
-    const ticketControls = ticketPicker.createDiv({ cls: "clt-meeting-ticket-link-options" });
-    ticketControls.classList.toggle("is-hidden", withoutTicket.checked);
-    const ticketSearch = ticketControls.createEl("input", { type: "search", placeholder: "CR/SR 번호 검색 · 여러 개 선택 가능" });
-    const ticketList = ticketControls.createDiv({ cls: "clt-meeting-ticket-options" });
-    ticketPicker.createDiv({ cls: "clt-meeting-ticket-empty", text: "티켓 연결은 선택 사항입니다. 티켓 없이 저장한 회의록은 업무현황의 회의록 탭에서 확인합니다." });
-    const ticketIds = this.plugin.rootTicketFiles().map((file) => this.plugin.rootTicketIdFromFile(file)).filter(Boolean).sort();
-    const updateTicketSummary = () => {
-      const count = this.selectedTicketIds.size;
-      ticketCount.setText(count ? `${count}개 선택` : "티켓 없이 등록");
-      titleInput.placeholder = count === 1 ? `${[...this.selectedTicketIds][0]} 회의` : "회의 제목";
-    };
-    const renderTicketOptions = () => {
-      ticketList.empty();
-      const needle = ticketSearch.value.trim().toUpperCase();
-      const visible = ticketIds.filter((id) => !needle || id.includes(needle));
-      visible.forEach((ticketId) => {
-        const option = ticketList.createEl("label", { cls: "clt-meeting-ticket-option" });
-        const checkbox = option.createEl("input", { type: "checkbox" });
-        checkbox.checked = this.selectedTicketIds.has(ticketId);
-        option.createSpan({ text: ticketId });
-        checkbox.addEventListener("change", () => {
-          checkbox.checked ? this.selectedTicketIds.add(ticketId) : this.selectedTicketIds.delete(ticketId);
-          updateTicketSummary();
-        });
-      });
-      if (!visible.length) ticketList.createDiv({ cls: "clt-meeting-ticket-empty", text: "일치하는 티켓이 없습니다." });
-    };
-    ticketSearch.addEventListener("input", renderTicketOptions);
+    const ticketPickerHost = form.createDiv({ cls: "clt-meeting-ticket-picker" });
     let titleEdited = false;
     fileInput.addEventListener("change", () => {
       selected.empty();
       const files = [...(fileInput.files || [])];
       if (!files.length) {
         selected.setText("선택된 파일 없음");
-        ticketPicker.addClass("is-hidden");
       } else {
         files.forEach((file) => selected.createDiv({ text: `${file.name} · ${Math.max(1, Math.round(file.size / 1024))} KB` }));
         const textFile = files.find((file) => /\.(?:md|txt)$/i.test(file.name));
         if (textFile && !titleEdited) titleInput.value = textFile.name.replace(/\.(?:md|txt)$/i, "");
-        ticketPicker.removeClass("is-hidden");
       }
     });
     const grid = form.createDiv({ cls: "clt-meeting-import-grid" });
@@ -2150,8 +2161,9 @@ class MeetingImportModal extends Modal {
     dateLabel.createSpan({ text: "회의 일시 (선택)" });
     const dateInput = dateLabel.createEl("input", { type: "datetime-local" });
     dateInput.value = localIsoDateTime().replace(" ", "T").slice(0, 16);
-    renderTicketOptions();
-    updateTicketSummary();
+    const ticketPicker = createMeetingTicketPicker(ticketPickerHost, this.plugin, this.selectedTicketIds, {
+      onChange: ids => { titleInput.placeholder = ids.length === 1 ? `${ids[0]} 회의` : "회의 제목"; }
+    });
     const actions = this.contentEl.createDiv({ cls: "clt-sn-document-actions" });
     const cancel = actions.createEl("button", { text: "취소" });
     cancel.addEventListener("click", () => this.close());
@@ -2160,9 +2172,10 @@ class MeetingImportModal extends Modal {
       const files = [...(fileInput.files || [])];
       if (!files.length) return new Notice("회의록 Markdown 파일을 선택해 주세요.");
       submit.disabled = true;
+      ticketPicker.setDisabled(true);
       submit.setText("회의록 만드는 중…");
       try {
-        const selectedTicketIds = [...this.selectedTicketIds];
+        const selectedTicketIds = ticketPicker.getTicketIds();
         const note = await this.plugin.importMeetingFiles(selectedTicketIds, files, {
           title: titleInput.value.trim(), meetingDate: dateInput.value
         });
@@ -2173,6 +2186,7 @@ class MeetingImportModal extends Modal {
       } catch (error) {
         new Notice(`회의록 생성 실패: ${error.message || error}`, 9000);
         submit.disabled = false;
+        ticketPicker.setDisabled(false);
         submit.setText("회의록 만들기");
       }
     });
@@ -2184,38 +2198,43 @@ class MeetingImportModal extends Modal {
 }
 
 class DriveMeetingCandidateModal extends Modal {
-  constructor(app, plugin, ticketId, onImported = null, multiTicketMode = false) {
+  constructor(app, plugin, ticketId, onImported = null) {
     super(app);
     this.plugin = plugin;
     this.ticketId = normalizeTicketId(ticketId);
     this.onImported = onImported;
     this.selectedIds = new Set();
     this.selectedTicketIds = new Set(this.ticketId ? [this.ticketId] : []);
-    this.multiTicketMode = multiTicketMode;
   }
 
   async onOpen() {
     this.modalEl.addClass("clt-meeting-drive-modal");
-    this.titleEl.setText(this.multiTicketMode ? "복수 티켓 Google Drive 회의록 가져오기" : this.ticketId ? `${this.ticketId} Google Drive 회의록 가져오기` : "주간·공통 회의 Google Drive에서 가져오기");
+    this.titleEl.setText(this.ticketId ? `${this.ticketId} Google Drive 회의록 가져오기` : "Google Drive 회의록 가져오기");
     this.contentEl.createDiv({
       cls: "clt-meeting-import-lead",
-      text: this.ticketId
-        ? `먼저 가져올 회의록을 선택한 뒤 관련 티켓을 선택합니다. 자동 검색은 '${this.ticketId}'와 'Gemini가 작성한 회의록'이 모두 포함된 Google Docs를 찾습니다.`
-        : "티켓을 선택하지 않아도 저장할 수 있습니다. 자동 검색은 Gemini가 작성한 회의록을 찾습니다. 주간 보고 등 다른 제목은 직접 검색하고, 필요할 때만 관련 티켓을 연결하세요."
+      text: "회의록을 고르고 아래에서 관련 티켓을 검색·체크하세요. 자동 검색은 선택 티켓이 1개면 해당 번호의 Gemini 회의록을, 그 외에는 Gemini 회의록 전체를 찾습니다. 주간 보고 등은 파일 제목으로 직접 검색할 수 있습니다."
     });
     const searchBar = this.contentEl.createDiv({ cls: "clt-meeting-drive-search" });
     const searchInput = searchBar.createEl("input", { type: "search", placeholder: "Google Drive 파일 제목 직접 검색" });
     const searchButton = searchBar.createEl("button", { text: "직접 검색" });
     const resetButton = searchBar.createEl("button", { text: "자동 검색" });
+    this.searchControls = [searchInput, searchButton, resetButton];
     this.resultsEl = this.contentEl.createDiv({ cls: "clt-meeting-drive-results" });
+    const ticketPickerHost = this.contentEl.createDiv({ cls: "clt-meeting-ticket-picker" });
+    this.ticketPicker = createMeetingTicketPicker(ticketPickerHost, this.plugin, this.selectedTicketIds);
+    this.actionsEl = this.contentEl.createDiv({ cls: "clt-sn-document-actions" });
     const runSearch = async (query = "") => {
       this.selectedIds.clear();
       this.resultsEl.empty();
+      this.actionsEl.empty();
+      const linkedIds = this.ticketPicker.getTicketIds();
+      const searchTicket = linkedIds.length === 1 ? linkedIds[0] : "";
       const loading = this.resultsEl.createDiv({ cls: "clt-meeting-empty", text: query ? `'${query}' 검색 중…` : "Google Drive에서 회의록을 찾는 중…" });
       searchButton.disabled = true;
       resetButton.disabled = true;
       try {
-        const candidates = await this.plugin.searchGoogleDriveMeetingDocuments(this.ticketId, query);
+        const candidates = await this.plugin.searchGoogleDriveMeetingDocuments(searchTicket, query);
+        if (!query) this.resultsEl.createDiv({ cls: "clt-meeting-ticket-empty", text: `자동 검색 기준: ${searchTicket || "전체"} · Gemini가 작성한 회의록` });
         loading.remove();
         this.renderCandidates(candidates, Boolean(query));
       } catch (error) {
@@ -2246,39 +2265,6 @@ class DriveMeetingCandidateModal extends Modal {
     if (!candidates.length) {
       list.createDiv({ cls: "clt-meeting-empty", text: manualSearch ? "입력한 제목과 일치하는 Google Docs를 찾지 못했습니다." : "조건에 맞는 Gemini 회의록을 찾지 못했습니다." });
     }
-    const linkedTickets = this.resultsEl.createDiv({ cls: "clt-meeting-ticket-picker is-hidden" });
-    const linkedHeading = linkedTickets.createDiv({ cls: "clt-meeting-ticket-picker-heading" });
-    linkedHeading.createEl("strong", { text: "2. 관련 티켓 선택" });
-    const linkedCount = linkedHeading.createSpan();
-    const withoutTicket = createMeetingTicketLinkChoice(linkedTickets, this.selectedTicketIds, () => {
-      linkedControls.classList.toggle("is-hidden", withoutTicket.checked);
-      renderLinkedOptions(); updateLinkedSummary();
-    });
-    const linkedControls = linkedTickets.createDiv({ cls: "clt-meeting-ticket-link-options" });
-    linkedControls.classList.toggle("is-hidden", withoutTicket.checked);
-    const linkedSearch = linkedControls.createEl("input", { type: "search", placeholder: "추가로 연결할 CR/SR 검색" });
-    const linkedOptions = linkedControls.createDiv({ cls: "clt-meeting-ticket-options" });
-    linkedTickets.createDiv({ cls: "clt-meeting-ticket-empty", text: "티켓 없이 저장하면 업무현황의 회의록 탭에 주간·공통 회의로 표시됩니다." });
-    const allTicketIds = this.plugin.rootTicketFiles().map((file) => this.plugin.rootTicketIdFromFile(file)).filter(Boolean).sort();
-    const updateLinkedSummary = () => linkedCount.setText(this.selectedTicketIds.size ? `${this.selectedTicketIds.size}개 선택` : "티켓 없이 등록");
-    const renderLinkedOptions = () => {
-      linkedOptions.empty();
-      const needle = linkedSearch.value.trim().toUpperCase();
-      allTicketIds.filter((id) => !needle || id.includes(needle)).forEach((ticketId) => {
-        const option = linkedOptions.createEl("label", { cls: "clt-meeting-ticket-option" });
-        const checkbox = option.createEl("input", { type: "checkbox" });
-        checkbox.checked = this.selectedTicketIds.has(ticketId);
-        option.createSpan({ text: ticketId });
-        checkbox.addEventListener("change", () => {
-          checkbox.checked ? this.selectedTicketIds.add(ticketId) : this.selectedTicketIds.delete(ticketId);
-          updateLinkedSummary();
-        });
-      });
-    };
-    linkedSearch.addEventListener("input", renderLinkedOptions);
-    updateLinkedSummary();
-    renderLinkedOptions();
-    const updateStep = () => this.selectedIds.size ? linkedTickets.removeClass("is-hidden") : linkedTickets.addClass("is-hidden");
     list.createDiv({ cls: "clt-meeting-step-label", text: "1. 가져올 회의록 선택" });
     for (const candidate of candidates) {
       const row = list.createEl("label", { cls: `clt-meeting-drive-candidate${imported.has(candidate.id) ? " is-imported" : ""}` });
@@ -2295,33 +2281,37 @@ class DriveMeetingCandidateModal extends Modal {
       checkbox.addEventListener("change", () => {
         if (checkbox.checked) this.selectedIds.add(candidate.id);
         else this.selectedIds.delete(candidate.id);
-        updateStep();
       });
       row.dataset.candidateId = candidate.id;
     }
-    const actions = this.resultsEl.createDiv({ cls: "clt-sn-document-actions" });
+    const actions = this.actionsEl;
     const cancel = actions.createEl("button", { text: "취소" });
     cancel.addEventListener("click", () => this.close());
     const submit = actions.createEl("button", { text: "선택한 회의록 추가", cls: "mod-cta" });
     submit.addEventListener("click", async () => {
       const selected = candidates.filter((candidate) => this.selectedIds.has(candidate.id));
       if (!selected.length) return new Notice("추가할 회의록을 선택해 주세요.");
+      const ticketIds = this.ticketPicker.getTicketIds();
       submit.disabled = true;
+      this.ticketPicker.setDisabled(true);
+      this.searchControls.forEach(control => { control.disabled = true; });
       submit.setText("회의록 가져오는 중…");
       try {
         let importedCount = 0;
         const warnings = [];
         for (const candidate of selected) {
-          const result = await this.plugin.importGoogleDriveMeeting([...this.selectedTicketIds], candidate);
+          const result = await this.plugin.importGoogleDriveMeeting(ticketIds, candidate);
           if (result?.note) importedCount += 1;
           warnings.push(...(result?.warnings || []));
         }
         if (typeof this.onImported === "function") await this.onImported();
         this.close();
-        new Notice(`${this.selectedTicketIds.size ? `티켓 ${this.selectedTicketIds.size}개에` : "주간·공통 회의로"} 회의록 ${importedCount}건을 추가했습니다.${warnings.length ? `\n${warnings.join("\n")}` : ""}`, 9000);
+        new Notice(`${ticketIds.length ? `티켓 ${ticketIds.length}개에` : "주간·공통 회의로"} 회의록 ${importedCount}건을 추가했습니다.${warnings.length ? `\n${warnings.join("\n")}` : ""}`, 9000);
       } catch (error) {
         new Notice(`회의록 가져오기 실패: ${error.message || error}`, 9000);
         submit.disabled = false;
+        this.ticketPicker.setDisabled(false);
+        this.searchControls.forEach(control => { control.disabled = false; });
         submit.setText("선택한 회의록 추가");
       }
     });
@@ -2331,38 +2321,6 @@ class DriveMeetingCandidateModal extends Modal {
     this.modalEl.removeClass("clt-meeting-drive-modal");
     this.contentEl.empty();
   }
-}
-
-class GlobalDriveMeetingTicketModal extends Modal {
-  constructor(app, plugin, onImported = null) {
-    super(app);
-    this.plugin = plugin;
-    this.onImported = onImported;
-  }
-  onOpen() {
-    this.modalEl?.addClass?.("snm-content-modal");
-    this.titleEl.setText("Drive 회의록 가져오기");
-    this.contentEl.createDiv({ cls: "clt-meeting-import-lead", text: "주간 보고·공통 회의는 티켓 없이 가져올 수 있습니다. 티켓을 선택하면 해당 번호로 자동 검색하며, 복수 티켓 연결은 회의록을 고른 뒤 설정할 수 있습니다." });
-    const select = this.contentEl.createEl("select");
-    select.setAttr("aria-label", "회의록 연결 티켓 (선택 사항)");
-    select.style.width = "100%";
-    select.createEl("option", { value: "", text: "티켓 없이 저장 · 주간/공통 회의" });
-    this.plugin.rootTicketFiles().map((file) => this.plugin.rootTicketIdFromFile(file)).filter(Boolean).sort().forEach((ticketId) => {
-      select.createEl("option", { value: ticketId, text: ticketId });
-    });
-    const actions = this.contentEl.createDiv({ cls: "clt-sn-document-actions" });
-    actions.createEl("button", { text: "취소" }).addEventListener("click", () => this.close());
-    const openSearch = (multiTicketMode) => {
-      const ticketId = normalizeTicketId(select.value);
-      this.close();
-      new DriveMeetingCandidateModal(this.app, this.plugin, ticketId, this.onImported, multiTicketMode).open();
-    };
-    const next = actions.createEl("button", { text: "회의록 검색" });
-    next.addEventListener("click", () => openSearch(false));
-    const multi = actions.createEl("button", { text: "복수 티켓 선택하기", cls: "mod-cta" });
-    multi.addEventListener("click", () => openSearch(true));
-  }
-  onClose() { this.contentEl.empty(); }
 }
 
 class MeetingAnalysisPromptModal extends Modal {
@@ -6955,7 +6913,7 @@ class CltServiceNowWorkNotes extends Plugin {
   }
 
   openGlobalDriveMeetingModal(onImported = null) {
-    new GlobalDriveMeetingTicketModal(this.app, this, onImported).open();
+    new DriveMeetingCandidateModal(this.app, this, "", onImported).open();
   }
 
   openMeetingListModal(ticketId) {
