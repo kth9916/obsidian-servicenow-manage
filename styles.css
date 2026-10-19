@@ -1941,3 +1941,5 @@ button.mod-warning:hover {
   font-size: var(--font-ui-smaller);
   margin-bottom: 3px;
 }
+.clt-ticket-activity-badge { color: var(--text-muted); font-size: var(--font-ui-smaller); border: 1px solid var(--background-modifier-border); border-radius: 5px; padding: 3px 6px; }
+.snm-ticket-lifecycle-modal .snm-ticket-archive-states { width: min(360px, 70vw); max-width: 100%; }

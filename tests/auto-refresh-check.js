@@ -12,10 +12,10 @@ assert.match(source, /if \(kind === "work-notes"\) void this\.syncTicket\(normal
   "View refresh must keep document downloads manual and use the correct refresh scope.");
 assert.match(source, /if \(selectedLanguage !== "original"\) \{\s+void this\.plugin\.translateTicket\(this\.ticketId, selectedLanguage, \{ notify: true \}\);/,
   "Selecting a translated language should start translation automatically.");
-assert.match(source, /async runDailyStatusSyncIfDue\(\)[\s\S]*?const result = await this\.syncAllTickets\(\);/,
-  "Daily automation should refresh status, basic information, and Work Notes together.");
-assert.match(source, /async automationTick\(\)[\s\S]*?for \(const id of Object\.keys\(this\.data\.tickets\)\) await this\.syncTicket\(id\);/,
-  "Hourly automation should continue to run the combined ticket refresh.");
+assert(source.includes('const result = await this.syncAllTickets({ activeOnly: true });'),
+  "Daily automation must refresh active tickets only, including Work Notes.");
+assert(source.includes('for (const file of this.activeRootTicketFiles()) await this.syncTicket(this.rootTicketIdFromFile(file));'),
+  "Hourly automation must refresh active root tickets only.");
 assert.match(source, /async runCatchUpSync\(\)[\s\S]*?for \(const id of ids\) await this\.syncTicket\(id\);/,
   "Launch catch-up should continue to run the combined ticket refresh.");
 

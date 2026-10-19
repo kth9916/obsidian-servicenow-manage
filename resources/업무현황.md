@@ -661,6 +661,7 @@ function createDefaultSettings() {
         rowHeight: DEFAULT_ROW_HEIGHT,
 
         searchKeyword: "",
+        ticketScope: "active",
 
         activeView: "table",
 
@@ -835,6 +836,7 @@ function loadSettings() {
                 ["table", "todo", "meeting"].includes(saved.activeView)
                     ? saved.activeView
                     : defaults.activeView,
+            ticketScope: ["active", "all", "archived", "dormant"].includes(saved.ticketScope) ? saved.ticketScope : defaults.ticketScope,
 
             todoGroupByTicket:
                 typeof saved.todoGroupByTicket === "boolean"
@@ -1384,7 +1386,7 @@ async function readGeneralTodoTasks() {
 
 async function refreshAllTodoItems() {
     const generalTasks = await readGeneralTodoTasks();
-    todoItems = [...pages.flatMap(item => item.todos || []), ...generalTasks];
+    todoItems = [...pages.filter(item => matchesTicketActivityScope(item, settings.todoSearchKeyword || "")).flatMap(item => item.todos || []), ...(["archived", "dormant"].includes(settings.ticketScope) ? [] : generalTasks)];
 }
 
 async function touchTodoLastChecked(file) {
@@ -1735,6 +1737,53 @@ async function addWorkLog(
 // 9. 데이터 조회
 // ================================================================
 
+function dashboardActivityPlugin() { return app.plugins?.getPlugin?.("servicenow-manage") || app.plugins?.plugins?.["servicenow-manage"] || null; }
+function ticketActivityInfo(item) { return dashboardActivityPlugin()?.getTicketActivity?.(String(item.page.id || item.page.file.name), item.page.status) || { kind: "active", label: "활성", reason: "" }; }
+function exactTicketActivityLookup(item, query = "") {
+    const ticket = query.trim().toUpperCase();
+    if (!/^(CR|SR)\d+$/.test(ticket)) return false;
+    const id = String(item.page.id || item.page.file.name);
+    if (id.toUpperCase() === ticket) return true;
+    return new RegExp(`\\b${ticket}\\b`, "i").test(dashboardActivityPlugin()?.getTicketActivitySearchText?.(id) || "");
+}
+function matchesTicketActivityScope(item, query = "") {
+    if (exactTicketActivityLookup(item, query)) return true;
+    return settings.ticketScope === "all" || ticketActivityInfo(item).kind === (settings.ticketScope || "active");
+}
+async function ensureTicketItemDetails(item) {
+    const file = app.vault.getAbstractFileByPath(item.page.file.path);
+    if (!file) { item.detailsLoaded = true; item.detailsMtime = -1; return; }
+    if (item.detailsLoaded && !item.detailsError && item.detailsMtime === file.stat.mtime) return;
+    if (item.detailsLoading) return item.detailsLoading;
+    item.detailsLoading = (async () => {
+        const plugin = dashboardActivityPlugin();
+        const cache = plugin ? (plugin.ticketDashboardDetailCache ||= new Map()) : null;
+        const mtime = file.stat.mtime;
+        const cached = cache?.get(file.path);
+        if (cached?.mtime === mtime) { Object.assign(item, cached.details, { detailsLoaded: true, detailsMtime: mtime }); return; }
+        const markdown = plugin?.readTicketNoteSnapshot ? await plugin.readTicketNoteSnapshot(file) : await app.vault.cachedRead(file);
+        item.workLogs = extractWorkLogs(markdown);
+        item.todos = extractTodos(markdown, item.page);
+        item.latestWorkLog = getLatestWorkLog(item.workLogs);
+        item.detailsLoaded = true;
+        item.detailsError = null;
+        item.detailsMtime = mtime;
+        if (cache) {
+            if (cache.size >= 256 && !cache.has(file.path)) cache.delete(cache.keys().next().value);
+            cache.set(file.path, { mtime, details: { workLogs: item.workLogs, todos: item.todos, latestWorkLog: item.latestWorkLog } });
+        }
+    })().catch(error => {
+        item.detailsLoaded = true;
+        item.detailsError = error;
+        console.warn("[ServiceNow Manage] 티켓 상세 읽기 실패 · 다른 업무는 계속 표시합니다.", item.page.file.path, error);
+    }).finally(() => { item.detailsLoading = null; });
+    return item.detailsLoading;
+}
+async function ensureVisibleTicketDetails(query = "") {
+    await Promise.all(pages.filter(item => matchesTicketActivityScope(item, query)).map(ensureTicketItemDetails));
+}
+
+await dashboardActivityPlugin()?.prepareTicketActivity?.();
 const sourcePages = dv.pages('""')
     .where(page => String(page.file?.path ?? "")
         .toLowerCase()
@@ -1748,22 +1797,8 @@ const sourcePages = dv.pages('""')
     ))
     .array();
 
-const pages = await Promise.all(
-    sourcePages.map(async page => {
-        const [workLogs, todos] = await Promise.all([
-            readWorkLogs(page),
-            readTodos(page)
-        ]);
-
-        return {
-            page,
-            workLogs,
-            todos,
-            latestWorkLog:
-                getLatestWorkLog(workLogs)
-        };
-    })
-);
+const pages = sourcePages.map(page => ({ page, workLogs: [], todos: [], latestWorkLog: null, detailsLoaded: false }));
+await ensureVisibleTicketDetails(settings.activeView === "todo" ? settings.todoSearchKeyword || "" : settings.searchKeyword || "");
 
 
 // ================================================================
@@ -1775,7 +1810,7 @@ let searchKeyword = settings.searchKeyword;
 let activeView = settings.activeView;
 
 const initialGeneralTasks = await readGeneralTodoTasks();
-let todoItems = [...pages.flatMap(item => item.todos || []), ...initialGeneralTasks];
+let todoItems = [...pages.filter(item => matchesTicketActivityScope(item, settings.todoSearchKeyword || "")).flatMap(item => item.todos || []), ...(["archived", "dormant"].includes(settings.ticketScope) ? [] : initialGeneralTasks)];
 
 let filterMenuOpen = false;
 let sortMenuOpen = false;
@@ -2662,6 +2697,9 @@ tr:last-child td {
 .opus-jira-memo-help { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 8px; }
 .opus-jira-memo-status { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 8px; }
 .opus-jira-memo-actions { display: flex; justify-content: flex-end; padding: 10px 14px; flex-shrink: 0; border-top: 1px solid var(--background-modifier-border); }
+.opus-ticket-activity-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; width: 100%; }
+.opus-ticket-activity-summary { color: var(--text-muted); font-size: 12px; }
+.opus-ticket-activity-tag { font-size: 10px; color: var(--text-muted); border: 1px solid var(--background-modifier-border); border-radius: 5px; padding: 1px 4px; margin-left: 5px; }
 
 .opus-todo-board-toolbar {
     display: flex;
@@ -4844,6 +4882,33 @@ searchInput.classList.add(
 );
 
 searchInput.value = searchKeyword;
+const ticketActivityToolbar = dv.el("div", "", { container });
+ticketActivityToolbar.classList.add("opus-ticket-activity-toolbar");
+const ticketActivitySelect = document.createElement("select");
+ticketActivitySelect.setAttribute("aria-label", "업무 범위");
+for (const [value, label] of [["active", "활성 업무"], ["all", "전체 · 보관/휴면 포함"], ["archived", "보관 이력"], ["dormant", "휴면 업무"]]) {
+    const option = document.createElement("option"); option.value = value; option.textContent = label; ticketActivitySelect.appendChild(option);
+}
+ticketActivitySelect.value = settings.ticketScope || "active";
+const ticketActivityConfigure = document.createElement("button");
+ticketActivityConfigure.textContent = "보관·휴면 설정";
+ticketActivityConfigure.addEventListener("click", () => dashboardActivityPlugin()?.openTicketLifecycleSettings?.());
+const ticketActivitySummary = document.createElement("span");
+ticketActivitySummary.className = "opus-ticket-activity-summary";
+ticketActivitySummary.title = "정확한 티켓 번호 검색은 범위·표 필터와 무관하게 해당 티켓과 연관 이력을 찾습니다. 검색만으로 활성화되지 않으며 원본 노트를 직접 열면 활성화됩니다. 보관 범위를 선택해도 표의 기존 필터는 적용됩니다.";
+ticketActivityToolbar.append(ticketActivitySelect, ticketActivityConfigure, ticketActivitySummary);
+function renderTicketActivitySummary() {
+    const counts = { active: 0, archived: 0, dormant: 0 };
+    pages.forEach(item => { counts[ticketActivityInfo(item).kind] += 1; });
+    ticketActivitySummary.textContent = `활성 ${counts.active} · 보관 ${counts.archived} · 휴면 ${counts.dormant} · 번호 직접 검색은 전체 이력 포함`;
+}
+ticketActivitySelect.addEventListener("change", async () => {
+    settings.ticketScope = ticketActivitySelect.value;
+    saveSettings(); ticketActivitySelect.disabled = true;
+    try { await ensureVisibleTicketDetails(); await refreshAllTodoItems(); renderAll(); }
+    catch (error) { new Notice(`업무 이력 읽기 실패: ${error.message || error}`); }
+    finally { ticketActivitySelect.disabled = false; }
+});
 
 const sortButton = dv.el(
     "button",
@@ -5279,12 +5344,14 @@ function formatCell(
         case "cr": {
             const hasWorkLog =
                 item.workLogs.length > 0;
+            const activity = ticketActivityInfo(item);
 
             return `
                 <div class="opus-cr-cell">
                     <span class="opus-cr-value">
                         ${formatValue(value)}
                     </span>
+                    ${activity.kind !== "active" ? `<span class="opus-ticket-activity-tag" title="${escapeAttribute(activity.reason)}">${escapeHtml(activity.label)}</span>` : ""}
 
                     <button
                         class="
@@ -5465,7 +5532,8 @@ function matchesGlobalSearch(item) {
             .join(" ")
             .toLowerCase();
 
-    return `${pageText} ${workLogText}`
+    const activityIndex = dashboardActivityPlugin()?.getTicketActivitySearchText?.(String(item.page.id || item.page.file.name)) || "";
+    return `${pageText} ${workLogText} ${activityIndex}`
         .includes(query);
 }
 
@@ -8413,13 +8481,14 @@ function renderTable() {
 
     const filteredItems =
         pages.filter(item => {
+            if (!matchesTicketActivityScope(item, searchKeyword)) return false;
             if (
                 !matchesGlobalSearch(item)
             ) {
                 return false;
             }
 
-            return activeFilters.every(
+            return exactTicketActivityLookup(item, searchKeyword) || activeFilters.every(
                 filter =>
                     matchesFilter(
                         item,
@@ -9989,6 +10058,8 @@ function renderTodoCalendar(tasks) {
 }
 
 function renderTodoBoard() {
+    const pendingDetails = pages.filter(item => matchesTicketActivityScope(item, settings.todoSearchKeyword || "") && !item.detailsLoaded);
+    if (pendingDetails.length) void Promise.all(pendingDetails.map(ensureTicketItemDetails)).then(async () => { await refreshAllTodoItems(); renderTodoBoard(); }).catch(error => console.warn("[ServiceNow Manage] To-Do 이력 읽기 실패", error));
     const activeStatuses = activeTodoStatuses();
     if (TODO_STATUSES.some(state => state.key === settings.todoQuickView && state.enabled === false)
         || (settings.todoQuickView === "follow-up" && !activeStatuses.some(state => state.key === "waiting"))) settings.todoQuickView = "all";
@@ -10414,6 +10485,9 @@ function renderMeetingOverview() {
     meetings.forEach(meeting => {
         const groupKeys = meeting.ticketIds.length ? meeting.ticketIds : ["티켓 없음"];
         groupKeys.forEach(groupKey => {
+            const rootItem = pages.find(item => String(item.page.id || item.page.file.name) === groupKey);
+            if (rootItem && !matchesTicketActivityScope(rootItem, meetingSearchKeyword)) return;
+            if (!rootItem && ["archived", "dormant"].includes(settings.ticketScope)) return;
             if (!groups.has(groupKey)) groups.set(groupKey, []);
             groups.get(groupKey).push(meeting);
         });
@@ -10466,6 +10540,7 @@ function renderMeetingOverview() {
 }
 
 function renderAll() {
+    renderTicketActivitySummary();
     const tableMode = activeView === "table";
     const todoMode = activeView === "todo";
     const meetingMode = activeView === "meeting";
@@ -10590,7 +10665,10 @@ searchInput.addEventListener(
         clearTimeout(searchTimer);
 
         searchTimer = setTimeout(
-            () => {
+            async () => {
+                const requested = searchKeyword;
+                await ensureVisibleTicketDetails(requested);
+                if (requested !== searchKeyword) return;
                 renderTable();
             },
             120
@@ -10622,7 +10700,7 @@ statusRefreshButton.addEventListener(
 
         try {
             await plugin.syncAllTicketStatuses({
-                notify: true
+                notify: true, activeOnly: settings.ticketScope === "active"
             });
         } finally {
             statusRefreshButton.disabled = false;
@@ -10729,6 +10807,18 @@ const todoWorkflowRef = app.workspace.on("servicenow-manage:todo-workflow-change
     await refreshAllTodoItems();
     renderAll();
 });
+let ticketActivityRefreshTimer = null;
+const ticketActivityRef = app.workspace.on("servicenow-manage:ticket-activity-changed", () => {
+    if (!dv.container.isConnected) { app.workspace.offref(ticketActivityRef); return; }
+    if (ticketActivityRefreshTimer) window.clearTimeout(ticketActivityRefreshTimer);
+    ticketActivityRefreshTimer = window.setTimeout(async () => {
+        try { await ensureVisibleTicketDetails(settings.activeView === "todo" ? settings.todoSearchKeyword || "" : searchKeyword); await refreshAllTodoItems(); renderAll(); }
+        catch (error) { console.warn("[ServiceNow Manage] 보관 이력 갱신 실패", error); }
+    }, 150);
+});
+if (typeof dv.component?.registerEvent === "function") dv.component.registerEvent(ticketActivityRef);
+else dv.component?.register?.(() => app.workspace.offref(ticketActivityRef));
+dv.component?.register?.(() => { if (ticketActivityRefreshTimer) window.clearTimeout(ticketActivityRefreshTimer); });
 if (typeof dv.component?.registerEvent === "function") dv.component.registerEvent(todoWorkflowRef);
 else dv.component?.register?.(() => app.workspace.offref(todoWorkflowRef));
 
