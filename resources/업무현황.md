@@ -10473,7 +10473,7 @@ function renderMeetingOverview() {
         const kind = String(fm.meeting_kind || "").toLowerCase();
         const ticketId = String(fm.ticket || "").toUpperCase();
         const rawTickets = Array.isArray(fm.tickets) ? fm.tickets : [ticketId];
-        const ticketIds = [...new Set(rawTickets.map(value => String(value || "").replace(/^\[\[/, "").replace(/\]\]$/, "").split("|")[0].trim().toUpperCase()).filter(Boolean))];
+        const ticketIds = dashboardActivityPlugin()?.meetingTicketIdsForFile?.(file) || [...new Set(rawTickets.map(value => String(value || "").replace(/^\[\[/, "").replace(/\]\]$/, "").split("|")[0].trim().toUpperCase()).filter(Boolean))];
         return { file, fm, kind, ticketId: ticketIds[0] || ticketId, ticketIds };
     }).filter(item => selectedMeetingKinds.has(item.kind))
       .filter(item => !needle || [...item.ticketIds, item.file.basename, item.fm.source_name].some(value => String(value || "").toLowerCase().includes(needle)))
@@ -10525,7 +10525,19 @@ function renderMeetingOverview() {
                 const plugin = app.plugins.getPlugin("servicenow-manage");
                 if (typeof plugin?.confirmDeleteMeetingPath === "function") plugin.confirmDeleteMeetingPath(meeting.file.path, renderMeetingOverview);
             });
-            card.append(link, remove);
+            card.appendChild(link);
+            if (meeting.kind !== "analysis") {
+                const edit = document.createElement("button"); edit.className = "opus-meeting-link-edit"; edit.textContent = "티켓 연결";
+                edit.title = "연결 티켓 추가·변경·해제";
+                edit.addEventListener("click", event => {
+                    event.preventDefault(); event.stopPropagation();
+                    const plugin = dashboardActivityPlugin();
+                    if (typeof plugin?.openMeetingTicketLinksModal === "function") plugin.openMeetingTicketLinksModal(meeting.file.path, renderMeetingOverview);
+                    else new Notice("ServiceNow Manage 플러그인을 다시 활성화해 주세요.");
+                });
+                card.appendChild(edit);
+            }
+            card.appendChild(remove);
             group.appendChild(card);
         });
         list.appendChild(group);
@@ -10807,6 +10819,9 @@ const todoWorkflowRef = app.workspace.on("servicenow-manage:todo-workflow-change
     await refreshAllTodoItems();
     renderAll();
 });
+const meetingLinksRef = app.workspace.on("servicenow-manage:meeting-links-changed", () => { if (activeView === "meeting") renderMeetingOverview(); });
+if (typeof dv.component?.registerEvent === "function") dv.component.registerEvent(meetingLinksRef);
+else dv.component?.register?.(() => app.workspace.offref(meetingLinksRef));
 let ticketActivityRefreshTimer = null;
 const ticketActivityRef = app.workspace.on("servicenow-manage:ticket-activity-changed", () => {
     if (!dv.container.isConnected) { app.workspace.offref(ticketActivityRef); return; }

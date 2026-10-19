@@ -18,7 +18,7 @@ const context = vm.createContext({ Date, Set, Map, TextDecoder, console, TFile,
 for (const name of ["normalizeMeetingTicketIds", "escapeRegExp", "parseMeetingDate", "cleanMeetingTitle", "meetingSection", "buildMeetingNoteMarkdown", "createMeetingTicketLinkChoice"]) {
   assert(functionSource(name), name); vm.runInContext(functionSource(name), context);
 }
-const plugin = vm.runInContext(`({${["importMeetingFiles", "importGoogleDriveMeeting", "listTicketMeetings", "meetingTicketIdsForFile", "searchGoogleDriveMeetingDocuments", "uniqueVaultPath"].map(method).join(",")}})`, context);
+const plugin = vm.runInContext(`({${["importMeetingFiles", "importGoogleDriveMeeting", "listTicketMeetings", "meetingTicketIdsForFile", "isManagedMeetingFile", "searchGoogleDriveMeetingDocuments", "uniqueVaultPath"].map(method).join(",")}})`, context);
 const files = new Map(), metadata = new Map(), created = [], pdfs = [], touched = [], lookedUp = [], queries = [];
 plugin.app = { vault: {
   getMarkdownFiles: () => [...files.values()],

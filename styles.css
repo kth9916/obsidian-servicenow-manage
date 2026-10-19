@@ -941,6 +941,13 @@
 .clt-meeting-ticket-link-options.is-hidden { display: none; }
 .clt-meeting-no-ticket-choice { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 650; }
 .clt-meeting-no-ticket-choice input { flex: 0 0 auto; margin: 0; }
+.clt-meeting-links-modal { width: min(760px, 94vw); }
+.clt-meeting-note-links { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0 18px; color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.clt-meeting-card-link-edit { position: absolute; right: 12px; bottom: 9px; font-size: var(--font-ui-smaller); }
+.clt-meeting-card:has(.clt-meeting-card-link-edit) { min-height: 92px; }
+.clt-meeting-card:has(.clt-meeting-card-link-edit) .clt-meeting-card-open { padding-right: 120px; min-height: 92px; }
+.opus-meeting-link-edit { position: absolute; right: 12px; bottom: 9px; font-size: var(--font-ui-smaller); }
+.opus-meeting-overview-card:has(.opus-meeting-link-edit) { padding-right: 120px; min-height: 92px; }
 .clt-meeting-ticket-options {
   display: grid;
   gap: 6px;

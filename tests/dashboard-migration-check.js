@@ -61,6 +61,12 @@ if (!runtimeUpgraded.includes('const DASHBOARD_RUNTIME_VERSION = "2.11.0";')) th
 if (runtimeUpgraded.includes('getPlugin("clt-servicenow-worknotes")')) throw new Error("Legacy duplicate plugin delegation remains");
 if (!runtimeUpgraded.includes("Jira 용 Export")) throw new Error("Jira Export runtime was not installed");
 if (upgradeDashboardRuntime(runtimeUpgraded, oldDashboard) !== runtimeUpgraded) throw new Error("Dashboard runtime migration is not idempotent");
+const missingMeetingLinkEditor = oldDashboard.replaceAll("openMeetingTicketLinksModal", "olderMeetingLinkEditor").replaceAll("sharedPlugin", "previousSharedPlugin");
+const manualWrappedDashboard = `---\ncustom_note: user-owned\n---\n${missingMeetingLinkEditor}\nManual footer`;
+const meetingLinkUpgraded = upgradeDashboardRuntime(manualWrappedDashboard, oldDashboard);
+if (!meetingLinkUpgraded.includes("plugin.openMeetingTicketLinksModal(meeting.file.path, renderMeetingOverview)")) throw new Error("Existing same-version dashboards must receive the meeting-link editor");
+if (!meetingLinkUpgraded.includes("custom_note: user-owned") || !meetingLinkUpgraded.endsWith("Manual footer")) throw new Error("Meeting-link migration must preserve user frontmatter and text after the managed runtime");
+if (upgradeDashboardRuntime(meetingLinkUpgraded, oldDashboard) !== meetingLinkUpgraded) throw new Error("Meeting-link dashboard migration must be idempotent");
 const legacyDeploymentFinishDashboard = oldDashboard.replace(
   '    { key: "actualReleaseDate", label: "Actual Release Date", jiraLabel: "Actual Release Date",',
   '    { key: "deploymentFinish", label: "Deployment Finish", jiraLabel: "Deployment Finish", value: (_task, page) => page?.deployment_finish ?? "" },\n    { key: "actualReleaseDate", label: "Actual Release Date", jiraLabel: "Actual Release Date",'
