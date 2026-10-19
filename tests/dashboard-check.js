@@ -10497,7 +10497,7 @@ function renderMeetingOverview() {
         group.className = "opus-meeting-ticket-group";
         const heading = document.createElement("div");
         heading.className = "opus-meeting-ticket-title";
-        heading.textContent = `${ticketId} · ${groupMeetings.length}개`;
+        heading.textContent = `${ticketId === "티켓 없음" ? "주간·공통 회의 (티켓 없음)" : ticketId} · ${groupMeetings.length}개`;
         group.appendChild(heading);
         groupMeetings.forEach(meeting => {
             const card = document.createElement("div");
