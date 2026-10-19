@@ -3653,6 +3653,24 @@ tr:last-child td {
     cursor: pointer;
 }
 
+.opus-jira-export-status-filter {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+}
+
+.opus-jira-export-status-filter summary { cursor: pointer; }
+.opus-jira-export-status-options { display: grid; gap: 6px; padding-top: 8px; }
+.opus-jira-export-filters .opus-jira-export-status-options label {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-normal);
+    font-size: 12px;
+    cursor: pointer;
+}
+
 .opus-jira-export-task-list {
     display: flex;
     flex-direction: column;
@@ -9191,6 +9209,9 @@ function openJiraExportModal() {
         }
     });
     const selectedTaskIds = new Set(todoItems.map(task => task.id));
+    activeTodoStatuses();
+    const exportStatusOptions = TODO_STATUSES.filter(state => state.enabled !== false || todoItems.some(task => task.status === state.key));
+    const selectedTodoStatuses = new Set(exportStatusOptions.map(state => state.key));
     const selectedFieldKeys = new Set(JIRA_EXPORT_FIELDS.filter(field => field.default).map(field => field.key));
     let fieldOrder = JIRA_EXPORT_FIELDS.map(field => field.key);
     let keyword = "";
@@ -9272,7 +9293,50 @@ function openJiraExportModal() {
     collapseCheckbox.type = "checkbox";
     collapseCheckbox.checked = true;
     collapseToggle.append(collapseCheckbox, document.createTextNode("같은 티켓끼리 하나로 묶기"));
-    filters.append(basisLabel, dateRange, completedToggle, collapseToggle);
+    const statusFilter = document.createElement("details");
+    statusFilter.className = "opus-jira-export-status-filter";
+    const statusSummary = document.createElement("summary");
+    statusSummary.textContent = "To-Do Status · 전체";
+    const statusOptions = document.createElement("div");
+    statusOptions.className = "opus-jira-export-status-options";
+    const allStatusLabel = document.createElement("label");
+    const allStatusCheckbox = document.createElement("input");
+    allStatusCheckbox.type = "checkbox";
+    allStatusCheckbox.checked = true;
+    allStatusLabel.append(allStatusCheckbox, document.createTextNode("전체 상태"));
+    statusOptions.appendChild(allStatusLabel);
+    const statusCheckboxes = new Map();
+    const applyStatusFilter = () => {
+        allStatusCheckbox.checked = selectedTodoStatuses.size === exportStatusOptions.length;
+        allStatusCheckbox.indeterminate = selectedTodoStatuses.size > 0 && !allStatusCheckbox.checked;
+        statusSummary.textContent = allStatusCheckbox.checked ? "To-Do Status · 전체"
+            : `To-Do Status · ${selectedTodoStatuses.size}개 선택`;
+        renderTasks();
+        renderPreview();
+    };
+    for (const state of exportStatusOptions) {
+        const label = document.createElement("label");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = true;
+        checkbox.dataset.jiraTodoStatus = state.key;
+        checkbox.addEventListener("change", () => {
+            checkbox.checked ? selectedTodoStatuses.add(state.key) : selectedTodoStatuses.delete(state.key);
+            applyStatusFilter();
+        });
+        statusCheckboxes.set(state.key, checkbox);
+        label.append(checkbox, document.createTextNode(`${state.icon} ${state.label}${state.enabled === false ? " (비활성)" : ""}`));
+        statusOptions.appendChild(label);
+    }
+    allStatusCheckbox.addEventListener("change", () => {
+        for (const [key, checkbox] of statusCheckboxes) {
+            checkbox.checked = allStatusCheckbox.checked;
+            checkbox.checked ? selectedTodoStatuses.add(key) : selectedTodoStatuses.delete(key);
+        }
+        applyStatusFilter();
+    });
+    statusFilter.append(statusSummary, statusOptions);
+    filters.append(basisLabel, dateRange, statusFilter, completedToggle, collapseToggle);
     const taskList = document.createElement("div");
     taskList.className = "opus-jira-export-task-list";
     taskPanel.append(taskSearch, filters, taskList);
@@ -9338,6 +9402,7 @@ function openJiraExportModal() {
         return String(task.status === "done" ? (task.completedAt || task.dateTime) : task.dateTime || "").slice(0, 10);
     }
     function matchesExportFilters(task) {
+        if (!selectedTodoStatuses.has(task.status)) return false;
         const needle = keyword.trim().toLowerCase();
         if (needle && ![task.ticketId, task.text, task.details].some(value => String(value || "").toLowerCase().includes(needle))) return false;
         if (excludeCompleted && task.status === "done") return false;

@@ -1,0 +1,21 @@
+const fs = require("fs"), path = require("path"), assert = require("assert");
+const source = fs.readFileSync(path.join(__dirname, "..", "resources", "업무현황.md"), "utf8");
+const start = source.indexOf("    function matchesExportFilters(task) {");
+const end = source.indexOf("    const selectedTasks =", start);
+assert(start > 0 && end > start);
+const factory = Function("selectedTodoStatuses", "keyword", "excludeCompleted", "startDate", "endDate", "taskDate",
+  source.slice(start, end) + "; return matchesExportFilters;");
+const tasks = ["pending", "in-progress", "waiting", "done"].map((status, index) => ({ id: index, status, ticketId: "CR0", text: `task ${status}`, dateTime: "2026-10-19" }));
+const select = (statuses, keyword = "", exclude = false, from = "", to = "") => tasks.filter(factory(new Set(statuses), keyword, exclude, from, to, task => task.dateTime));
+assert.equal(select(tasks.map(task => task.status)).length, 4);
+assert.deepEqual(select(["in-progress", "done"]).map(task => task.status), ["in-progress", "done"]);
+assert.equal(select([]).length, 0);
+assert.deepEqual(select(["in-progress", "done"], "done").map(task => task.status), ["done"]);
+assert.deepEqual(select(["in-progress", "done"], "", true).map(task => task.status), ["in-progress"]);
+assert.equal(select(["in-progress", "done"], "", false, "2026-10-20").length, 0);
+assert.equal(select(["in-progress", "done"], "", false, "", "2026-10-18").length, 0);
+assert(source.includes("state.enabled !== false || todoItems.some(task => task.status === state.key)"));
+assert(source.includes('statusSummary.textContent = "To-Do Status · 전체"'));
+assert(source.includes("allStatusCheckbox.indeterminate"));
+assert(source.includes("selectedTaskIds.has(task.id) && matchesExportFilters(task)"));
+console.log("Jira Export status filter checks passed: multiple/all/none, keyword/date/completion intersections, shared state names, inactive history and common export pipeline.");
