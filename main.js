@@ -2337,6 +2337,283 @@ class MeetingAnalysisPromptModal extends Modal {
   }
 }
 
+// DS schedule import reads only workbook XML. It never executes macros or formulas.
+function dsScheduleXmlText(value) {
+  return String(value || "").replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (all, entity) => {
+    if (entity[0] === "#") {
+      const code = entity[1].toLowerCase() === "x" ? parseInt(entity.slice(2), 16) : Number(entity.slice(1));
+      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : "";
+    }
+    return { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }[entity.toLowerCase()] || all;
+  });
+}
+
+function dsScheduleXmlElements(xml, tag) {
+  const pattern = new RegExp(`<(?:(?:[\\w.-]+):)?${tag}\\b([^>]*?)(?:\\/>|>([\\s\\S]*?)<\\/(?:(?:[\\w.-]+):)?${tag}\\s*>)`, "g");
+  return [...String(xml || "").matchAll(pattern)].map(match => ({
+    attrs: Object.fromEntries([...match[1].matchAll(/([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map(attr => [attr[1], dsScheduleXmlText(attr[2] ?? attr[3])])),
+    body: match[2] || ""
+  }));
+}
+
+function dsScheduleZipReader(data) {
+  const bytes = Buffer.from(data);
+  const fail = () => { throw new Error("DS XLSX 파일이 손상되었거나 지원하지 않는 압축 형식입니다."); };
+  if (bytes.length < 22 || bytes.length > 128 * 1024 * 1024) fail();
+  let end = bytes.length - 22;
+  while (end >= Math.max(0, bytes.length - 65557) && bytes.readUInt32LE(end) !== 0x06054b50) end--;
+  if (end < Math.max(0, bytes.length - 65557)) fail();
+  if (end + 22 + bytes.readUInt16LE(end + 20) !== bytes.length || bytes.readUInt16LE(end + 4) || bytes.readUInt16LE(end + 6)) fail();
+  const count = bytes.readUInt16LE(end + 10), directorySize = bytes.readUInt32LE(end + 12);
+  let position = bytes.readUInt32LE(end + 16);
+  if (count === 0xffff || count > 10000 || position + directorySize > end) fail();
+  const entries = new Map();
+  for (let index = 0; index < count; index++) {
+    if (position + 46 > end || bytes.readUInt32LE(position) !== 0x02014b50) fail();
+    const nameSize = bytes.readUInt16LE(position + 28), extraSize = bytes.readUInt16LE(position + 30), commentSize = bytes.readUInt16LE(position + 32);
+    const next = position + 46 + nameSize + extraSize + commentSize;
+    if (next > end) fail();
+    const name = bytes.subarray(position + 46, position + 46 + nameSize).toString("utf8");
+    if (entries.has(name)) fail();
+    entries.set(name, { flags: bytes.readUInt16LE(position + 8), method: bytes.readUInt16LE(position + 10), size: bytes.readUInt32LE(position + 24), compressed: bytes.readUInt32LE(position + 20), offset: bytes.readUInt32LE(position + 42) });
+    position = next;
+  }
+  let total = 0;
+  return name => {
+    const entry = entries.get(name);
+    if (!entry) return "";
+    if (entry.flags & 1 || ![0, 8].includes(entry.method) || entry.size > 16 * 1024 * 1024 || (total += entry.size) > 64 * 1024 * 1024) fail();
+    const offset = entry.offset;
+    if (offset + 30 > bytes.length || bytes.readUInt32LE(offset) !== 0x04034b50) fail();
+    const start = offset + 30 + bytes.readUInt16LE(offset + 26) + bytes.readUInt16LE(offset + 28);
+    if (start + entry.compressed > bytes.length) fail();
+    const compressed = bytes.subarray(start, start + entry.compressed);
+    const output = entry.method === 8 ? zlib.inflateRawSync(compressed, { maxOutputLength: 16 * 1024 * 1024 }) : compressed;
+    if (output.length !== entry.size) fail();
+    const xml = output.toString("utf8");
+    if (/<!DOCTYPE|<!ENTITY/i.test(xml)) fail();
+    return xml;
+  };
+}
+
+function dsScheduleDate(value, date1904 = false) {
+  const raw = String(value ?? "").trim();
+  if (!raw || /^(?:-|n\/?a|tbd)$/i.test(raw)) return { display: raw, due: "" };
+  if (/^\d+(?:\.\d+)?$/.test(raw) && Number(raw) >= 1 && Number(raw) < 100000) {
+    const serial = Number(raw);
+    const stamp = Date.UTC(date1904 ? 1904 : 1899, date1904 ? 0 : 11, date1904 ? 1 : serial < 60 ? 31 : 30) + Math.round(serial * 1440) * 60000;
+    const iso = new Date(stamp).toISOString();
+    const timed = Math.abs(serial - Math.floor(serial)) > 0.000001;
+    const due = iso.slice(0, timed ? 16 : 10);
+    return { display: due.replace("T", " "), due };
+  }
+  let match = raw.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?)?$/);
+  if (!match) {
+    const us = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (us) match = [raw, us[3], us[1], us[2]];
+  }
+  if (match) {
+    const [, year, month, day, hour, minute] = match;
+    const stamp = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+    if (stamp.getUTCFullYear() === Number(year) && stamp.getUTCMonth() + 1 === Number(month) && stamp.getUTCDate() === Number(day) && (!hour || Number(hour) < 24) && (!minute || Number(minute) < 60)) {
+      const due = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}${hour ? `T${hour.padStart(2, "0")}:${minute}` : ""}`;
+      return { display: due.replace("T", " "), due };
+    }
+  }
+  return { display: raw, due: "" };
+}
+
+function dsScheduleActivityDetails(activity) {
+  const key = String(activity || "").trim().toLowerCase().replace(/\s*\([^)]*\)\s*/g, " ").replace(/[\s_-]+/g, " ").trim();
+  const descriptions = {
+    development: "개발", "pair test": "메인 테스트가 아닌 후보 테스트 진행", ds: "DS 문서 작성",
+    tas: "Test Automation System을 통한 테스트", "code review": "코드 리뷰",
+    testing: "테스트 진행 (주로 Tester 팀 담당)", it: "Integration Test",
+    qa: "QA 일정 진행\n- FS·DS 문서 작성\n- CTASK 생성\n- ServiceNow에서 QA Complete으로 전환",
+    "approved for production": "ServiceNow에서 Approved for Production으로 전환",
+    deployment: "세레나 리퀘스트 상태를 Staging으로 전환", "final verification": "Final Verification",
+    "ready for prod": "세레나 리퀘스트를 Ready for Prod로 전환", implemented: "ServiceNow에서 Implemented로 전환"
+  };
+  return descriptions[key] || `DS 일정에 따라 ${String(activity || "").trim()} 진행`;
+}
+
+function readDsScheduleWorkbook(data) {
+  const read = dsScheduleZipReader(data);
+  const workbook = read("xl/workbook.xml");
+  if (!workbook) throw new Error("일정 탭을 읽으려면 Google Sheets 또는 XLSX 형식의 DS가 필요합니다.");
+  const date1904 = /^(?:1|true)$/i.test(dsScheduleXmlElements(workbook, "workbookPr")[0]?.attrs.date1904 || "");
+  const relationships = new Map(dsScheduleXmlElements(read("xl/_rels/workbook.xml.rels"), "Relationship").filter(rel => rel.attrs.TargetMode !== "External").map(rel => [rel.attrs.Id, rel.attrs.Target]));
+  const strings = dsScheduleXmlElements(read("xl/sharedStrings.xml"), "si").map(item => dsScheduleXmlElements(item.body, "t").map(text => dsScheduleXmlText(text.body)).join(""));
+  const allSheets = dsScheduleXmlElements(workbook, "sheet");
+  const normalize = value => String(value || "").replace(/[\s_-]+/g, "").toLowerCase();
+  const sheets = [];
+  for (const sheet of allSheets) {
+    if (!["schedule", "prodschedule"].includes(normalize(sheet.attrs.name))) continue;
+    const target = relationships.get(sheet.attrs["r:id"] || Object.entries(sheet.attrs).find(([key]) => key.endsWith(":id"))?.[1]);
+    if (!target) throw new Error(`${sheet.attrs.name} 탭의 파일 위치를 읽을 수 없습니다.`);
+    const parts = (target.startsWith("/") ? target.slice(1) : `xl/${target}`).split("/");
+    const path = [];
+    for (const part of parts) { if (part === "..") path.pop(); else if (part && part !== ".") path.push(part); }
+    if (path[0] !== "xl") throw new Error("DS 일정 탭 경로가 올바르지 않습니다.");
+    const xml = read(path.join("/"));
+    if (!xml) throw new Error(`${sheet.attrs.name} 탭의 내용이 없습니다.`);
+    const rows = dsScheduleXmlElements(xml, "row").map((row, index) => {
+      const cells = new Map();
+      for (const cell of dsScheduleXmlElements(row.body, "c")) {
+        const column = cell.attrs.r?.match(/^[A-Z]+/i)?.[0]?.toUpperCase();
+        if (!column) continue;
+        const value = dsScheduleXmlElements(cell.body, "v")[0]?.body ?? "";
+        cells.set(column, cell.attrs.t === "s" ? (value ? strings[Number(value)] || "" : "") : cell.attrs.t === "inlineStr" ? dsScheduleXmlElements(cell.body, "t").map(text => dsScheduleXmlText(text.body)).join("") : value || !dsScheduleXmlElements(cell.body, "f").length ? dsScheduleXmlText(value) : "계산 결과 없음");
+      }
+      return { number: Number(row.attrs.r) || index + 1, cells };
+    });
+    let header = null;
+    const items = [], occurrences = new Map();
+    for (const row of rows) {
+      const candidate = {};
+      for (const [column, value] of row.cells) {
+        const field = { activity: "activity", pic: "pic", start: "start", end: "end", "startdate": "start", "enddate": "end" }[normalize(value)];
+        if (field && !candidate[field]) candidate[field] = column;
+      }
+      if (["activity", "pic", "start", "end"].every(field => candidate[field])) { header = candidate; continue; }
+      if (!header) continue;
+      const activity = String(row.cells.get(header.activity) || "").trim();
+      if (!activity || /^(?:activity|total|summary|합계|비고|guideline)$/i.test(activity)) continue;
+      const pic = String(row.cells.get(header.pic) || "").trim();
+      const start = dsScheduleDate(row.cells.get(header.start), date1904), end = dsScheduleDate(row.cells.get(header.end), date1904);
+      const identity = `${normalize(activity)}|${normalize(pic)}`;
+      const occurrence = (occurrences.get(identity) || 0) + 1;
+      occurrences.set(identity, occurrence);
+      items.push({ id: `${sheet.attrs.name}:${row.number}`, sheet: sheet.attrs.name, row: row.number, activity, pic, start: start.display, end: end.display, dueDate: end.due, occurrence, details: dsScheduleActivityDetails(activity), dateWarning: Boolean((start.display && !start.due) || (end.display && !end.due)) });
+    }
+    sheets.push({ name: sheet.attrs.name, items, error: header ? "" : "Activity·PIC·Start·End 열을 찾지 못했습니다." });
+  }
+  if (!sheets.length) throw new Error("DS에 Schedule 또는 PROD Schedule 탭이 없습니다.");
+  return { sheets };
+}
+
+function dsScheduleSourceLine(source, item) {
+  // Readable provenance stays inside the existing detail metadata, so normal edits preserve it.
+  const identity = [source.fileId, item.sheet, item.activity.trim().toLowerCase(), item.pic.trim().toLowerCase(), item.occurrence || 1].join("|");
+  const key = crypto.createHash("sha256").update(identity).digest("hex").slice(0, 20);
+  return `DS 일정 참조: ${key} · ${item.sheet} · ${item.activity}`;
+}
+
+class DsScheduleModal extends Modal {
+  constructor(app, plugin, ticketId) {
+    super(app); this.plugin = plugin; this.ticketId = normalizeTicketId(ticketId);
+    this.selected = new Set(); this.closed = false; this.busy = false;
+  }
+
+  onOpen() {
+    this.modalEl.addClass("clt-ds-schedule-modal");
+    this.titleEl.setText(`${this.ticketId} DS 일정 → To-Do`);
+    this.contentEl.createDiv({ cls: "clt-meeting-import-lead", text: "열 때마다 DS를 다시 다운로드합니다. 생성은 이 티켓의 To-Do에만 반영되며 ServiceNow·세레나 상태는 변경하지 않습니다." });
+    this.statusEl = this.contentEl.createDiv({ cls: "clt-ds-schedule-status", attr: { role: "status" } });
+    this.body = this.contentEl.createDiv();
+    this.reloadButton = this.contentEl.createEl("button", { text: "DS 다시 다운로드", attr: { type: "button" } });
+    this.reloadButton.addEventListener("click", () => this.load());
+    void this.load();
+  }
+
+  async load() {
+    if (this.busy) return;
+    this.busy = true; this.reloadButton.disabled = true; this.body.empty(); this.source = null;
+    this.statusEl.setText("최신 DS를 다운로드하고 일정을 읽는 중…");
+    try {
+      const source = await this.plugin.loadLatestDsSchedule(this.ticketId);
+      if (this.closed) return;
+      this.source = source; this.selected.clear();
+      this.statusEl.setText(`DS 최신 다운로드 완료 · ${source.loadedAt.replace("T", " ")} · ${source.path.split("/").pop()}`);
+      await this.renderSelection();
+    } catch (error) {
+      if (!this.closed) this.statusEl.setText(`일정 불러오기 실패: ${error.message || error} (이전 DS로 대신 생성하지 않습니다.)`);
+    } finally { this.busy = false; if (!this.closed) this.reloadButton.disabled = false; }
+  }
+
+  async renderSelection() {
+    const source = this.source;
+    const existing = await this.plugin.dsScheduleExistingSources(this.ticketId);
+    if (this.closed || source !== this.source) return;
+    const toolbar = this.body.createDiv({ cls: "clt-ds-schedule-toolbar" });
+    const tabs = toolbar.createDiv({ cls: "clt-ds-schedule-tabs", attr: { role: "group", "aria-label": "DS 일정 탭" } });
+    const stateLabel = toolbar.createEl("label", { text: "생성 상태 " });
+    const state = stateLabel.createEl("select", { attr: { "aria-label": "To-Do 생성 상태" } });
+    for (const status of this.plugin.getTodoWorkflow().filter(item => item.enabled)) state.createEl("option", { value: status.key, text: status.label }).value = status.key;
+    this.body.createDiv({ cls: "clt-meeting-analysis-hint", text: "완료 예정일은 End 기준입니다. 날짜가 없으면 미지정으로 생성합니다. 이미 생성된 일정은 건너뛰며, 기존 To-Do는 덮어쓰지 않습니다." });
+    const list = this.body.createDiv({ cls: "clt-ds-schedule-list" });
+    const summary = this.body.createDiv({ attr: { role: "status" } });
+    const review = { id: "review-preparation", sheet: "추가 업무", activity: "리뷰 준비", pic: "", occurrence: 1, details: "리뷰를 위한 자료 및 설명 준비", dueDate: "" };
+    const reviewLabel = this.body.createEl("label", { cls: "clt-ds-review" });
+    const reviewCheck = reviewLabel.createEl("input", { type: "checkbox", attr: { "aria-label": "리뷰 준비 추가" } });
+    reviewLabel.createSpan({ text: "리뷰 준비 추가 (선택)" });
+    const reviewDate = reviewLabel.createEl("input", { type: "date", attr: { "aria-label": "리뷰 준비 목표일" } });
+    reviewDate.disabled = true;
+    reviewLabel.createSpan({ text: "날짜를 비우면 기한 없이 생성" });
+    const reviewExists = existing.has(dsScheduleSourceLine(source, review));
+    if (reviewExists) { reviewCheck.disabled = true; reviewLabel.createSpan({ text: "이미 생성됨" }); }
+    const actions = this.body.createDiv({ cls: "clt-sn-document-actions" });
+    actions.createEl("button", { text: "취소" }).addEventListener("click", () => this.close());
+    const create = actions.createEl("button", { text: "선택 일정 생성", cls: "mod-cta" });
+    const allItems = source.sheets.flatMap(sheet => sheet.items);
+    const update = () => { const count = this.selected.size + (reviewCheck.checked ? 1 : 0); summary.setText(`선택 ${count}개 · 생성할 상태: ${state.selectedOptions[0]?.textContent || ""}`); create.disabled = !count; };
+    reviewCheck.addEventListener("change", () => { reviewDate.disabled = !reviewCheck.checked; update(); });
+    state.addEventListener("change", update);
+    const buttons = [];
+    const draw = sheet => {
+      list.empty(); buttons.forEach(([button, name]) => button.setAttribute("aria-pressed", String(name === sheet.name)));
+      if (sheet.error || !sheet.items.length) { list.createDiv({ text: sheet.error || "이 탭에 생성할 일정이 없습니다." }); return; }
+      const table = list.createEl("table");
+      const header = table.createEl("thead").createEl("tr");
+      const selectAll = header.createEl("th").createEl("input", { type: "checkbox", attr: { "aria-label": `${sheet.name} 전체 선택` } });
+      ["Activity", "PIC", "Start", "End"].forEach(text => header.createEl("th", { text }));
+      const checks = [];
+      const syncAll = () => { selectAll.checked = checks.length > 0 && checks.every(box => box.checked); selectAll.indeterminate = !selectAll.checked && checks.some(box => box.checked); selectAll.disabled = !checks.length; };
+      const body = table.createEl("tbody");
+      for (const item of sheet.items) {
+        const row = body.createEl("tr");
+        const checkbox = row.createEl("td").createEl("input", { type: "checkbox", attr: { "aria-label": `${item.activity} · ${item.pic || "담당 미지정"} · ${item.row}행` } });
+        const exists = existing.has(dsScheduleSourceLine(source, item));
+        checkbox.checked = this.selected.has(item.id); checkbox.disabled = exists;
+        if (!exists) checks.push(checkbox);
+        checkbox.addEventListener("change", () => { if (checkbox.checked) this.selected.add(item.id); else this.selected.delete(item.id); syncAll(); update(); });
+        const activity = row.createEl("td"); activity.createEl("strong", { text: item.activity });
+        activity.createDiv({ cls: "clt-ds-schedule-description", text: item.details });
+        if (exists) activity.createDiv({ text: "이미 생성됨", cls: "clt-ds-schedule-description" });
+        row.createEl("td", { text: item.pic || "—" });
+        row.createEl("td", { text: item.start || "미지정", cls: "clt-ds-schedule-date" });
+        const end = row.createEl("td", { text: item.end || "미지정", cls: "clt-ds-schedule-date" });
+        if (item.dateWarning) end.createDiv({ text: "원본 날짜 형식 확인 필요", cls: "clt-ds-schedule-description" });
+      }
+      selectAll.addEventListener("change", () => { for (const item of sheet.items) { if (existing.has(dsScheduleSourceLine(source, item))) continue; if (selectAll.checked) this.selected.add(item.id); else this.selected.delete(item.id); } draw(sheet); update(); });
+      syncAll();
+    };
+    for (const sheet of source.sheets) {
+      const button = tabs.createEl("button", { text: `${sheet.name} (${sheet.items.length})`, attr: { type: "button" } });
+      buttons.push([button, sheet.name]); button.addEventListener("click", () => draw(sheet));
+    }
+    draw(source.sheets[0]); update();
+    create.addEventListener("click", async () => {
+      if (this.busy) return;
+      const selected = allItems.filter(item => this.selected.has(item.id));
+      if (reviewCheck.checked) selected.push({ ...review, dueDate: reviewDate.value, end: reviewDate.value });
+      if (!selected.length) return;
+      if (!reviewDate.checkValidity()) return new Notice("리뷰 준비 날짜를 확인해 주세요.");
+      this.busy = true; create.disabled = true; this.reloadButton.disabled = true;
+      try {
+        const result = await this.plugin.createDsScheduleTodos(this.ticketId, source, selected, state.value);
+        new Notice(`${this.ticketId} To-Do ${result.created}건 생성${result.skipped ? ` · 기존 ${result.skipped}건 제외` : ""}`);
+        this.close();
+      } catch (error) {
+        this.statusEl.setText(`일정 생성 실패: ${error.message || error}`);
+        create.disabled = false;
+      } finally { this.busy = false; if (!this.closed) this.reloadButton.disabled = false; }
+    });
+  }
+
+  onClose() { this.closed = true; this.contentEl.empty(); }
+}
+
 function extractMeetingActionItems(markdown) {
   const lines = String(markdown || "").split(/\r?\n/);
   const start = lines.findIndex((line) => /^#{1,6}\s+(?:\d+[.)]\s*)?(?:Action Items|할\s*일|액션\s*아이템)/i.test(line.trim()));
@@ -7211,6 +7488,9 @@ class CltServiceNowWorkNotes extends Plugin {
         documents.setText("BS·FS·DS·UT 문서 갱신");
       }
     });
+    controls.createEl("button", { text: "일정 생성", attr: { type: "button" } }).addEventListener("click", () => {
+      new DsScheduleModal(this.app, this, ticketId).open();
+    });
     const aiPromptDetails = el.createEl("details", { cls: "clt-ai-prompt-details" });
     aiPromptDetails.hidden = true;
     aiPromptDetails.createEl("summary", { text: "AI 티켓 분석 프롬프트 펼치기" });
@@ -8537,6 +8817,73 @@ class CltServiceNowWorkNotes extends Plugin {
     for (const { id, file } of rootFiles) await this.ensureMeetingSection(file, id);
     ticketIds.forEach((id) => this.refreshViews(id));
     return { note, warnings };
+  }
+
+  async loadLatestDsSchedule(ticketId) {
+    const normalized = normalizeTicketId(ticketId);
+    const file = this.rootTicketFile(normalized);
+    if (!(file instanceof TFile)) throw new Error("원본 티켓 노트를 찾을 수 없습니다.");
+    if (!this.settings.googleDriveContentAccess) throw new Error("설정에서 Google Drive 파일 다운로드 권한을 연결해 주세요.");
+    const markdown = await this.app.vault.read(file);
+    const metadata = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+    const frontmatter = metadata ? parseYaml(metadata[1]) || {} : {};
+    let link = String(frontmatter.DS || "");
+    if (!googleDriveFileId(link)) {
+      const groups = await this.searchGoogleDriveDocuments(normalized);
+      if (!groups.DS.length) throw new Error("Drive에서 DS를 찾지 못했습니다. 원본 노트의 DS 속성에 Google Sheets 또는 XLSX 링크를 지정해 주세요.");
+      if (groups.DS.length === 1) link = groups.DS[0].url;
+      else {
+        const selected = await new Promise(resolve => new DocumentCandidateModal(this.app, normalized, { DS: groups.DS }, { DS: link }, resolve).open());
+        link = selected?.DS || "";
+        if (!link) throw new Error("DS 문서 선택을 취소했습니다.");
+      }
+    }
+    // Always fetch fresh bytes; an old local DS is never a network-error fallback.
+    const path = await this.downloadGoogleDriveDocument(normalized, "DS", link);
+    if (!/\.xlsx$/i.test(path)) throw new Error("일정 탭은 Google Sheets 또는 XLSX DS에서 읽을 수 있습니다. PDF·XLS 형식은 지원하지 않습니다.");
+    const downloaded = this.app.vault.getAbstractFileByPath(path);
+    if (!(downloaded instanceof TFile)) throw new Error("다운로드한 DS 파일을 찾을 수 없습니다.");
+    const parsed = readDsScheduleWorkbook(await this.app.vault.readBinary(downloaded));
+    if (link !== String(frontmatter.DS || "")) await this.app.fileManager.processFrontMatter(file, current => {
+      if (String(current.DS || "") !== String(frontmatter.DS || "")) throw new Error("DS 링크가 변경되었습니다. 일정 생성 창을 다시 열어 주세요.");
+      current.DS = link;
+    });
+    return { ...parsed, path, fileId: googleDriveFileId(link), url: link, loadedAt: localIsoDateTime().slice(0, 16) };
+  }
+
+  async dsScheduleExistingSources(ticketId) {
+    const file = this.rootTicketFile(ticketId);
+    if (!(file instanceof TFile)) throw new Error("원본 티켓 노트를 찾을 수 없습니다.");
+    const markdown = await this.app.vault.read(file);
+    return new Set([...markdown.matchAll(/<!--\s*clt-todo-detail:([^>]*?)\s*-->/g)].flatMap(match => decodeTodoDetail(match[1]).split(/\r?\n/).filter(line => line.startsWith("DS 일정 참조: "))));
+  }
+
+  async createDsScheduleTodos(ticketId, source, items, status) {
+    const file = this.rootTicketFile(ticketId);
+    if (!(file instanceof TFile)) throw new Error("원본 티켓 노트를 찾을 수 없습니다.");
+    this.assertTodoStatusEnabled(status);
+    const time = localIsoDateTime().slice(0, 16);
+    let created = 0, skipped = 0;
+    // A single atomic note update also rechecks duplicates if two dialogs were open.
+    await this.app.vault.process(file, markdown => {
+      const existing = new Set([...markdown.matchAll(/<!--\s*clt-todo-detail:([^>]*?)\s*-->/g)].flatMap(match => decodeTodoDetail(match[1]).split(/\r?\n/).filter(line => line.startsWith("DS 일정 참조: "))));
+      created = 0; skipped = 0;
+      for (const item of items) {
+        const provenance = dsScheduleSourceLine(source, item);
+        if (existing.has(provenance)) { skipped++; continue; }
+        const dueDate = item.dueDate || "";
+        if (dueDate && !dsScheduleDate(dueDate).due) throw new Error(`${item.activity}의 완료 예정일을 확인해 주세요.`);
+        const details = [item.details, "", `PIC: ${item.pic || "미지정"}`, `Start: ${item.start || "미지정"}`, `End: ${item.end || "미지정"}`, `원본 DS: [[${source.path}]] · ${item.sheet}${item.row ? ` · ${item.row}행` : ""}`, provenance].join("\n");
+        const markers = `${["in-progress", "waiting"].includes(status) ? ` <!-- clt-todo:${status} -->` : ""}${dueDate ? ` <!-- clt-todo-due:${dueDate} -->` : ""}${status === "done" ? ` <!-- clt-todo-completed:${time} -->` : ""}`;
+        const title = stripCltTodoMetadata(item.activity.replace(/\r?\n/g, " "));
+        if (!title) throw new Error("일정 Activity가 비어 있습니다.");
+        markdown = appendEntryToMarkdownSection(markdown, "✅ To-Do", `- [${status === "done" ? "x" : " "}] ${time} : ${title}${markers} <!-- clt-todo-detail:${encodeTodoDetail(details)} -->`);
+        existing.add(provenance); created++;
+      }
+      return markdown;
+    });
+    if (created) { await this.touchTodoLastChecked(file); this.refreshViews(ticketId); }
+    return { created, skipped };
   }
 
   async refreshTicketDocuments(ticketId, options = {}) {

@@ -1955,3 +1955,20 @@ button.mod-warning:hover {
 }
 .clt-ticket-activity-badge { color: var(--text-muted); font-size: var(--font-ui-smaller); border: 1px solid var(--background-modifier-border); border-radius: 5px; padding: 3px 6px; }
 .snm-ticket-lifecycle-modal .snm-ticket-archive-states { width: min(360px, 70vw); max-width: 100%; }
+.clt-ds-schedule-modal { width: min(1120px, 94vw); }
+.clt-ds-schedule-status { margin: 12px 0; color: var(--text-muted); overflow-wrap: anywhere; }
+.clt-ds-schedule-toolbar, .clt-ds-schedule-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.clt-ds-schedule-toolbar { justify-content: space-between; margin: 12px 0; }
+.clt-ds-schedule-tabs button[aria-pressed="true"] { background: var(--interactive-accent); color: var(--text-on-accent); }
+.clt-ds-schedule-list { max-height: 48vh; overflow: auto; margin: 12px 0; border: 1px solid var(--background-modifier-border); border-radius: 8px; }
+.clt-ds-schedule-list table { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 0; }
+.clt-ds-schedule-list th, .clt-ds-schedule-list td { padding: 10px 8px; text-align: left; vertical-align: top; overflow-wrap: anywhere; border-bottom: 1px solid var(--background-modifier-border); }
+.clt-ds-schedule-list th { position: sticky; top: 0; background: var(--background-secondary); z-index: 1; }
+.clt-ds-schedule-list th:first-child { width: 5%; }
+.clt-ds-schedule-list th:nth-child(2) { width: 35%; }
+.clt-ds-schedule-list th:nth-child(3) { width: 22%; }
+.clt-ds-schedule-list th:nth-child(n+4) { width: 19%; }
+.clt-ds-schedule-description { white-space: pre-line; font-size: var(--font-ui-smaller); color: var(--text-muted); margin-top: 4px; }
+.clt-ds-schedule-date { font-variant-numeric: tabular-nums; }
+.clt-ds-review { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; padding: 12px; background: var(--background-secondary); border-radius: 8px; }
+.clt-ds-review > span:last-child { color: var(--text-muted); font-size: var(--font-ui-smaller); }
