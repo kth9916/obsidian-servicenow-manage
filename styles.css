@@ -943,11 +943,12 @@
 .clt-meeting-no-ticket-choice input { flex: 0 0 auto; margin: 0; }
 .clt-meeting-links-modal { width: min(760px, 94vw); }
 .clt-meeting-note-links { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0 18px; color: var(--text-muted); font-size: var(--font-ui-smaller); }
-.clt-meeting-card-link-edit { position: absolute; right: 12px; bottom: 9px; font-size: var(--font-ui-smaller); }
-.clt-meeting-card:has(.clt-meeting-card-link-edit) { min-height: 92px; }
-.clt-meeting-card:has(.clt-meeting-card-link-edit) .clt-meeting-card-open { padding-right: 120px; min-height: 92px; }
-.opus-meeting-link-edit { position: absolute; right: 12px; bottom: 9px; font-size: var(--font-ui-smaller); }
-.opus-meeting-overview-card:has(.opus-meeting-link-edit) { padding-right: 120px; min-height: 92px; }
+.clt-meeting-card-actions,
+.opus-meeting-card-actions { align-items: center; display: flex; flex-wrap: nowrap; gap: 8px; justify-content: flex-end; }
+.clt-meeting-card-actions > button,
+.opus-meeting-card-actions > button { flex: 0 0 auto; font-size: var(--font-ui-smaller); height: 30px; margin: 0; padding: 0 10px; position: static; white-space: nowrap; }
+.clt-meeting-card-actions > .clt-meeting-card-delete,
+.opus-meeting-card-actions > .opus-meeting-overview-delete { color: var(--text-error); }
 .clt-meeting-ticket-options {
   display: grid;
   gap: 6px;
@@ -1044,6 +1045,10 @@
 .clt-meeting-list { display: grid; gap: 9px; margin-bottom: 20px; }
 
 .clt-meeting-card {
+  align-items: center;
+  container: snm-meeting-card / inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   background: linear-gradient(135deg, var(--background-secondary), color-mix(in srgb, var(--interactive-accent) 5%, var(--background-secondary)));
   border: 1px solid var(--background-modifier-border);
   border-left: 4px solid var(--interactive-accent);
@@ -1068,10 +1073,11 @@
   cursor: pointer;
   display: grid;
   gap: 5px;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(190px, 1fr) minmax(280px, 2fr);
+  grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1fr) minmax(0, 2fr);
   height: auto;
   align-items: center;
-  padding: 13px 44px 13px 15px;
+  min-width: 0;
+  padding: 13px 15px;
   text-align: left;
   width: 100%;
 }
@@ -1088,7 +1094,16 @@
 .clt-meeting-label-filter > summary:hover { background: var(--interactive-hover); box-shadow: var(--input-shadow-hover); }
 .clt-meeting-label-filter-menu { background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 10px; box-shadow: var(--shadow-s); display: grid; gap: 7px; min-width: 180px; padding: 10px; position: absolute; right: 0; top: calc(100% + 5px); z-index: 20; }
 .clt-meeting-label-filter-menu label { align-items: center; display: flex; gap: 8px; white-space: nowrap; }
-.clt-meeting-card-delete { position: absolute; right: 9px; top: 7px; z-index: 2; }
+.clt-meeting-card-actions { padding: 10px 12px 10px 0; }
+@container snm-meeting-card (max-width: 760px) {
+  .clt-meeting-card-open { grid-template-columns: minmax(0, 1fr); }
+  .clt-meeting-card-heading { flex-wrap: wrap; }
+  .clt-meeting-card-meta { white-space: normal; overflow-wrap: anywhere; }
+}
+@media (max-width: 480px) {
+  .clt-meeting-card { grid-template-columns: minmax(0, 1fr); }
+  .clt-meeting-card-actions { padding: 0 12px 12px; }
+}
 
 .clt-meeting-card:hover {
   border-color: color-mix(in srgb, var(--interactive-accent) 48%, var(--background-modifier-border));
@@ -2089,8 +2104,8 @@ button.mod-warning:hover {
   padding: 4px 8px;
 }
 @container snm-now (max-width: 240px) {
-  .snm-now-button { width: 28px; min-width: 28px; padding: 3px; font-size: 0; }
-  .snm-now-button::after { content: "◷"; font-size: 17px; }
+  .snm-now-field > .snm-now-button { width: 28px; min-width: 28px; padding: 3px; font-size: 0; }
+  .snm-now-field > .snm-now-button::after { content: "◷"; font-size: 17px; }
 }
 .clt-todo-due-fields.snm-now-pair {
   display: flex;
@@ -2104,8 +2119,8 @@ button.mod-warning:hover {
 .snm-now-pair > .snm-now-button { margin-left: auto; }
 @container snm-due (max-width: 400px) {
   .snm-now-pair > input[type="time"] { flex-basis: 134px; width: 134px; }
-  .snm-now-button { width: 28px; min-width: 28px; padding: 3px; font-size: 0; }
-  .snm-now-button::after { content: "◷"; font-size: 17px; }
+  .snm-now-pair > .snm-now-button { width: 28px; min-width: 28px; padding: 3px; font-size: 0; }
+  .snm-now-pair > .snm-now-button::after { content: "◷"; font-size: 17px; }
 }
 .opus-last-checked-control:has(.snm-now-field) > .opus-last-checked-today { display: none; }
 .snm-todo-sort-control { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; white-space: nowrap; }

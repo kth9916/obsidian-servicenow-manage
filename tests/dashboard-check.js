@@ -44,6 +44,13 @@ const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
 
 // 플러그인이 관리하는 업무현황 실행 영역의 버전입니다.
 const DASHBOARD_RUNTIME_VERSION = "2.11.0";
+const DASHBOARD_LAYOUT_REVISION = "2026-10-19-aligned-controls";
+const TABLE_EDITABLE_DATE_MIN_WIDTH = 190;
+const editableDateColumns = new Set(["releaseDate", "scheduledDate", "lastChecked"]);
+function tableColumnWidth(key, value) {
+    const width = Number(value ?? DEFAULT_COLUMN_WIDTHS[key] ?? 100);
+    return Math.max(editableDateColumns.has(key) ? TABLE_EDITABLE_DATE_MIN_WIDTH : 36, Number.isFinite(width) ? width : 100);
+}
 
 const DEFAULT_COLUMN_WIDTHS = {
     file: 52,
@@ -64,9 +71,9 @@ const DEFAULT_COLUMN_WIDTHS = {
     estimatedQaCompletionDate: 160,
     targetQaCompletionDate: 160,
     actualReleaseDate: 145,
-    releaseDate: 92,
-    scheduledDate: 92,
-    lastChecked: 92,
+    releaseDate: TABLE_EDITABLE_DATE_MIN_WIDTH,
+    scheduledDate: TABLE_EDITABLE_DATE_MIN_WIDTH,
+    lastChecked: TABLE_EDITABLE_DATE_MIN_WIDTH,
     latestWorkLog: 260,
     todoSummary: 142,
     serviceNow: 92,
@@ -2675,9 +2682,12 @@ tr:last-child td {
 .opus-meeting-overview-list { display: grid; gap: 14px; }
 .opus-meeting-ticket-group { background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 12px; }
 .opus-meeting-ticket-title { font-weight: 750; margin-bottom: 9px; }
-.opus-meeting-overview-card { align-items: center; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 9px; display: grid; gap: 10px; grid-template-columns: minmax(145px, .55fr) minmax(140px, .65fr) minmax(260px, 2fr); margin-top: 7px; min-height: 66px; padding: 10px 46px 10px 12px; position: relative; }
-.opus-meeting-overview-card-link { color: inherit; display: contents; text-decoration: none; }
-.opus-meeting-overview-delete { position: absolute; right: 9px; top: 8px; z-index: 2; }
+.opus-meeting-overview-card { align-items: center; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 9px; display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) auto; margin-top: 7px; min-height: 60px; padding: 10px 12px; }
+.opus-meeting-overview-card-link { align-items: center; color: inherit; display: grid; gap: 12px; grid-template-columns: minmax(145px, .55fr) minmax(140px, .65fr) minmax(0, 2fr); min-width: 0; text-decoration: none; }
+.opus-meeting-overview-card-link > :last-child { overflow-wrap: anywhere; }
+.opus-meeting-card-actions { display: flex; align-items: center; flex-wrap: nowrap; justify-content: flex-end; gap: 8px; }
+.opus-meeting-card-actions > button { height: 30px; margin: 0; padding: 0 10px; position: static; white-space: nowrap; }
+.opus-meeting-overview-delete { color: var(--text-error); }
 .opus-meeting-overview-date { color: var(--interactive-accent); font-family: var(--font-monospace); font-weight: 700; white-space: nowrap; }
 .opus-meeting-overview-kind { background: var(--background-modifier-hover); border-radius: 999px; font-size: var(--font-ui-smaller); padding: 3px 8px; width: fit-content; white-space: nowrap; }
 .opus-jira-sortable-header { cursor: pointer; padding-right: 22px !important; position: relative; user-select: none; }
@@ -4780,25 +4790,33 @@ tr:last-child td {
 
 /* Responsive action groups follow the pane/popup, not the monitor size. */
 .opus-dashboard { container: snm-dashboard / inline-size; min-width: 0; }
-.opus-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(310px, auto); }
-.opus-title-area { flex-wrap: wrap; min-width: 0; }
-.opus-actions { display: grid; grid-template-columns: auto minmax(100px, 1fr) auto; min-width: 0; width: min(620px, 100%); }
+.opus-dashboard .opus-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; width: 100%; }
+.opus-title-area { flex-wrap: wrap; justify-content: flex-start; min-width: 0; }
+.opus-dashboard .opus-actions { display: grid; grid-template-columns: auto minmax(160px, 1fr) auto; align-items: center; min-width: 0; width: min(650px, 100%); justify-self: end; }
+.opus-actions > button, .opus-actions > input { margin: 0; }
 .opus-actions .opus-search { width: 100%; min-width: 0; }
 .opus-table-tools { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
 .opus-view-tabs { flex-wrap: wrap; max-width: 100%; }
 .opus-meeting-overview-toolbar { display: grid; grid-template-columns: minmax(160px, 1fr) auto minmax(420px, 1fr); }
 .opus-meeting-overview-toolbar input[type="search"] { min-width: 0; width: 100%; }
 .opus-meeting-overview-actions { width: 100%; min-width: 0; }
-.opus-todo-board-toolbar { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(400px, 1fr); }
+.opus-todo-board-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 12px; }
 .opus-todo-board-filters, .opus-todo-board-actions { min-width: 0; }
-.opus-todo-board-filters { flex-direction: row; align-items: center; }
+.opus-todo-board-filters { display: grid; grid-template-columns: minmax(160px, 1fr) 100px minmax(600px, 660px); gap: 8px; align-items: center; }
 .opus-todo-board-filters > * { min-width: 0; max-width: 100%; }
 .opus-todo-search { flex: 1 1 220px; width: auto; min-width: 0; }
-.opus-todo-board-guide { flex-basis: 100%; }
+.opus-todo-board-guide { grid-column: 1 / -1; margin: 0; }
 .opus-todo-display-switch { justify-content: center; }
 .opus-todo-display-switch button { flex: 1; }
-.opus-todo-date-filter { max-width: 100%; flex-wrap: wrap; }
-.opus-todo-date-filter input { min-width: 0; flex: 1 1 120px; }
+.opus-todo-date-filter { display: grid; grid-template-columns: 116px minmax(166px, 1fr) 12px minmax(166px, 1fr) 96px; align-items: center; gap: 6px; width: 100%; max-width: 100%; }
+.opus-todo-date-filter > select, .opus-todo-date-filter > button { width: 100%; margin: 0; padding-inline: 6px; }
+.opus-todo-date-clear { white-space: nowrap; }
+.opus-todo-date-filter input { width: 100%; min-width: 130px; }
+.opus-todo-date-filter > .snm-now-field { width: 100%; min-width: 166px; }
+.opus-todo-date-filter .snm-now-field > input { min-width: 130px; }
+.opus-todo-date-separator { text-align: center; }
+.opus-table .snm-now-field { min-width: 166px; width: 100%; }
+.opus-table .snm-now-field > .opus-inline-date { flex: 1 1 130px; min-width: 130px; width: 130px; }
 .opus-note-header, .opus-note-toolbar, .opus-note-footer, .opus-todo-create-actions, .opus-ticket-todo-detail-actions { flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
 .opus-note-title { min-width: 0; overflow-wrap: anywhere; }
 .opus-note-close { flex-shrink: 0; }
@@ -4808,28 +4826,34 @@ tr:last-child td {
 .opus-ticket-todo-layout { grid-template-columns: minmax(230px, .7fr) minmax(0, 1.3fr); max-height: 76vh; }
 .opus-jira-export-preview-actions { flex-wrap: wrap; }
 
-@container snm-dashboard (max-width: 1400px) {
-    .opus-todo-board-toolbar { grid-template-columns: minmax(0, 1fr); }
+@container snm-dashboard (max-width: 1000px) {
+    .opus-todo-board-filters { grid-template-columns: minmax(0, 1fr) 100px; }
+    .opus-todo-date-filter { grid-column: 1 / -1; }
 }
-@container snm-dashboard (max-width: 850px) {
-    .opus-todo-date-filter { flex-basis: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); width: 100%; }
-    .opus-todo-date-filter > select, .opus-todo-date-filter > .opus-todo-date-clear { grid-column: 1 / -1; width: 100%; }
+@container snm-dashboard (max-width: 680px) {
+    .opus-todo-date-filter { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .opus-todo-date-filter > select { grid-column: 1 / -1; }
+    .opus-todo-date-filter > .opus-todo-date-clear { grid-column: 2; }
     .opus-todo-date-separator { display: none; }
-    .opus-todo-date-filter > .snm-now-field { width: 100%; }
+    .opus-meeting-overview-card-link { grid-template-columns: minmax(0, 1fr); gap: 6px; }
 }
 @container snm-dashboard (max-width: 1100px) {
-    .opus-toolbar { grid-template-columns: minmax(0, 1fr); }
-    .opus-actions { width: 100%; }
+    .opus-dashboard .opus-toolbar { grid-template-columns: minmax(0, 1fr); }
+    .opus-dashboard .opus-actions { width: 100%; }
     .opus-meeting-overview-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
     .opus-meeting-overview-actions { grid-column: 1 / -1; }
     .opus-popup-panel { min-width: 0; max-width: 100%; }
     .opus-field-list { grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); }
 }
 @container snm-dashboard (max-width: 560px) {
-    .opus-actions { grid-template-columns: minmax(0, 1fr) auto; }
+    .opus-dashboard .opus-actions { grid-template-columns: minmax(0, 1fr) auto; }
     .opus-actions > .opus-small-button { grid-column: 1 / -1; }
     .opus-title, .opus-summary { white-space: normal; }
     .opus-meeting-overview-card { grid-template-columns: minmax(0, 1fr); }
+}
+@container snm-dashboard (max-width: 400px) {
+    .opus-todo-date-filter { grid-template-columns: minmax(0, 1fr); }
+    .opus-todo-date-filter > .opus-todo-date-clear { grid-column: 1; }
 }
 @container snm-popup (max-width: 1150px) {
     .opus-jira-export-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); overflow-y: auto; }
@@ -8458,7 +8482,7 @@ function bindColumnResize(table) {
                             Math.min(
                                 1200,
                                 Math.max(
-                                    36,
+                                    editableDateColumns.has(key) ? TABLE_EDITABLE_DATE_MIN_WIDTH : 36,
                                     Math.round(
                                         startWidth
                                         + delta
@@ -8603,14 +8627,7 @@ function renderTable() {
     const colGroupHtml =
         visibleColumns
             .map(column => {
-                const width =
-                    settings.columnWidths[
-                        column.key
-                    ]
-                    ?? DEFAULT_COLUMN_WIDTHS[
-                        column.key
-                    ]
-                    ?? 100;
+                const width = tableColumnWidth(column.key, settings.columnWidths[column.key]);
 
                 return `
                     <col
@@ -10610,7 +10627,8 @@ function renderMeetingOverview() {
             link.append(date, kind, title);
             const remove = document.createElement("button");
             remove.className = "opus-meeting-overview-delete";
-            remove.textContent = "×";
+            remove.textContent = "삭제";
+            remove.type = "button";
             remove.title = `${meeting.file.basename} 삭제`;
             remove.addEventListener("click", event => {
                 event.preventDefault();
@@ -10619,6 +10637,8 @@ function renderMeetingOverview() {
                 if (typeof plugin?.confirmDeleteMeetingPath === "function") plugin.confirmDeleteMeetingPath(meeting.file.path, renderMeetingOverview);
             });
             card.appendChild(link);
+            const cardActions = document.createElement("div");
+            cardActions.className = "opus-meeting-card-actions";
             if (meeting.kind !== "analysis") {
                 const edit = document.createElement("button"); edit.className = "opus-meeting-link-edit"; edit.textContent = "티켓 연결";
                 edit.title = "연결 티켓 추가·변경·해제";
@@ -10628,9 +10648,10 @@ function renderMeetingOverview() {
                     if (typeof plugin?.openMeetingTicketLinksModal === "function") plugin.openMeetingTicketLinksModal(meeting.file.path, renderMeetingOverview);
                     else new Notice("ServiceNow Manage 플러그인을 다시 활성화해 주세요.");
                 });
-                card.appendChild(edit);
+                cardActions.appendChild(edit);
             }
-            card.appendChild(remove);
+            cardActions.appendChild(remove);
+            card.appendChild(cardActions);
             group.appendChild(card);
         });
         list.appendChild(group);
