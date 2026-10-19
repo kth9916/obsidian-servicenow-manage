@@ -43,7 +43,7 @@ plugin.app = { workspace: { trigger: name => { assert.equal(name, "servicenow-ma
   await assert.rejects(plugin.setTodoSort("created-asc"), /save failed/);
   assert.equal(plugin.settings.todoSort, "due-desc"); assert.equal(events, 1);
   assert(method("renderTicketTodoBoard").includes("this.renderTodoSortControl?.(toolbar)"));
-  assert(dashboard.includes("workflowPlugin?.renderTodoSortControl?.(boardActions)"));
+  assert(dashboard.includes("workflowPlugin?.renderTodoSortControl?.(manageActions)"));
   assert(dashboard.includes("sortPlugin?.renderTodoSortControl?.(listPane)"));
   assert(dashboard.includes("app.workspace.offref(sortPopupRef)"));
   console.log("To-Do sorting checks passed: nine shared modes, missing dates, stable non-mutating order, workflow-aware default, persistence rollback and cross-view wiring.");

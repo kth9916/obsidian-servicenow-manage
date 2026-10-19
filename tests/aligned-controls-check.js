@@ -18,11 +18,11 @@ assert(dashboard.includes("const width = tableColumnWidth(column.key, settings.c
 assert(dashboard.includes("editableDateColumns.has(key) ? TABLE_EDITABLE_DATE_MIN_WIDTH : 36,"), "column resize must enforce the same date minimum");
 const upgrade = main.match(/function upgradeDashboardRuntime\([^]*?\n\}/)[0];
 vm.runInContext(main.match(/function cleanDashboardFrontmatter\([^]*?\n\}/)[0] + "\n" + upgrade, context);
-const previous = dashboard.replace('const DASHBOARD_LAYOUT_REVISION = "2026-10-19-aligned-controls";', "// Earlier layout");
+const previous = dashboard.replace('const DASHBOARD_LAYOUT_REVISION = "2026-10-19-compact-toolbars";', "// Earlier layout");
 context.oldNote = "---\nuser_tag: preserved\n---\n\n" + previous + "\nManual ending";
 context.bundle = dashboard;
 const updated = vm.runInContext("upgradeDashboardRuntime(oldNote, bundle)", context);
-assert(updated.includes('const DASHBOARD_LAYOUT_REVISION = "2026-10-19-aligned-controls";'));
+assert(updated.includes('const DASHBOARD_LAYOUT_REVISION = "2026-10-19-compact-toolbars";'));
 assert(updated.startsWith("---\nuser_tag: preserved\n---\n\n") && updated.endsWith("\nManual ending"), "upgrading managed UI must preserve metadata and trailing notes");
 context.updated = updated;
 assert.equal(vm.runInContext("upgradeDashboardRuntime(updated, bundle)", context), updated);

@@ -68,6 +68,7 @@ plugin.savePluginData = async () => { saves++; if (fail) throw new Error("simula
   assert(css.includes('var(--snm-popup-width, 75vw)'));
   assert(css.includes('@container snm-popup (max-width: 840px)'));
   assert(dashboard.includes('@container snm-dashboard (max-width: 1100px)'));
-  assert(dashboard.includes('workflowPlugin?.observeResponsiveActions?.(boardActions, 145)'));
+  assert(dashboard.includes('boardActions.append(manageActions, createActions, viewOptions)'));
+  assert(!dashboard.includes('observeResponsiveActions?.(boardActions'), "navigation controls must not be expanded into equal-width tiles");
   console.log("Responsive layout checks passed: shared 75% default, bounded preferences, all-window updates, rollback, balanced controls, observer cleanup and dashboard upgrade.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

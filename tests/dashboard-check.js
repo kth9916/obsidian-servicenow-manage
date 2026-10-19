@@ -25,6 +25,18 @@ const container = dv.container;
 container.innerHTML = "";
 container.classList.add("opus-dashboard");
 
+// Layout nodes must not pass through dv.el: even empty Markdown renders a span.
+function dashboardElement(tag, text = "", options = {}) {
+    const parent = options.container || container;
+    const element = (parent.ownerDocument || document).createElement(tag);
+    element.textContent = text == null ? "" : String(text);
+    if (options.cls) element.className = Array.isArray(options.cls) ? options.cls.join(" ") : options.cls;
+    for (const [key, value] of Object.entries(options.attr || {})) element.setAttribute(key, String(value));
+    if (options.placeholder != null) element.setAttribute("placeholder", options.placeholder);
+    parent.appendChild(element);
+    return element;
+}
+
 
 // ================================================================
 // 2. 설정
@@ -44,7 +56,7 @@ const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
 
 // 플러그인이 관리하는 업무현황 실행 영역의 버전입니다.
 const DASHBOARD_RUNTIME_VERSION = "2.11.0";
-const DASHBOARD_LAYOUT_REVISION = "2026-10-19-aligned-controls";
+const DASHBOARD_LAYOUT_REVISION = "2026-10-19-compact-toolbars";
 const TABLE_EDITABLE_DATE_MIN_WIDTH = 190;
 const editableDateColumns = new Set(["releaseDate", "scheduledDate", "lastChecked"]);
 function tableColumnWidth(key, value) {
@@ -4790,24 +4802,35 @@ tr:last-child td {
 
 /* Responsive action groups follow the pane/popup, not the monitor size. */
 .opus-dashboard { container: snm-dashboard / inline-size; min-width: 0; }
-.opus-dashboard .opus-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; width: 100%; }
+.opus-dashboard .opus-toolbar { display: flex; flex-direction: column; align-items: stretch; gap: 10px; width: 100%; }
 .opus-title-area { flex-wrap: wrap; justify-content: flex-start; min-width: 0; }
-.opus-dashboard .opus-actions { display: grid; grid-template-columns: auto minmax(160px, 1fr) auto; align-items: center; min-width: 0; width: min(650px, 100%); justify-self: end; }
+.opus-dashboard .opus-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px; min-width: 0; width: 100%; }
 .opus-actions > button, .opus-actions > input { margin: 0; }
-.opus-actions .opus-search { width: 100%; min-width: 0; }
+.opus-actions .opus-search { flex: 0 1 300px; width: 300px; min-width: 160px; }
+.opus-actions > .opus-small-button, .opus-actions > .opus-table-tools { flex: 0 0 auto; }
 .opus-table-tools { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
+.opus-table-tools > .opus-icon-button { background: var(--interactive-normal); border-color: var(--background-modifier-border); box-shadow: var(--input-shadow); }
+.opus-table-tools > .opus-icon-button:is(:hover, .active) { background: var(--background-modifier-hover); color: var(--interactive-accent); }
+.opus-toolbar .opus-popup-panel { top: calc(100% + 6px); left: 0; right: auto; max-width: 100%; }
 .opus-view-tabs { flex-wrap: wrap; max-width: 100%; }
-.opus-meeting-overview-toolbar { display: grid; grid-template-columns: minmax(160px, 1fr) auto minmax(420px, 1fr); }
+.opus-meeting-overview-toolbar { display: flex; flex-wrap: wrap; justify-content: flex-start; }
 .opus-meeting-overview-toolbar input[type="search"] { min-width: 0; width: 100%; }
-.opus-meeting-overview-actions { width: 100%; min-width: 0; }
+.opus-meeting-overview-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: 0; min-width: 0; }
+.opus-meeting-overview-actions > button { flex: 0 0 auto; margin: 0; white-space: nowrap; }
 .opus-todo-board-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 12px; }
 .opus-todo-board-filters, .opus-todo-board-actions { min-width: 0; }
+.opus-todo-board-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 10px 16px; width: 100%; }
+.opus-todo-manage-actions, .opus-todo-create-group, .opus-todo-view-options { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.opus-todo-board-actions button { flex: 0 0 auto; width: auto; margin: 0; min-height: 32px; white-space: nowrap; }
+.opus-todo-manage-actions .snm-todo-sort-control > select { width: 200px; }
+.opus-todo-view-options { flex-wrap: nowrap; margin-left: auto; }
+.opus-todo-view-options .opus-todo-group-toggle { margin: 0; }
+.opus-todo-view-options .opus-todo-group-toggle:has(input:disabled) { opacity: .55; }
+.opus-todo-view-select { width: 100px; min-height: 32px; }
 .opus-todo-board-filters { display: grid; grid-template-columns: minmax(160px, 1fr) 100px minmax(600px, 660px); gap: 8px; align-items: center; }
 .opus-todo-board-filters > * { min-width: 0; max-width: 100%; }
 .opus-todo-search { flex: 1 1 220px; width: auto; min-width: 0; }
 .opus-todo-board-guide { grid-column: 1 / -1; margin: 0; }
-.opus-todo-display-switch { justify-content: center; }
-.opus-todo-display-switch button { flex: 1; }
 .opus-todo-date-filter { display: grid; grid-template-columns: 116px minmax(166px, 1fr) 12px minmax(166px, 1fr) 96px; align-items: center; gap: 6px; width: 100%; max-width: 100%; }
 .opus-todo-date-filter > select, .opus-todo-date-filter > button { width: 100%; margin: 0; padding-inline: 6px; }
 .opus-todo-date-clear { white-space: nowrap; }
@@ -4838,16 +4861,25 @@ tr:last-child td {
     .opus-meeting-overview-card-link { grid-template-columns: minmax(0, 1fr); gap: 6px; }
 }
 @container snm-dashboard (max-width: 1100px) {
-    .opus-dashboard .opus-toolbar { grid-template-columns: minmax(0, 1fr); }
-    .opus-dashboard .opus-actions { width: 100%; }
-    .opus-meeting-overview-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
-    .opus-meeting-overview-actions { grid-column: 1 / -1; }
     .opus-popup-panel { min-width: 0; max-width: 100%; }
     .opus-field-list { grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); }
 }
 @container snm-dashboard (max-width: 560px) {
-    .opus-dashboard .opus-actions { grid-template-columns: minmax(0, 1fr) auto; }
-    .opus-actions > .opus-small-button { grid-column: 1 / -1; }
+    .opus-dashboard .opus-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+    .opus-actions > .opus-small-button { grid-column: 1; grid-row: 1; justify-self: start; }
+    .opus-actions > .opus-table-tools { grid-column: 2; grid-row: 1; }
+    .opus-actions > .opus-search { grid-column: 1 / -1; grid-row: 2; width: 100%; min-width: 0; }
+    .opus-todo-manage-actions { display: grid; grid-template-columns: auto minmax(0, 1fr); width: 100%; }
+    .opus-todo-manage-actions .snm-todo-sort-control { grid-column: 2; grid-row: 1; }
+    .opus-todo-manage-actions .snm-todo-sort-control > select { width: 100%; }
+    .opus-todo-inactive-toggle { grid-column: 1 / -1; }
+    .opus-todo-create-group, .opus-todo-view-options { width: 100%; }
+    .opus-todo-create-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .opus-todo-create-group > button { width: 100%; }
+    .opus-todo-view-options { justify-content: flex-end; }
+    .opus-meeting-overview-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+    .opus-meeting-overview-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+    .opus-meeting-overview-actions { grid-column: 1 / -1; }
     .opus-title, .opus-summary { white-space: normal; }
     .opus-meeting-overview-card { grid-template-columns: minmax(0, 1fr); }
 }
@@ -4880,7 +4912,7 @@ container.appendChild(style);
 // 12. 화면 레이아웃
 // ================================================================
 
-const viewTabs = dv.el(
+const viewTabs = dashboardElement(
     "div",
     "",
     { container }
@@ -4888,7 +4920,7 @@ const viewTabs = dv.el(
 
 viewTabs.classList.add("opus-view-tabs");
 
-const tableViewButton = dv.el(
+const tableViewButton = dashboardElement(
     "button",
     "📋 업무 목록",
     { container: viewTabs }
@@ -4896,7 +4928,7 @@ const tableViewButton = dv.el(
 
 tableViewButton.classList.add("opus-view-tab");
 
-const todoViewButton = dv.el(
+const todoViewButton = dashboardElement(
     "button",
     "✅ To-Do 보드",
     { container: viewTabs }
@@ -4904,10 +4936,10 @@ const todoViewButton = dv.el(
 
 todoViewButton.classList.add("opus-view-tab");
 
-const meetingViewButton = dv.el("button", "🗓️ 회의록", { container: viewTabs });
+const meetingViewButton = dashboardElement("button", "🗓️ 회의록", { container: viewTabs });
 meetingViewButton.classList.add("opus-view-tab");
 
-const toolbar = dv.el(
+const toolbar = dashboardElement(
     "div",
     "",
     { container }
@@ -4915,7 +4947,7 @@ const toolbar = dv.el(
 
 toolbar.classList.add("opus-toolbar");
 
-const titleArea = dv.el(
+const titleArea = dashboardElement(
     "div",
     "",
     { container: toolbar }
@@ -4925,7 +4957,7 @@ titleArea.classList.add(
     "opus-title-area"
 );
 
-const title = dv.el(
+const title = dashboardElement(
     "h3",
     "📋 전체 업무 현황",
     { container: titleArea }
@@ -4933,7 +4965,7 @@ const title = dv.el(
 
 title.classList.add("opus-title");
 
-const summary = dv.el(
+const summary = dashboardElement(
     "span",
     "",
     { container: titleArea }
@@ -4941,7 +4973,7 @@ const summary = dv.el(
 
 summary.classList.add("opus-summary");
 
-const actions = dv.el(
+const actions = dashboardElement(
     "div",
     "",
     { container: toolbar }
@@ -4949,7 +4981,7 @@ const actions = dv.el(
 
 actions.classList.add("opus-actions");
 
-const statusRefreshButton = dv.el(
+const statusRefreshButton = dashboardElement(
     "button",
     "↻ 상태 전체 갱신",
     { container: actions }
@@ -4962,7 +4994,7 @@ statusRefreshButton.classList.add(
 statusRefreshButton.title =
     "ServiceNow에서 모든 CR/SR 원본 노트의 상태를 갱신";
 
-const searchInput = dv.el(
+const searchInput = dashboardElement(
     "input",
     "",
     {
@@ -4976,7 +5008,7 @@ searchInput.classList.add(
 );
 
 searchInput.value = searchKeyword;
-const ticketActivityToolbar = dv.el("div", "", { container });
+const ticketActivityToolbar = dashboardElement("div", "", { container });
 ticketActivityToolbar.classList.add("opus-ticket-activity-toolbar");
 const ticketActivitySelect = document.createElement("select");
 ticketActivitySelect.setAttribute("aria-label", "업무 범위");
@@ -5005,10 +5037,10 @@ ticketActivitySelect.addEventListener("change", async () => {
     finally { ticketActivitySelect.disabled = false; }
 });
 
-const tableTools = dv.el("div", "", { container: actions });
+const tableTools = dashboardElement("div", "", { container: actions });
 tableTools.classList.add("opus-table-tools");
 
-const sortButton = dv.el(
+const sortButton = dashboardElement(
     "button",
     "⇅",
     { container: tableTools }
@@ -5020,7 +5052,7 @@ sortButton.classList.add(
 
 sortButton.title = "정렬";
 
-const filterButton = dv.el(
+const filterButton = dashboardElement(
     "button",
     "☷",
     { container: tableTools }
@@ -5032,7 +5064,7 @@ filterButton.classList.add(
 
 filterButton.title = "필터";
 
-const fieldButton = dv.el(
+const fieldButton = dashboardElement(
     "button",
     "▦",
     { container: tableTools }
@@ -5045,7 +5077,7 @@ fieldButton.classList.add(
 fieldButton.title =
     "표시 필드 및 크기 설정";
 
-const sortMenu = dv.el(
+const sortMenu = dashboardElement(
     "div",
     "",
     { container: toolbar }
@@ -5058,7 +5090,7 @@ sortMenu.classList.add(
 
 sortMenu.style.display = "none";
 
-const filterMenu = dv.el(
+const filterMenu = dashboardElement(
     "div",
     "",
     { container: toolbar }
@@ -5071,7 +5103,7 @@ filterMenu.classList.add(
 
 filterMenu.style.display = "none";
 
-const fieldMenu = dv.el(
+const fieldMenu = dashboardElement(
     "div",
     "",
     { container: toolbar }
@@ -5084,7 +5116,7 @@ fieldMenu.classList.add(
 
 fieldMenu.style.display = "none";
 
-const controlBar = dv.el(
+const controlBar = dashboardElement(
     "div",
     "",
     { container }
@@ -5094,13 +5126,13 @@ controlBar.classList.add(
     "opus-control-bar"
 );
 
-const tableArea = dv.el(
+const tableArea = dashboardElement(
     "div",
     "",
     { container }
 );
 
-const todoBoardArea = dv.el(
+const todoBoardArea = dashboardElement(
     "div",
     "",
     { container }
@@ -5110,7 +5142,7 @@ todoBoardArea.classList.add(
     "opus-todo-board-area"
 );
 
-const meetingArea = dv.el("div", "", { container });
+const meetingArea = dashboardElement("div", "", { container });
 meetingArea.classList.add("opus-meeting-overview-area");
 
 
@@ -10277,59 +10309,66 @@ function renderTodoBoard() {
 
     const boardActions = document.createElement("div");
     boardActions.className = "opus-todo-board-actions";
+    const manageActions = document.createElement("div");
+    manageActions.className = "opus-todo-manage-actions";
+    const createActions = document.createElement("div");
+    createActions.className = "opus-todo-create-group";
+    const viewOptions = document.createElement("div");
+    viewOptions.className = "opus-todo-view-options";
     const workflowPlugin = app.plugins?.getPlugin?.("servicenow-manage");
-    workflowPlugin?.observeResponsiveActions?.(boardActions, 145);
     if (workflowPlugin?.openTodoWorkflowSettings) {
         const configure = document.createElement("button");
         configure.className = "opus-note-action-button";
         configure.textContent = "상태 설정";
         configure.addEventListener("click", () => workflowPlugin.openTodoWorkflowSettings());
-        boardActions.appendChild(configure);
+        manageActions.appendChild(configure);
         const inactiveTasks = todoItems.filter(task => !activeStatuses.some(state => state.key === task.status));
         if (inactiveTasks.length) {
             const inactive = document.createElement("button");
-            inactive.className = "opus-note-action-button";
+            inactive.className = "opus-note-action-button opus-todo-inactive-toggle";
             inactive.textContent = `비활성화 상태 보기 · ${inactiveTasks.length}개`;
             inactive.addEventListener("click", () => workflowPlugin.openInactiveTodoModal(inactiveTasks));
-            boardActions.appendChild(inactive);
+            manageActions.appendChild(inactive);
         }
     }
 
-    const displaySwitch = document.createElement("div");
-    displaySwitch.className = "opus-todo-display-switch";
-    workflowPlugin?.renderTodoSortControl?.(boardActions);
+    workflowPlugin?.renderTodoSortControl?.(manageActions);
+    const displaySelect = document.createElement("select");
+    displaySelect.className = "opus-todo-view-select";
+    displaySelect.setAttribute("aria-label", "To-Do 보기 방식");
     [["board", "보드"], ["calendar", "달력"]].forEach(([value, label]) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = label;
-        button.classList.toggle("active", settings.todoDisplayMode === value);
-        button.addEventListener("click", () => {
-            settings.todoDisplayMode = value;
-            if (value === "calendar" && !settings.todoCalendarAnchor) settings.todoCalendarAnchor = formatDateTime().slice(0, 10);
-            saveSettings();
-            renderTodoBoard();
-        });
-        displaySwitch.appendChild(button);
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        displaySelect.appendChild(option);
     });
-    boardActions.appendChild(displaySwitch);
+    displaySelect.value = settings.todoDisplayMode;
+    displaySelect.addEventListener("change", () => {
+        settings.todoDisplayMode = displaySelect.value;
+        if (displaySelect.value === "calendar" && !settings.todoCalendarAnchor) settings.todoCalendarAnchor = formatDateTime().slice(0, 10);
+        saveSettings();
+        renderTodoBoard();
+    });
 
     const addButton = document.createElement("button");
     addButton.className = "opus-todo-add-button";
     addButton.textContent = "＋ 새 To-Do";
     addButton.addEventListener("click", () => openTodoCreateModal());
-    boardActions.appendChild(addButton);
+    createActions.appendChild(addButton);
 
     const exportButton = document.createElement("button");
     exportButton.className = "opus-todo-export-button";
     exportButton.textContent = "Jira 용 Export";
     exportButton.addEventListener("click", openJiraExportModal);
-    boardActions.appendChild(exportButton);
+    createActions.appendChild(exportButton);
 
     const groupToggle = document.createElement("label");
     groupToggle.className = "opus-todo-group-toggle";
     const groupCheckbox = document.createElement("input");
     groupCheckbox.type = "checkbox";
     groupCheckbox.checked = settings.todoGroupByTicket;
+    groupCheckbox.disabled = settings.todoDisplayMode === "calendar";
+    groupToggle.title = groupCheckbox.disabled ? "티켓별 구분은 보드 보기에서 사용합니다." : "보드의 To-Do를 티켓별로 묶습니다.";
     groupCheckbox.addEventListener("change", () => {
         settings.todoGroupByTicket = groupCheckbox.checked;
         saveSettings();
@@ -10337,7 +10376,8 @@ function renderTodoBoard() {
     });
     groupToggle.appendChild(groupCheckbox);
     groupToggle.appendChild(document.createTextNode("티켓별로 구분"));
-    if (settings.todoDisplayMode !== "calendar") boardActions.appendChild(groupToggle);
+    viewOptions.append(groupToggle, displaySelect);
+    boardActions.append(manageActions, createActions, viewOptions);
     toolbar.appendChild(boardActions);
     todoBoardArea.appendChild(toolbar);
 
@@ -10574,7 +10614,6 @@ function renderMeetingOverview() {
     actions.append(sort, drive, refresh, add);
     toolbar.append(search, kinds, actions);
     meetingArea.appendChild(toolbar);
-    dashboardActivityPlugin()?.observeResponsiveActions?.(actions, 145);
     const list = document.createElement("div");
     list.className = "opus-meeting-overview-list";
     const needle = meetingSearchKeyword.trim().toLowerCase();
