@@ -71,6 +71,9 @@ if (!dashboard.includes('memoButton.classList.toggle("has-memo"')
     || !dashboard.includes('ticketSelect.addEventListener("change"')) {
   throw new Error("Jira Memo dialog does not update the live export preview");
 }
+if (!dashboard.includes('memoConfirm.textContent = "확인"') || !dashboard.includes("syncMemoStatus();") || !dashboard.includes("메모 ${memoCount}건")) {
+  throw new Error("Jira memo confirmation or visible applied indicator is missing");
+}
 if (!dashboard.includes("const renderMemoTickets = () =>") || !dashboard.includes("taskSearchText(task).includes(needle)")) {
   throw new Error("Jira Memo ticket filtering is missing");
 }

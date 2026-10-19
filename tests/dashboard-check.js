@@ -2650,7 +2650,7 @@ tr:last-child td {
 .opus-jira-sortable-header[data-sort-direction="asc"]::after { content: " ↑"; color: var(--interactive-accent); }
 .opus-jira-sortable-header[data-sort-direction="desc"]::after { content: " ↓"; color: var(--interactive-accent); }
 .opus-jira-export-preview-actions { align-items: center; display: flex; gap: 7px; }
-.opus-jira-export-memo-button.has-memo::after { color: var(--interactive-accent); content: " ●"; }
+.opus-jira-export-memo-button.has-memo { border-color: var(--interactive-accent); color: var(--interactive-accent); }
 .opus-jira-memo-backdrop { z-index: 10030; }
 .opus-jira-memo-dialog { display: flex; flex-direction: column; max-height: min(520px, 86vh); width: min(620px, 94vw); }
 .opus-jira-memo-body { display: grid; gap: 12px; min-height: 0; padding: 14px; }
@@ -2660,6 +2660,8 @@ tr:last-child td {
 .opus-jira-memo-editor-label { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-bottom: 7px; }
 .opus-jira-memo-editor textarea { flex: 1; min-height: 180px; resize: vertical; width: 100%; }
 .opus-jira-memo-help { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 8px; }
+.opus-jira-memo-status { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 8px; }
+.opus-jira-memo-actions { display: flex; justify-content: flex-end; padding: 10px 14px; flex-shrink: 0; border-top: 1px solid var(--background-modifier-border); }
 
 .opus-todo-board-toolbar {
     display: flex;
@@ -9110,18 +9112,25 @@ function buildJiraCellTextPayload(tasks, fields) {
             const value = values[field.key];
             if (!value) return;
             if (field.key === "todoDetails") {
-                String(value).split(/\r?\n/).forEach(line => lines.push(`   ${line}`));
+                String(value).split(/\r?\n/).forEach(line => lines.push(line.trim() ? `   ${line}` : ""));
                 return;
             }
             if (field.key === "todo") {
                 normalizeJiraDetailLines(value).forEach(line => lines.push(`   - ${line}`));
                 return;
             }
-            const valueLines = String(value).split(/\r?\n/).filter(Boolean);
+            const valueLines = String(value).replace(/\r\n?/g, "\n").trim().split("\n");
+            if (field.key === "memo" && valueLines.length > 1) {
+                if (lines.at(-1) !== "") lines.push("");
+                lines.push(`   - ${field.jiraLabel || field.label}:`);
+                valueLines.forEach(line => lines.push(line.trim() ? `     ${line.trimEnd()}` : ""));
+                lines.push("");
+                return;
+            }
             lines.push(`   - ${field.jiraLabel || field.label}: ${valueLines.shift() || ""}`);
-            valueLines.forEach(line => lines.push(`     ${line}`));
+            valueLines.forEach(line => lines.push(line.trim() ? `     ${line.trimEnd()}` : ""));
         });
-        return lines.join("\n");
+        return lines.join("\n").trimEnd();
     }).join("\n\n");
     return { rows: rows.map(row => fields.map(field => row.values[field.key])), text };
 }
@@ -9531,16 +9540,31 @@ function openJiraExportModal() {
         textarea.placeholder = "회의에서 공유할 메모를 입력하세요.";
         const help = document.createElement("div");
         help.className = "opus-jira-memo-help";
-        help.textContent = "입력 내용은 현재 Jira Export 창에서만 유지되며 원본 노트에는 저장되지 않습니다.";
-        editor.append(editorLabel, textarea, help);
+        help.textContent = "입력 즉시 현재 Export에 임시 반영됩니다. ‘확인’을 눌러 미리보기를 확인하세요. 원본 노트에는 저장되지 않습니다.";
+        const memoStatus = document.createElement("div");
+        memoStatus.className = "opus-jira-memo-status";
+        memoStatus.setAttribute("role", "status");
+        memoStatus.setAttribute("aria-live", "polite");
+        const syncMemoStatus = () => {
+            memoStatus.textContent = textarea.value.trim() ? `현재 Export에 임시 반영됨 · ${textarea.value.length}자` : "현재 티켓에 입력된 메모가 없습니다.";
+        };
+        editor.append(editorLabel, textarea, memoStatus, help);
         memoBody.append(ticketSearch, ticketSelect, editor);
-        memoDialog.append(header, memoBody);
+        const memoActions = document.createElement("div");
+        memoActions.className = "opus-jira-memo-actions";
+        const memoConfirm = document.createElement("button");
+        memoConfirm.type = "button";
+        memoConfirm.className = "mod-cta";
+        memoConfirm.textContent = "확인";
+        memoActions.appendChild(memoConfirm);
+        memoDialog.append(header, memoBody, memoActions);
         memoBackdrop.appendChild(memoDialog);
         const closeEditor = () => { memoBackdrop.remove(); renderPreview(); };
         const selectTask = task => {
             selectedKey = memoKey(task);
             editorLabel.textContent = `${task.ticketId || "티켓 없음"} 메모`;
             textarea.value = jiraMemoValues.get(selectedKey) || "";
+            syncMemoStatus();
             ticketSelect.value = selectedKey;
             textarea.focus();
         };
@@ -9565,6 +9589,7 @@ function openJiraExportModal() {
                 ticketSelect.appendChild(option);
                 textarea.disabled = true;
                 editorLabel.textContent = "검색 결과 없음";
+                memoStatus.textContent = "다른 검색어로 티켓을 선택해 주세요. 입력한 메모는 유지됩니다.";
                 return;
             }
             textarea.disabled = false;
@@ -9578,7 +9603,14 @@ function openJiraExportModal() {
         });
         textarea.addEventListener("input", () => {
             jiraMemoValues.set(selectedKey, textarea.value);
+            syncMemoStatus();
             renderPreview();
+        });
+        memoConfirm.addEventListener("click", async () => {
+            memoConfirm.disabled = true;
+            closeEditor();
+            if (translateTodoToEnglish) await ensureEnglishTranslations();
+            new Notice("메모 변경 사항을 현재 Jira Export에 반영했습니다. 원본 노트에는 저장하지 않습니다.");
         });
         closeMemo.addEventListener("click", closeEditor);
         memoBackdrop.addEventListener("click", event => { if (event.target === memoBackdrop) closeEditor(); });
@@ -9589,13 +9621,16 @@ function openJiraExportModal() {
         const selected = selectedTasks();
         const tasks = exportTasks();
         const fields = orderedFields();
+        const memoCount = [...new Set(tasks.map(memoKey))].filter(key => String(jiraMemoValues.get(key) || "").trim()).length;
         summary.textContent = collapseSameTicket
             ? `선택 ${selected.length}개 · 티켓 ${tasks.length}건으로 묶음 · 필드 ${fields.length}개`
             : `선택 ${tasks.length}개 · 필드 ${fields.length}개`;
+        if (selectedFieldKeys.has("memo")) summary.textContent += ` · 메모 ${memoCount}건`;
         copyButton.disabled = translationWorking || !tasks.length || !fields.length;
         memoButton.style.display = selectedFieldKeys.has("memo") ? "" : "none";
         memoButton.disabled = !tasks.length;
-        memoButton.classList.toggle("has-memo", tasks.some(task => String(jiraMemoValues.get(memoKey(task)) || "").trim()));
+        memoButton.classList.toggle("has-memo", memoCount > 0);
+        memoButton.textContent = memoCount ? `메모 입력 · ${memoCount}건` : "메모 입력";
         if (!tasks.length || !fields.length) {
             preview.innerHTML = '<div class="opus-jira-export-empty">To-Do와 필드를 선택해 주세요.</div>';
         } else if (exportFormat === "cellText") {
