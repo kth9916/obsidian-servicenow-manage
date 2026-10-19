@@ -4777,6 +4777,73 @@ tr:last-child td {
         grid-template-columns: 1fr;
     }
 }
+
+/* Responsive action groups follow the pane/popup, not the monitor size. */
+.opus-dashboard { container: snm-dashboard / inline-size; min-width: 0; }
+.opus-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(310px, auto); }
+.opus-title-area { flex-wrap: wrap; min-width: 0; }
+.opus-actions { display: grid; grid-template-columns: auto minmax(100px, 1fr) auto; min-width: 0; width: min(620px, 100%); }
+.opus-actions .opus-search { width: 100%; min-width: 0; }
+.opus-table-tools { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
+.opus-view-tabs { flex-wrap: wrap; max-width: 100%; }
+.opus-meeting-overview-toolbar { display: grid; grid-template-columns: minmax(160px, 1fr) auto minmax(420px, 1fr); }
+.opus-meeting-overview-toolbar input[type="search"] { min-width: 0; width: 100%; }
+.opus-meeting-overview-actions { width: 100%; min-width: 0; }
+.opus-todo-board-toolbar { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(400px, 1fr); }
+.opus-todo-board-filters, .opus-todo-board-actions { min-width: 0; }
+.opus-todo-board-filters { flex-direction: row; align-items: center; }
+.opus-todo-board-filters > * { min-width: 0; max-width: 100%; }
+.opus-todo-search { flex: 1 1 220px; width: auto; min-width: 0; }
+.opus-todo-board-guide { flex-basis: 100%; }
+.opus-todo-display-switch { justify-content: center; }
+.opus-todo-display-switch button { flex: 1; }
+.opus-todo-date-filter { max-width: 100%; flex-wrap: wrap; }
+.opus-todo-date-filter input { min-width: 0; flex: 1 1 120px; }
+.opus-note-header, .opus-note-toolbar, .opus-note-footer, .opus-todo-create-actions, .opus-ticket-todo-detail-actions { flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+.opus-note-title { min-width: 0; overflow-wrap: anywhere; }
+.opus-note-close { flex-shrink: 0; }
+.opus-todo-create-body, .opus-jira-memo-body { overflow-y: auto; min-height: 0; }
+.opus-jira-export-body { grid-template-columns: minmax(0, 1fr) minmax(0, .75fr) minmax(0, 1.65fr); overflow: auto; }
+.opus-jira-export-body > * { min-width: 0; }
+.opus-ticket-todo-layout { grid-template-columns: minmax(230px, .7fr) minmax(0, 1.3fr); max-height: 76vh; }
+.opus-jira-export-preview-actions { flex-wrap: wrap; }
+
+@container snm-dashboard (max-width: 1400px) {
+    .opus-todo-board-toolbar { grid-template-columns: minmax(0, 1fr); }
+}
+@container snm-dashboard (max-width: 850px) {
+    .opus-todo-date-filter { flex-basis: 100%; }
+}
+@container snm-dashboard (max-width: 1100px) {
+    .opus-toolbar { grid-template-columns: minmax(0, 1fr); }
+    .opus-actions { width: 100%; }
+    .opus-meeting-overview-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
+    .opus-meeting-overview-actions { grid-column: 1 / -1; }
+    .opus-popup-panel { min-width: 0; max-width: 100%; }
+    .opus-field-list { grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); }
+}
+@container snm-dashboard (max-width: 560px) {
+    .opus-actions { grid-template-columns: minmax(0, 1fr) auto; }
+    .opus-actions > .opus-small-button { grid-column: 1 / -1; }
+    .opus-title, .opus-summary { white-space: normal; }
+    .opus-meeting-overview-card { grid-template-columns: minmax(0, 1fr); }
+}
+@container snm-popup (max-width: 1150px) {
+    .opus-jira-export-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); overflow-y: auto; }
+    .opus-jira-export-body > :last-child { grid-column: 1 / -1; min-height: 320px; }
+    .opus-jira-export-task-list, .opus-jira-export-fields { max-height: 260px; }
+    .opus-jira-export-preview { min-height: 280px; max-height: none; }
+}
+@container snm-popup (max-width: 680px) {
+    .opus-jira-export-body { grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; align-content: start; }
+    .opus-jira-export-body > :last-child { grid-column: auto; }
+    .opus-jira-export-panel { overflow: visible; }
+    .opus-jira-export-modal > :last-child { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .opus-jira-export-modal > :last-child > :not(button) { grid-column: 1 / -1; }
+    .opus-jira-export-modal > :last-child > button { width: 100%; min-width: 0; margin: 0; height: auto; min-height: 34px; white-space: normal; }
+    .opus-note-toolbar { align-items: stretch; }
+    .opus-note-view-options { flex-wrap: wrap; }
+}
 `;
 
 container.appendChild(style);
@@ -4911,10 +4978,13 @@ ticketActivitySelect.addEventListener("change", async () => {
     finally { ticketActivitySelect.disabled = false; }
 });
 
+const tableTools = dv.el("div", "", { container: actions });
+tableTools.classList.add("opus-table-tools");
+
 const sortButton = dv.el(
     "button",
     "⇅",
-    { container: actions }
+    { container: tableTools }
 );
 
 sortButton.classList.add(
@@ -4926,7 +4996,7 @@ sortButton.title = "정렬";
 const filterButton = dv.el(
     "button",
     "☷",
-    { container: actions }
+    { container: tableTools }
 );
 
 filterButton.classList.add(
@@ -4938,7 +5008,7 @@ filterButton.title = "필터";
 const fieldButton = dv.el(
     "button",
     "▦",
-    { container: actions }
+    { container: tableTools }
 );
 
 fieldButton.classList.add(
@@ -10173,6 +10243,7 @@ function renderTodoBoard() {
     const boardActions = document.createElement("div");
     boardActions.className = "opus-todo-board-actions";
     const workflowPlugin = app.plugins?.getPlugin?.("servicenow-manage");
+    workflowPlugin?.observeResponsiveActions?.(boardActions, 145);
     if (workflowPlugin?.openTodoWorkflowSettings) {
         const configure = document.createElement("button");
         configure.className = "opus-note-action-button";
@@ -10466,6 +10537,7 @@ function renderMeetingOverview() {
     actions.append(sort, drive, refresh, add);
     toolbar.append(search, kinds, actions);
     meetingArea.appendChild(toolbar);
+    dashboardActivityPlugin()?.observeResponsiveActions?.(actions, 145);
     const list = document.createElement("div");
     list.className = "opus-meeting-overview-list";
     const needle = meetingSearchKeyword.trim().toLowerCase();

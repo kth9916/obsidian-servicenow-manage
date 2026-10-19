@@ -1978,3 +1978,82 @@ button.mod-warning:hover {
 .clt-related-note-preview { color: var(--text-muted); font-size: var(--font-ui-smaller); margin: 8px 0; overflow-wrap: anywhere; }
 .clt-related-note-modal [role="status"] { white-space: pre-line; overflow-wrap: anywhere; }
 .clt-related-note-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+
+/* Shared content-popup sizing. Compact confirmations keep their own width. */
+:is(.clt-todo-entry-modal, .clt-todo-detail-modal, .clt-meeting-import-modal,
+    .clt-meeting-list-modal, .clt-meeting-drive-modal, .clt-meeting-analysis-modal,
+    .clt-meeting-links-modal, .clt-meeting-action-modal, .clt-ds-schedule-modal,
+    .clt-status-guide-modal, .snm-todo-workflow-modal, .snm-pack-import-modal,
+    .snm-setup-modal, .snm-content-modal, .opus-note-modal) {
+  box-sizing: border-box;
+  width: min(var(--snm-popup-width, 75vw), calc(100vw - 32px)) !important;
+  max-width: calc(100vw - 32px) !important;
+  min-width: 0 !important;
+  max-height: 92vh;
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+:is(.clt-todo-entry-modal, .clt-todo-detail-modal, .clt-meeting-import-modal,
+    .clt-meeting-list-modal, .clt-meeting-drive-modal, .clt-meeting-analysis-modal,
+    .clt-meeting-links-modal, .clt-meeting-action-modal, .clt-ds-schedule-modal,
+    .clt-status-guide-modal, .snm-todo-workflow-modal, .snm-pack-import-modal,
+    .snm-setup-modal, .snm-content-modal) > .modal-content {
+  container: snm-popup / inline-size;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.opus-note-modal { container: snm-popup / inline-size; }
+.clt-todo-detail-layout { grid-template-columns: minmax(210px, .65fr) minmax(0, 1.7fr); }
+.clt-todo-detail-layout.no-ticket { max-width: none; }
+.clt-todo-detail-modal .clt-ticket-entry-input { min-height: 72px; }
+.clt-todo-detail-editor .clt-todo-entry-field:nth-child(2) .clt-rich-markdown-editor { min-height: clamp(160px, 24vh, 300px); max-height: 45vh; }
+.clt-todo-entry-field, .clt-todo-due-fields { min-width: 0; }
+.clt-todo-due-fields { grid-template-columns: minmax(0, 1fr) 146px; }
+.clt-todo-entry-field :is(input, select, textarea) { max-width: 100%; min-width: 0; }
+
+.clt-ticket-status-controls { display: block; }
+.clt-ticket-status-info { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 10px; overflow-wrap: anywhere; }
+.clt-ticket-action-grid { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+.clt-ticket-action-grid > button { flex: 1 1 200px; min-height: 36px; height: auto; white-space: normal; }
+.snm-balanced-actions { display: flex !important; flex-direction: row !important; flex-wrap: wrap; gap: 8px !important; min-width: 0; }
+.snm-balanced-actions > * { box-sizing: border-box; flex: 1 1 var(--snm-action-basis, 180px) !important; min-width: 0; max-width: 100%; margin-left: 0; }
+.snm-balanced-actions > button { height: auto; min-height: 34px; white-space: normal; overflow-wrap: anywhere; }
+.snm-balanced-actions > :is([hidden], .opus-hidden) { display: none !important; }
+.clt-sn-document-actions { flex-wrap: wrap; }
+.clt-sn-document-actions > button { height: auto; min-height: 34px; white-space: normal; }
+.clt-meeting-inline-toolbar, .clt-meeting-list-toolbar, .clt-sn-header { flex-wrap: wrap; }
+.clt-meeting-list-actions { flex: 1 1 580px; min-width: 0; }
+.clt-meeting-list-actions > * { flex: 1 1 125px; min-width: 0; }
+.clt-meeting-list-actions button { min-height: 34px; height: auto; white-space: normal; }
+
+/* Queries use the popup's width, including a user's 50% choice on a large screen. */
+@container snm-popup (max-width: 840px) {
+  .clt-todo-detail-layout { grid-template-columns: minmax(0, 1fr); }
+  .clt-todo-ticket-context { max-height: 230px; overflow: auto; }
+  .opus-ticket-todo-layout { grid-template-columns: minmax(0, 1fr); max-height: none; min-height: 0; overflow: auto; }
+  .opus-ticket-todo-list-pane { max-height: 240px; border-right: 0; border-bottom: 1px solid var(--background-modifier-border); flex-shrink: 0; }
+  .opus-ticket-todo-detail-pane { overflow: visible; }
+}
+@container snm-popup (max-width: 600px) {
+  .clt-todo-entry-row, .clt-meeting-import-grid { grid-template-columns: minmax(0, 1fr); }
+  .clt-meeting-drive-search { grid-template-columns: minmax(0, 1fr) auto; }
+  .clt-meeting-drive-search input { grid-column: 1 / -1; }
+  .clt-sn-document-actions > button { flex: 1 1 130px; }
+  .snm-todo-workflow-row { grid-template-columns: 30px minmax(65px, 1fr) 32px 32px; }
+  .snm-todo-workflow-row small { display: none; }
+}
+@media (max-width: 760px) {
+  :is(.clt-todo-entry-modal, .clt-todo-detail-modal, .clt-meeting-import-modal,
+      .clt-meeting-list-modal, .clt-meeting-drive-modal, .clt-meeting-analysis-modal,
+      .clt-meeting-links-modal, .clt-meeting-action-modal, .clt-ds-schedule-modal,
+      .clt-status-guide-modal, .snm-todo-workflow-modal, .snm-pack-import-modal,
+      .snm-setup-modal, .snm-content-modal, .opus-note-modal) {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+  }
+  .opus-modal-backdrop { padding: 12px !important; }
+}
