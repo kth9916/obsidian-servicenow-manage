@@ -32,6 +32,7 @@ async function filesWithExtension(directory, extension) {
 }
 
 files.push(...await markdownResources(path.join(root, "resources")));
+files.push(...await markdownResources(path.join(root, "releases")));
 files.push(...await filesWithExtension(path.join(root, "examples"), ".json"));
 files.push(...await filesWithExtension(path.join(root, "tests"), ".js"));
 files.push(...await filesWithExtension(path.join(root, "scripts"), ".mjs"));

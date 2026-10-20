@@ -34,10 +34,12 @@
 
 ## GitHub release
 
+- [ ] Compare the last published release tag with the final commit and write versioned release notes under `releases/<version>.md`. Group actual changes into features, improvements/fixes, upgrade steps, and limitations; never use only a generic "fix bug" summary or repeat older features as new.
 - [ ] Commit and push the final source to the default branch.
 - [ ] Create a GitHub release whose tag exactly matches `manifest.json` version, without a `v` prefix. Example: `2.0.0`.
 - [ ] Upload `main.js`, `manifest.json`, and `styles.css` as individual release assets.
 - [ ] Download the assets from the published release and compare their hashes with the locally tested files.
+- [ ] Prefer creating a draft, verifying the three uploaded assets against the tested files, and only then publishing it as the latest stable release.
 - [ ] Confirm the release is public and not a draft or prerelease for the initial directory submission.
 
 ## Community directory submission
@@ -51,6 +53,7 @@
 ## Internal rollout
 
 - [ ] Publish the internal Confluence guide without embedding a raw token or OAuth secret.
+- [ ] Preserve the current credential-contact instructions; never restore removed token or OAuth attachments from old versions. Update the guide's version and relevant feature instructions only after the release is published, preserving tables, media, macros, anchors, and publication state.
 - [ ] Provide credentials through an approved secret-sharing channel, with owner, scope, expiration, and rotation information.
 - [ ] Define support ownership, incident reporting, release notes, and rollback procedure.
 - [ ] Pilot with a small internal group before broad rollout.

@@ -6,7 +6,19 @@ This is an independent community project. It is not affiliated with, endorsed by
 
 Maintainer: **thkim9916** · `thkim9916@cyberlogitec.com`
 
-## What's new in 2.15.0
+## What's new in 2.16.0
+
+- Separate active work from archived/dormant history, with shared lifecycle settings, on-demand history loading, and automatic reactivation when opening a ticket's root note.
+- Import weekly/common meetings without a ticket, then link, relink, or unlink tickets later. File and Drive imports share searchable multi-select chips and an explicit ticketless option.
+- Refresh the DS before selecting Schedule or PROD Schedule activities to create To-Dos. Choose Start or End as the due-date basis, preserve the creation time for date-only rows, and optionally add review preparation.
+- Create related-note indexes and child notes directly from a ticket or its index, with navigation back to both the original ticket and the parent index.
+- Filter Jira Export by multiple To-Do states; confirm temporary memos and preserve multiline paragraph/list spacing in cell-text output.
+- Use shared To-Do sorting, current-time buttons, configurable popup width (75% default), compact toolbars, readable date fields, and a pinned To-Do action footer.
+- Improve Drive document matching for separator whitespace and paginated results, and fix excessive date-control spacing and clipped responsive Export panels.
+
+See the [full 2.16.0 release notes](releases/2.16.0.md) for changes, upgrade steps, and limitations.
+
+### Previous release: 2.15.0
 
 - Not started, In progress, **Pending (waiting)**, and Done are separate states. Existing unchecked tasks remain Not started.
 - Pending supports an optional waiting reason and follow-up date, separate from the completion due date. Cards show the waiting start date and highlight follow-ups due today or earlier; states never resume automatically.
@@ -21,7 +33,7 @@ Meeting-to-ticket links are optional. File import and Google Drive import both o
 
 Existing source meeting notes can be linked, relinked, or unlinked later from their note or meeting cards. This updates `ticket`, `tickets`, `Parent`, `Parents`, and the generated ticket-summary row in one note write; unrelated metadata and meeting content are preserved. Files/PDFs are not moved or copied. All linked ticket lists share the same note, and clearing links returns it to the weekly/common group regardless of its original folder. Ticket-specific AI analysis documents are not reassigned; change links on the source meeting instead.
 
-Active/history management keeps completed-state tickets out of scheduled refreshes and the default dashboard, without moving or deleting notes. Dormancy defaults to both three calendar months without opening the root note and six months without meaningful changes; first-time observation starts now rather than inventing older visit history. The default completed states are Implemented, Closed, Resolved, and Cancelled, with seven days of change grace. Recent root-note visits and unfinished To-Dos keep a ticket active; users can pin a ticket active or archive it explicitly. Opening its root note clears manual archival and reactivates it. Background reads, search results, and unchanged synchronizations do not count as visits. Archived remote changes are not polled automatically; open the root note or run a manual inclusive refresh to check them.
+Active/history management keeps completed-state tickets out of scheduled refreshes and the default dashboard, without moving or deleting notes. Dormancy defaults to both three calendar months without opening the root note and six months without meaningful changes; first-time observation starts now rather than inventing older visit history. The default completed states are Implemented, Closed, Resolved, and Cancelled, with seven days of change grace. Recent root-note visits and unfinished To-Dos keep a ticket active. Lifecycle settings apply globally rather than requiring per-ticket configuration. Opening a root note records a visit and reactivates it. Background reads, search results, and unchanged synchronizations do not count as visits. Archived remote changes are not polled automatically; open the root note or run a manual inclusive refresh to check them.
 
 The dashboard offers Active, All, Archived, and Dormant scopes. Exact ticket-number lookup can find archived/dormant notes even with table filters; ordinary history search is available in the inclusive scope. Root-note details are loaded on demand and reused until modified. Activity timestamps, hashes, and a bounded text/reference index are stored only in the Vault plugin folder's private `ticket-activity.json`; Vault backup/sync settings still apply. Existing ticket contents and ServiceNow states are not rewritten by classification. Configurable periods and completed states are shared between ticket notes and the dashboard.
 
