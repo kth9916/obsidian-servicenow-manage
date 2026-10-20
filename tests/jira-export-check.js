@@ -4,7 +4,13 @@ const path = require("path");
 const root = path.resolve(__dirname, "..");
 const dashboard = fs.readFileSync(path.join(root, "resources", "업무현황.md"), "utf8");
 
+const dateRangeRule = dashboard.match(/\.opus-jira-export-date-range\s*\{([^}]+)\}/)?.[1];
+if (!dateRangeRule?.includes("repeat(auto-fit, minmax(min(100%, 166px), 1fr))") || !dateRangeRule.includes("align-items: start")) {
+  throw new Error("Jira Export dates must stay compact and stack by panel width before clipping date/Now controls");
+}
+
 const required = [
+  ".opus-jira-export-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-rows: max-content; align-content: start; overflow-y: auto; }",
   'const DASHBOARD_RUNTIME_VERSION = "2.11.0";',
   'exportButton.textContent = "Jira 용 Export";',
   "function openJiraExportModal()",

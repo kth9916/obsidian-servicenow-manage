@@ -1,5 +1,9 @@
 const fs = require("fs"), path = require("path"), vm = require("vm"), assert = require("assert");
 const main = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
+const css = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8");
+const nowFieldRule = css.match(/\.snm-now-field\s*\{([^}]+)\}/)?.[1];
+assert(nowFieldRule && /flex:\s*0\s+1\s+auto\s*;/.test(nowFieldRule), "shared Now wrappers must retain natural height in column labels, not a horizontal pixel flex-basis");
+assert(/width:\s*100%/.test(nowFieldRule), "horizontal date controls must still fill their container");
 let notify, watched, stopped = false;
 class Element {
   constructor(tag = "div", type = "") { this.tag = tag; this.type = type; this.nodeType = 1; this.children = []; this.attrs = {}; this.events = {}; this.disabled = false; this.readOnly = false; this.className = ""; this.value = "";

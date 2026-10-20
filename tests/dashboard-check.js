@@ -56,7 +56,7 @@ const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
 
 // 플러그인이 관리하는 업무현황 실행 영역의 버전입니다.
 const DASHBOARD_RUNTIME_VERSION = "2.11.0";
-const DASHBOARD_LAYOUT_REVISION = "2026-10-19-compact-toolbars";
+const DASHBOARD_LAYOUT_REVISION = "2026-10-20-compact-export-dates";
 const TABLE_EDITABLE_DATE_MIN_WIDTH = 190;
 const editableDateColumns = new Set(["releaseDate", "scheduledDate", "lastChecked"]);
 function tableColumnWidth(key, value) {
@@ -3692,9 +3692,12 @@ tr:last-child td {
 
 .opus-jira-export-date-range {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 166px), 1fr));
+    align-items: start;
     gap: 7px;
 }
+
+.opus-jira-export-date-range > label { min-width: 0; }
 
 .opus-jira-export-filters select,
 .opus-jira-export-filters input[type="date"] {
@@ -4888,7 +4891,7 @@ tr:last-child td {
     .opus-todo-date-filter > .opus-todo-date-clear { grid-column: 1; }
 }
 @container snm-popup (max-width: 1150px) {
-    .opus-jira-export-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); overflow-y: auto; }
+    .opus-jira-export-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-rows: max-content; align-content: start; overflow-y: auto; }
     .opus-jira-export-body > :last-child { grid-column: 1 / -1; min-height: 320px; }
     .opus-jira-export-task-list, .opus-jira-export-fields { max-height: 260px; }
     .opus-jira-export-preview { min-height: 280px; max-height: none; }

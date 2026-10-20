@@ -2116,7 +2116,8 @@ button.mod-warning:hover {
   gap: 5px;
   width: 100%;
   min-width: 0;
-  flex: 1 1 170px;
+  /* The wrapper also lives in column labels: a pixel flex-basis becomes height there. */
+  flex: 0 1 auto;
   container: snm-now / inline-size;
 }
 .snm-now-field > input {
