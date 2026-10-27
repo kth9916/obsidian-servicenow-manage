@@ -85,6 +85,13 @@ plugin.app = {
   assert(context.aiWikiStarterPrompt(plugin, "chatgpt", "start", "attachment").includes("파일 직접 첨부 방식"));
   assert(context.aiWikiStarterPrompt(plugin, "chatgpt", "check", "attachment").includes("직접 첨부한"));
   assert(!context.aiWikiStarterPrompt(plugin, "chatgpt", "check", "attachment").includes("로컬 파일"));
+  const preparation = context.aiWikiFolderPreparationPrompt(plugin, "codex");
+  assert(preparation.includes("D:/Notes Vault/Project A/Operations"));
+  assert(preparation.includes("폴더 읽기 가능") && preparation.includes("현재 접근 불가"));
+  assert(preparation.includes("읽기 전용") && preparation.includes("수정·삭제하지 마세요"));
+  assert(!context.aiWikiFolderPreparationPrompt(plugin, "chatgpt", "attachment").includes("읽기 전용으로 확인"));
+  const connectSource = main.slice(main.indexOf("class AiWikiConnectModal"), main.indexOf("class AiWikiModal"));
+  assert(!connectSource.includes("CLI 직접 실행") && !connectSource.includes("launchAiWikiApp"));
   await plugin.prepareAiWikiChallenge();
   const checkPath = `${folder}/연결 확인.md`, code = texts.get(checkPath).match(/snm-wiki-[a-f0-9-]+/)[0];
   assert(!context.aiWikiStarterPrompt(plugin, "codex", "check").includes(code));

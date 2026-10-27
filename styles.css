@@ -2180,6 +2180,10 @@ button.mod-warning:hover {
 .snm-ai-folder-state[data-state="applied"], .snm-ai-connection-state[data-state="verified"] { color: var(--text-success, var(--interactive-accent)); }
 .snm-ai-connect-body > details { margin: 14px 0; }
 .snm-ai-connect-body > h3 { margin: 18px 0 12px; }
+.snm-ai-prep-steps { padding-left: 22px; line-height: 1.6; }
+.snm-ai-prep-steps > li + li { margin-top: 7px; }
+.snm-ai-launcher-settings { margin-top: 14px; }
+.snm-ai-launcher-settings > input, .snm-ai-launcher-settings > select { width: 100%; max-width: 100%; margin: 6px 0; }
 .modal.snm-ai-connect-modal { height: auto; min-height: min(440px, 92dvh); }
 .snm-ai-settings-block { container: snm-ai-settings / inline-size; }
 .snm-ai-settings-block .setting-item-control { flex-wrap: wrap; min-width: 0; max-width: 100%; }

@@ -23,11 +23,12 @@ vm.runInContext(source.slice(source.indexOf("// BEGIN AI WIKI"), source.indexOf(
 vm.runInContext(source.match(/function renderAiWikiSettings\([^]*?\n\}/)[0], ctx);
 const Wizard = vm.runInContext("AiWikiConnectModal", ctx);
 (async () => {
-  let release, fail = false, prepared = 0, verified = 0;
+  let release, fail = false, prepared = 0, verified = 0, launched;
   const plugin = {
     settings: { aiWikiEnabled: false, aiWikiSubfolder: "LLM WIKI", aiWikiProvider: "codex", aiWikiAllowWrites: false }, rootFolder: () => "Project A",
     aiWikiFolder: () => "Project A/" + plugin.settings.aiWikiSubfolder, absoluteVaultPath: value => "D:/Notes/" + value,
     configureAiWiki: async changes => { if (release) await new Promise(resolve => { release.resolve = resolve; }); if (fail) throw Error("disk unavailable"); Object.assign(plugin.settings, changes); if (changes.aiWikiEnabled || changes.aiWikiSubfolder) plugin.settings.aiWikiFolderApplied = true; },
+    launchAiWikiApp: async (provider, path) => { launched = [provider, path]; },
     prepareAiWikiChallenge: async () => { prepared++; }, getAiWikiConnectionStatus: async () => ({ state: verified ? "verified" : "pending" }),
     verifyAiWikiChallenge: async (answer, options) => { if (answer !== "correct") throw Error("wrong code"); assert.equal(options.provider, "codex"); verified++; }
   };
@@ -35,11 +36,20 @@ const Wizard = vm.runInContext("AiWikiConnectModal", ctx);
   const controls = host.all(), toggle = controls.find(el => el.tag === "toggle"), writer = controls.filter(el => el.tag === "toggle")[1];
   const input = controls.find(el => el.tag === "input"), apply = controls.find(el => el.textContent === "적용");
   const state = controls.find(el => el.attrs["aria-label"] === "저장 폴더 적용 상태");
+  const appProvider = controls.find(el => el.attrs["aria-label"] === "앱 경로를 설정할 AI");
+  const appPath = controls.find(el => el.attrs["aria-label"] === "고급 AI 앱 실행 경로");
+  const saveApp = controls.find(el => el.textContent === "앱 경로 저장"), launchApp = controls.find(el => el.textContent === "등록한 앱 열기");
+  assert(appProvider.disabled && appPath.disabled && saveApp.disabled && launchApp.disabled);
   assert(state.textContent.startsWith("미적용")); assert(writer.disabled);
   release = {}; const enabling = toggle.change(true);
   assert(toggle.disabled && writer.disabled); assert(controls.find(el => el.attrs["aria-label"] === "AI Wiki 설정 저장 상태").textContent.includes("저장 중"));
   release.resolve(); release = null; await enabling;
   assert(!writer.disabled, "enabling must unlock recording settings without applying the folder again"); assert(state.textContent.startsWith("적용됨")); assert(apply.disabled);
+  assert(!appPath.disabled && !saveApp.disabled && !launchApp.disabled);
+  appProvider.value = "claude"; appProvider.events.change(); appPath.value = "C:/Apps/Claude.exe";
+  await saveApp.events.click(); assert.equal(plugin.settings.aiWikiAppPaths.claude, appPath.value);
+  assert.equal(plugin.settings.aiWikiProvider, "codex", "advanced launcher must not change the selected connection provider");
+  await launchApp.events.click(); assert.deepEqual(launched, ["claude", appPath.value]);
   input.value = "Changed Wiki"; input.change(input.value); assert(state.textContent.includes("아직 미적용")); assert(!apply.disabled);
   await writer.change(true); assert.equal(input.value, "Changed Wiki");
   assert(state.textContent.includes("아직 미적용"), "unrelated autosave must preserve the folder draft");
