@@ -56,7 +56,7 @@ const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
 
 // 플러그인이 관리하는 업무현황 실행 영역의 버전입니다.
 const DASHBOARD_RUNTIME_VERSION = "2.11.0";
-const DASHBOARD_LAYOUT_REVISION = "2026-10-20-compact-export-dates";
+const DASHBOARD_LAYOUT_REVISION = "2026-10-27-export-draft-editing";
 const TABLE_EDITABLE_DATE_MIN_WIDTH = 190;
 const editableDateColumns = new Set(["releaseDate", "scheduledDate", "lastChecked"]);
 function tableColumnWidth(key, value) {
@@ -3946,6 +3946,30 @@ tr:last-child td {
     user-select: text !important;
     white-space: pre-wrap;
 }
+
+.opus-jira-export-preview-heading { flex-wrap: wrap; }
+.opus-jira-export-preview-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; }
+.opus-jira-edit-help { color: var(--text-muted); flex: 0 0 auto; font-size: 11px; line-height: 1.5; margin: 4px 0 9px; }
+.opus-jira-export-preview td.is-editable { cursor: text; }
+.opus-jira-export-preview td.is-editable:hover,
+.opus-jira-export-preview td.is-editable:focus-visible { outline: 1px solid var(--interactive-accent); outline-offset: -2px; }
+.opus-jira-export-preview td.is-edited { background: color-mix(in srgb, var(--interactive-accent) 9%, var(--background-primary)); box-shadow: inset 3px 0 var(--interactive-accent); }
+.opus-jira-export-ticket-toggle > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opus-modal-backdrop.opus-jira-edit-backdrop { z-index: 11030; }
+.opus-jira-edit-dialog { max-height: 90vh; overflow: hidden; width: min(900px, 96vw); }
+.opus-jira-edit-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; padding: 16px; }
+.opus-jira-edit-body > input,
+.opus-jira-edit-body > select,
+.opus-jira-edit-body > label { flex: 0 0 auto; min-width: 0; width: 100%; }
+.opus-jira-edit-body > label { display: flex; flex-direction: column; gap: 5px; }
+.opus-jira-edit-body select { max-width: 100%; min-width: 0; width: 100%; }
+.opus-jira-field-input { box-sizing: border-box; flex: 1 1 180px; font-family: var(--font-text); line-height: 1.5; max-height: 45vh; min-height: 120px; resize: vertical; width: 100%; }
+.opus-jira-json-dialog { height: min(760px, 90vh); }
+.opus-jira-json-input { box-sizing: border-box; flex: 1 1 240px; font-family: var(--font-monospace); font-size: 12px; line-height: 1.5; min-height: 120px; resize: none; tab-size: 2; width: 100%; }
+.opus-jira-edit-message { color: var(--text-error); flex: 0 0 auto; font-size: 12px; max-height: 100px; overflow: auto; padding: 0 16px 10px; }
+.opus-jira-edit-message:empty { display: none; }
+.opus-jira-edit-actions { align-items: center; border-top: 1px solid var(--background-modifier-border); display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding: 12px 16px; }
+.opus-jira-edit-actions > button { flex: 0 0 auto; height: auto; min-height: 32px; white-space: nowrap; }
 
 .opus-jira-export-preview table {
     width: max-content;
@@ -9228,7 +9252,73 @@ const JIRA_EXPORT_FIELDS = [
     { key: "updated", label: "Updated Date (수정일)", jiraLabel: "Updated Date", value: (_task, page) => page?.updated ?? "" }
 ];
 
+function jiraExportRowKey(task) {
+    return task.jiraExportGroupId || `task:${task.id ?? `${task.filePath || ""}:${task.line ?? ""}:${task.text || ""}`}`;
+}
+
+// Drafts belong to this Export window, never to a ticket number entered by the user.
+function jiraExportDraftValues(task, drafts, fields) {
+    const own = drafts.get(jiraExportRowKey(task)) || {};
+    const values = Object.create(null);
+    if (task.jiraExportGroupId) {
+        const members = task.jiraExportMembers || [];
+        const keys = new Set(members.flatMap(member => Object.keys(drafts.get(jiraExportRowKey(member)) || {})));
+        Object.assign(values, own);
+        for (const key of keys) {
+            const field = fields.find(item => item.key === key);
+            if (!field || key === "number") continue;
+            const memberValues = members.map((member, index) => {
+                const edit = drafts.get(jiraExportRowKey(member)) || {};
+                return Object.prototype.hasOwnProperty.call(edit, key) ? edit[key]
+                    : Object.prototype.hasOwnProperty.call(own, key) ? own[key] : jiraExportValue(field, member, index);
+            });
+            values[key] = [...new Set(memberValues)].join("\n\n");
+        }
+    } else {
+        const ticket = String(task.ticketId || "").trim();
+        if (ticket) Object.assign(values, drafts.get(`ticket:${ticket}`) || {});
+        Object.assign(values, own);
+    }
+    return values;
+}
+
+function buildJiraEditableJson(tasks, fields) {
+    const editable = fields.filter(field => field.key !== "number");
+    const labels = editable.map(field => field.jiraLabel || field.label);
+    if (labels.includes("No.") || new Set(labels).size !== labels.length) throw new Error("JSON 편집에는 중복되지 않는 필드명이 필요합니다. 필드 선택을 확인해 주세요.");
+    return JSON.stringify(tasks.map((task, index) => ({
+        "No.": index + 1,
+        ...Object.fromEntries(editable.map(field => [field.jiraLabel || field.label, jiraExportValue(field, task, index)]))
+    })), null, 2);
+}
+
+function parseJiraEditableJson(text, tasks, fields) {
+    let rows;
+    try { rows = JSON.parse(text); } catch (_) { throw new Error("JSON 문법이 올바르지 않습니다. 따옴표·쉼표·괄호를 확인해 주세요."); }
+    if (!Array.isArray(rows) || rows.length !== tasks.length) throw new Error("행 추가·삭제는 왼쪽 업무 선택에서 해 주세요. 현재 업무 개수를 유지해야 합니다.");
+    const editable = fields.filter(field => field.key !== "number");
+    const labels = editable.map(field => field.jiraLabel || field.label);
+    if (labels.includes("No.") || new Set(labels).size !== labels.length) throw new Error("중복된 필드명은 JSON으로 편집할 수 없습니다.");
+    const expected = new Set(["No.", ...labels]);
+    const seen = new Set();
+    return rows.map((row, position) => {
+        if (!row || typeof row !== "object" || Array.isArray(row)) throw new Error("각 행은 필드와 값으로 구성된 JSON 객체여야 합니다.");
+        if (Object.keys(row).length !== expected.size || Object.keys(row).some(key => !expected.has(key))) throw new Error("필드 추가·삭제는 필드 선택에서 해 주세요. No.와 선택한 필드명을 유지해야 합니다.");
+        const index = Number(row["No."]) - 1;
+        if (!Number.isInteger(index) || index !== position || String(row["No."]) !== String(index + 1) || seen.has(index)) throw new Error("No.와 행 순서는 업무를 구분하기 위해 고정됩니다. 정렬은 미리보기의 표 헤더에서 변경해 주세요.");
+        seen.add(index);
+        const values = Object.create(null);
+        for (const field of editable) {
+            const value = row[field.jiraLabel || field.label];
+            if (value !== null && !["string", "number", "boolean"].includes(typeof value)) throw new Error(`${field.jiraLabel || field.label}: 문자열·숫자·참/거짓 또는 null만 입력해 주세요.`);
+            values[field.key] = value === null ? "" : String(value);
+        }
+        return { task: tasks[index], index, values };
+    });
+}
+
 function jiraExportValue(field, task, index) {
+    if (Object.prototype.hasOwnProperty.call(task.jiraExportValues || {}, field.key)) return task.jiraExportValues[field.key];
     const item = pages.find(entry => entry.page?.file?.path === task.filePath) || null;
     const page = item?.page || null;
     const value = field.value(task, page, index, item);
@@ -9351,10 +9441,14 @@ function buildJiraJsonPayload(tasks, fields) {
 function collapseJiraTasksByTicket(tasks) {
     const groups = new Map();
     tasks.forEach(task => {
-        if (!groups.has(task.ticketId)) groups.set(task.ticketId, []);
-        groups.get(task.ticketId).push(task);
+        const ticket = String(task.ticketId || "").trim();
+        const key = ticket ? `ticket:${ticket}` : Symbol();
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(task);
     });
     return [...groups.values()].map(group => {
+        const ticket = String(group[0].ticketId || "").trim();
+        if (!ticket) return { ...group[0], groupedTaskCount: 1 };
         const statuses = new Set(group.map(task => task.status));
         const status = statuses.size === 1
             ? group[0].status
@@ -9363,6 +9457,8 @@ function collapseJiraTasksByTicket(tasks) {
                 : statuses.has("waiting") ? "waiting" : statuses.has("pending") ? "pending" : "done";
         return {
             ...group[0],
+            jiraExportGroupId: `ticket:${ticket}`,
+            jiraExportMembers: group,
             status,
             text: group.map((task, index) => `${index + 1}. ${task.text}`).filter(Boolean).join("\n"),
             details: jiraGroupedTodoDetails(group),
@@ -9421,13 +9517,14 @@ function openJiraExportModal() {
                 key: col.key,
                 label: englishLabel !== col.label ? `${englishLabel} (${col.label})` : col.label,
                 jiraLabel: englishLabel,
-                value: (_task, page, _index, item) => col.value(page, item)
+                value: (_task, page, _index, item) => page ? col.value(page, item) : ""
             });
         }
     });
-    const selectedTaskIds = new Set(todoItems.map(task => task.id));
+    const exportSourceTasks = todoItems.map(task => ({ ...task }));
+    const selectedTaskIds = new Set(exportSourceTasks.map(task => task.id));
     activeTodoStatuses();
-    const exportStatusOptions = TODO_STATUSES.filter(state => state.enabled !== false || todoItems.some(task => task.status === state.key));
+    const exportStatusOptions = TODO_STATUSES.filter(state => state.enabled !== false || exportSourceTasks.some(task => task.status === state.key));
     const selectedTodoStatuses = new Set(exportStatusOptions.map(state => state.key));
     const selectedFieldKeys = new Set(JIRA_EXPORT_FIELDS.filter(field => field.default).map(field => field.key));
     let fieldOrder = JIRA_EXPORT_FIELDS.map(field => field.key);
@@ -9439,6 +9536,8 @@ function openJiraExportModal() {
     let collapseSameTicket = true;
     let translateTodoToEnglish = false;
     const jiraMemoValues = new Map();
+    const jiraExportEdits = new Map();
+    let closeActiveExportEditor = null;
     let jiraSortKey = "";
     let jiraSortDirection = "asc";
     let exportFormat = "table";
@@ -9584,6 +9683,14 @@ function openJiraExportModal() {
     memoButton.type = "button";
     memoButton.className = "opus-jira-export-memo-button";
     memoButton.textContent = "메모 입력";
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.textContent = "내용 편집";
+    editButton.className = "opus-jira-edit-button";
+    const jsonEditButton = document.createElement("button");
+    jsonEditButton.type = "button";
+    jsonEditButton.textContent = "JSON 직접 편집";
+    jsonEditButton.className = "opus-jira-json-edit-button";
     const formatSelect = document.createElement("select");
     [["table", "Jira 표"], ["cellText", "한 셀용 텍스트"], ["json", "JSON"]].forEach(([value, label]) => {
         const option = document.createElement("option");
@@ -9591,9 +9698,13 @@ function openJiraExportModal() {
         option.textContent = label;
         formatSelect.appendChild(option);
     });
-    previewActions.append(memoButton, formatSelect);
+    previewActions.append(editButton, jsonEditButton, memoButton, formatSelect);
     previewHeading.append(previewTitle, previewActions);
     previewPanel.appendChild(previewHeading);
+    const editHelp = document.createElement("p");
+    editHelp.className = "opus-jira-edit-help";
+    editHelp.textContent = "셀 더블클릭 또는 내용 편집 · 수정값은 현재 Export에만 적용됩니다. 원본 노트는 변경하지 않습니다. 미리보기는 최대 30행입니다.";
+    previewPanel.appendChild(editHelp);
     const preview = document.createElement("div");
     preview.className = "opus-jira-export-preview";
     previewPanel.appendChild(preview);
@@ -9628,23 +9739,33 @@ function openJiraExportModal() {
         if (endDate && (!date || date > endDate)) return false;
         return true;
     }
-    const selectedTasks = () => todoItems.filter(task => selectedTaskIds.has(task.id) && matchesExportFilters(task));
-    const memoKey = task => task.ticketId || task.id;
+    const selectedTasks = () => exportSourceTasks.filter(task => selectedTaskIds.has(task.id) && matchesExportFilters(task));
+    const memoKey = task => String(task.ticketId || "").trim() ? `ticket:${String(task.ticketId).trim()}` : jiraExportRowKey(task);
     const needsTodoTranslation = () => selectedFieldKeys.has("todo") || selectedFieldKeys.has("todoDetails") || selectedFieldKeys.has("todoResult") || selectedFieldKeys.has("todoWaitingReason") || selectedFieldKeys.has("memo");
-    const translatedTasks = () => selectedTasks().map(task => {
-        const memo = jiraMemoValues.get(memoKey(task)) || "";
-        if (!translateTodoToEnglish) return { ...task, jiraMemo: memo };
-        return {
-            ...task,
-            text: selectedFieldKeys.has("todo") ? (jiraEnglishCache.get(`${task.id}:todo:${task.text}`) || task.text) : task.text,
-            details: selectedFieldKeys.has("todoDetails") ? (jiraEnglishCache.get(`${task.id}:todoDetails:${task.details || ""}`) || task.details) : task.details,
-            waitingReason: selectedFieldKeys.has("todoWaitingReason") ? (jiraEnglishCache.get(`${task.id}:todoWaitingReason:${task.waitingReason || ""}`) || task.waitingReason) : task.waitingReason,
-            result: selectedFieldKeys.has("todoResult") ? (jiraEnglishCache.get(`${task.id}:todoResult:${task.result || ""}`) || task.result) : task.result,
-            jiraMemo: selectedFieldKeys.has("memo") ? (jiraEnglishCache.get(`${memoKey(task)}:memo:${memo}`) || memo) : ""
-        };
+    const translatableFieldKeys = ["todo", "todoDetails", "todoResult", "todoWaitingReason", "memo"];
+    const translationKey = (field, source) => JSON.stringify([field, source]);
+    const sourceExportTasks = (withMemo = true) => {
+        const tasks = selectedTasks().map(task => ({ ...task, jiraMemo: withMemo ? jiraMemoValues.get(memoKey(task)) || "" : "" }));
+        return collapseSameTicket ? collapseJiraTasksByTicket(tasks) : tasks;
+    };
+    const draftExportTasks = () => sourceExportTasks().map(task => {
+        const values = jiraExportDraftValues(task, jiraExportEdits, JIRA_EXPORT_FIELDS);
+        const edited = Object.keys(values);
+        if (jiraMemoValues.has(memoKey(task))) edited.push("memo");
+        return { ...task, jiraExportValues: values, jiraEditedFields: edited };
     });
     const exportTasks = () => {
-        const tasks = collapseSameTicket ? collapseJiraTasksByTicket(translatedTasks()) : translatedTasks();
+        const tasks = draftExportTasks().map((task, index) => {
+            if (!translateTodoToEnglish) return task;
+            const values = { ...task.jiraExportValues };
+            for (const key of translatableFieldKeys) {
+                if (!selectedFieldKeys.has(key)) continue;
+                const field = JIRA_EXPORT_FIELDS.find(item => item.key === key);
+                const source = jiraExportValue(field, task, index);
+                values[key] = jiraEnglishCache.get(translationKey(key, source)) ?? source;
+            }
+            return { ...task, jiraExportValues: values };
+        });
         if (!jiraSortKey || jiraSortKey === "number") return tasks;
         const field = JIRA_EXPORT_FIELDS.find(item => item.key === jiraSortKey);
         if (!field) return tasks;
@@ -9654,6 +9775,20 @@ function openJiraExportModal() {
                 return (jiraSortDirection === "asc" ? compared : -compared) || left.index - right.index;
             }).map(item => item.task);
     };
+    function writeExportField(task, key, value) {
+        if (key === "number") return;
+        if (key === "memo") { jiraMemoValues.set(memoKey(task), value); return; }
+        const rowKey = jiraExportRowKey(task);
+        jiraExportEdits.set(rowKey, { ...jiraExportEdits.get(rowKey), [key]: value });
+        // Do not erase individual edits hidden by the current selection/filter.
+        if (task.jiraExportGroupId) for (const member of task.jiraExportMembers || []) {
+            if (`ticket:${String(member.ticketId || "").trim()}` !== task.jiraExportGroupId) continue;
+            const memberKey = jiraExportRowKey(member), previous = jiraExportEdits.get(memberKey);
+            if (!previous || !Object.prototype.hasOwnProperty.call(previous, key)) continue;
+            const next = { ...previous }; delete next[key];
+            Object.keys(next).length ? jiraExportEdits.set(memberKey, next) : jiraExportEdits.delete(memberKey);
+        }
+    }
     function syncTranslationOption() {
         const visible = needsTodoTranslation();
         translationBox.style.display = visible ? "grid" : "none";
@@ -9675,17 +9810,11 @@ function openJiraExportModal() {
         copyButton.disabled = true;
         translationHelp.textContent = "영어 번역 중입니다. 선택한 To-Do 수에 따라 시간이 걸릴 수 있습니다.";
         try {
-            for (const task of selectedTasks()) {
-                const targets = [
-                    ["todo", task.text || ""],
-                    ["todoDetails", task.details || ""],
-                    ["todoWaitingReason", task.waitingReason || ""],
-                    ["todoResult", task.result || ""],
-                    ["memo", jiraMemoValues.get(memoKey(task)) || ""]
-                ];
+            for (const [index, task] of draftExportTasks().entries()) {
+                const targets = translatableFieldKeys.map(key => [key, jiraExportValue(JIRA_EXPORT_FIELDS.find(field => field.key === key), task, index)]);
                 for (const [field, source] of targets) {
                     if (!source || !selectedFieldKeys.has(field)) continue;
-                    const key = `${field === "memo" ? memoKey(task) : task.id}:${field}:${source}`;
+                    const key = translationKey(field, source);
                     if (!jiraEnglishCache.has(key)) jiraEnglishCache.set(key, await plugin.translateTextForExport(source, "en"));
                 }
             }
@@ -9704,8 +9833,174 @@ function openJiraExportModal() {
             renderPreview();
         }
     }
+    function createExportEditor(titleText, className = "") {
+        closeActiveExportEditor?.();
+        const overlay = document.createElement("div");
+        overlay.className = "opus-modal-backdrop opus-jira-edit-backdrop";
+        const dialog = document.createElement("div");
+        dialog.className = `opus-note-modal opus-jira-edit-dialog ${className}`;
+        dialog.setAttribute("role", "dialog");
+        dialog.setAttribute("aria-modal", "true");
+        dialog.setAttribute("aria-labelledby", "opus-jira-edit-title");
+        const heading = document.createElement("div");
+        heading.className = "opus-note-header";
+        const title = document.createElement("h3");
+        title.id = "opus-jira-edit-title";
+        title.className = "opus-note-title";
+        title.textContent = titleText;
+        const dismiss = document.createElement("button");
+        dismiss.className = "opus-note-close";
+        dismiss.textContent = "×";
+        dismiss.setAttribute("aria-label", "편집 취소");
+        heading.append(title, dismiss);
+        const content = document.createElement("div");
+        content.className = "opus-jira-edit-body";
+        const message = document.createElement("div");
+        message.className = "opus-jira-edit-message";
+        message.setAttribute("role", "alert");
+        const footer = document.createElement("div");
+        footer.className = "opus-jira-edit-actions";
+        const cancel = document.createElement("button");
+        cancel.textContent = "취소";
+        const apply = document.createElement("button");
+        apply.className = "mod-cta";
+        apply.textContent = "Export에 적용";
+        footer.append(cancel, apply);
+        dialog.append(heading, content, message, footer);
+        overlay.appendChild(dialog);
+        const finish = () => {
+            document.removeEventListener("keydown", trapKeys, true);
+            overlay.remove();
+            if (closeActiveExportEditor === finish) closeActiveExportEditor = null;
+            if (editButton.isConnected) editButton.focus();
+        };
+        const trapKeys = event => {
+            if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); finish(); }
+            else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); event.stopImmediatePropagation(); if (!apply.disabled) apply.click(); }
+            else if (event.key === "Tab") {
+                const controls = [...dialog.querySelectorAll("button, input, select, textarea")].filter(el => !el.disabled && el.getClientRects().length);
+                const first = controls[0], last = controls.at(-1);
+                if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+                else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+            }
+        };
+        cancel.addEventListener("click", finish);
+        dismiss.addEventListener("click", finish);
+        overlay.addEventListener("click", event => { if (event.target === overlay) finish(); });
+        document.addEventListener("keydown", trapKeys, true);
+        closeActiveExportEditor = finish;
+        document.body.appendChild(overlay);
+        return { dialog, content, message, footer, apply, cancel, finish };
+    }
+    async function applyExportChanges(changes, editor) {
+        editor.apply.disabled = true;
+        for (const { task, values } of changes) for (const [key, value] of Object.entries(values)) writeExportField(task, key, value);
+        editor.finish();
+        if (translateTodoToEnglish) await ensureEnglishTranslations();
+        renderPreview();
+        new Notice("수정 내용을 현재 Export에 적용했습니다. 원본 노트는 변경하지 않습니다.");
+    }
+    function openExportCellEditor(requestedRow, requestedField) {
+        if (translationWorking) return;
+        const tasks = exportTasks(), fields = orderedFields().filter(field => field.key !== "number");
+        if (!tasks.length || !fields.length) return;
+        const editor = createExportEditor("Jira Export 내용 편집");
+        const search = document.createElement("input");
+        search.type = "search";
+        search.placeholder = "티켓 번호·설명 또는 업무 제목 검색";
+        search.setAttribute("aria-label", "편집할 업무 검색");
+        const rowSelect = document.createElement("select");
+        rowSelect.setAttribute("aria-label", "편집할 업무");
+        const fieldLabel = document.createElement("label");
+        fieldLabel.textContent = "편집할 필드";
+        const fieldSelect = document.createElement("select");
+        fieldSelect.setAttribute("aria-label", "편집할 필드");
+        fields.forEach(field => { const option = document.createElement("option"); option.value = field.key; option.textContent = field.label; fieldSelect.appendChild(option); });
+        fieldLabel.appendChild(fieldSelect);
+        const textarea = document.createElement("textarea");
+        textarea.className = "opus-jira-field-input";
+        textarea.setAttribute("aria-label", "Export 필드 내용");
+        const help = document.createElement("p");
+        help.className = "opus-jira-edit-help";
+        help.textContent = "원본은 변경하지 않습니다. 빈 값·줄바꿈·Markdown도 입력할 수 있습니다. No.는 자동 번호입니다. 적용 전 다른 업무로 바꾸려면 작성 중인 값을 먼저 적용하거나 취소하세요.";
+        editor.content.append(search, rowSelect, fieldLabel, textarea, help);
+        const original = document.createElement("button");
+        original.textContent = "원본값 불러오기";
+        editor.footer.insertBefore(original, editor.cancel);
+        let task = tasks.find(item => jiraExportRowKey(item) === requestedRow) || tasks[0];
+        let field = fields.find(item => item.key === requestedField) || fields.find(item => item.key === "description") || fields[0];
+        let initial = "";
+        const rowLabel = (item, index) => {
+            const ticket = jiraExportValue(JIRA_EXPORT_FIELDS.find(f => f.key === "ticket"), item, index);
+            const description = jiraExportValue(JIRA_EXPORT_FIELDS.find(f => f.key === "description"), item, index);
+            return `${index + 1}. ${ticket || "티켓 없음"} · ${description || item.text || "업무"}`.replace(/\s+/g, " ").slice(0, 180);
+        };
+        const renderRows = () => {
+            const needle = search.value.trim().toLowerCase();
+            rowSelect.replaceChildren();
+            tasks.forEach((item, index) => {
+                const label = rowLabel(item, index);
+                if (needle && jiraExportRowKey(item) !== jiraExportRowKey(task) && !`${label} ${item.ticketId || ""} ${item.text || ""}`.toLowerCase().includes(needle)) return;
+                const option = document.createElement("option"); option.value = jiraExportRowKey(item); option.textContent = label; rowSelect.appendChild(option);
+            });
+            rowSelect.value = jiraExportRowKey(task);
+        };
+        const loadValue = () => {
+            initial = String(jiraExportValue(field, task, tasks.indexOf(task)) ?? "");
+            textarea.value = initial;
+            fieldSelect.value = field.key;
+            renderRows();
+            editor.message.textContent = "";
+        };
+        const canSwitch = () => {
+            if (textarea.value === initial) return true;
+            rowSelect.value = jiraExportRowKey(task); fieldSelect.value = field.key;
+            editor.message.textContent = "작성 중인 값이 있습니다. 먼저 Export에 적용하거나 취소한 뒤 다른 항목을 선택해 주세요.";
+            return false;
+        };
+        search.addEventListener("input", renderRows);
+        rowSelect.addEventListener("change", () => { if (canSwitch()) { task = tasks.find(item => jiraExportRowKey(item) === rowSelect.value) || task; loadValue(); } });
+        fieldSelect.addEventListener("change", () => { if (canSwitch()) { field = fields.find(item => item.key === fieldSelect.value) || field; loadValue(); } });
+        textarea.addEventListener("input", () => { editor.message.textContent = ""; });
+        original.addEventListener("click", () => {
+            const originals = sourceExportTasks(false), source = originals.find(item => jiraExportRowKey(item) === jiraExportRowKey(task));
+            if (source) textarea.value = String(jiraExportValue(field, source, originals.indexOf(source)) ?? "");
+            textarea.focus();
+        });
+        editor.apply.addEventListener("click", () => applyExportChanges([{ task, values: textarea.value === initial ? {} : { [field.key]: textarea.value } }], editor));
+        loadValue();
+        textarea.focus();
+    }
+    function openExportJsonEditor() {
+        if (translationWorking) return;
+        const tasks = exportTasks(), fields = orderedFields();
+        if (!tasks.length) return;
+        let initial;
+        try { initial = buildJiraEditableJson(tasks, fields); } catch (error) { new Notice(error.message); return; }
+        const editor = createExportEditor("Jira Export JSON 편집", "opus-jira-json-dialog");
+        const help = document.createElement("p");
+        help.className = "opus-jira-edit-help";
+        help.textContent = `현재 선택한 ${tasks.length}행 전체를 편집합니다. No.와 행 순서는 유지하세요. 필드 선택에서 제외한 No.는 최종 복사에 포함되지 않습니다. 값은 표와 같은 텍스트로 적용하며, 업무·필드 추가/삭제는 왼쪽 선택에서 변경합니다.`;
+        const textarea = document.createElement("textarea");
+        textarea.className = "opus-jira-json-input";
+        textarea.setAttribute("aria-label", "Export JSON 편집");
+        textarea.spellcheck = false;
+        textarea.value = initial;
+        editor.content.append(help, textarea);
+        editor.apply.addEventListener("click", () => {
+            try {
+                const parsed = parseJiraEditableJson(textarea.value, tasks, fields);
+                const changes = parsed.map(({ task, index, values }) => ({ task, values: Object.fromEntries(Object.entries(values).filter(([key, value]) => value !== String(jiraExportValue(JIRA_EXPORT_FIELDS.find(field => field.key === key), task, index) ?? ""))) }));
+                applyExportChanges(changes, editor);
+            } catch (error) { editor.message.textContent = error.message; textarea.focus(); }
+        });
+        textarea.addEventListener("input", () => { editor.message.textContent = ""; });
+        textarea.focus();
+    }
     function openMemoEditor() {
         const tasks = exportTasks();
+        const ticketField = JIRA_EXPORT_FIELDS.find(field => field.key === "ticket");
+        const displayedTicket = task => jiraExportValue(ticketField, task, 0) || "티켓 없음";
         const uniqueTasks = [];
         const seen = new Set();
         tasks.forEach(task => {
@@ -9770,14 +10065,14 @@ function openJiraExportModal() {
         const closeEditor = () => { memoBackdrop.remove(); renderPreview(); };
         const selectTask = task => {
             selectedKey = memoKey(task);
-            editorLabel.textContent = `${task.ticketId || "티켓 없음"} 메모`;
+            editorLabel.textContent = `${displayedTicket(task)} · ${task.text || "업무"} 메모`;
             textarea.value = jiraMemoValues.get(selectedKey) || "";
             syncMemoStatus();
             ticketSelect.value = selectedKey;
             textarea.focus();
         };
         const descriptionField = JIRA_EXPORT_FIELDS.find(field => field.key === "description");
-        const taskSearchText = task => [task.ticketId, descriptionField ? jiraExportValue(descriptionField, task, 0) : ""].join(" ").toLowerCase();
+        const taskSearchText = task => [displayedTicket(task), task.ticketId, task.text, descriptionField ? jiraExportValue(descriptionField, task, 0) : ""].join(" ").toLowerCase();
         const renderMemoTickets = () => {
             const needle = ticketSearch.value.trim().toLowerCase();
             const visibleTasks = uniqueTasks.filter(task => !needle || taskSearchText(task).includes(needle));
@@ -9787,7 +10082,7 @@ function openJiraExportModal() {
                 const option = document.createElement("option");
                 option.value = key;
                 const description = descriptionField ? jiraExportValue(descriptionField, task, 0) : "";
-                option.textContent = `${task.ticketId || "티켓 없음"}${description ? ` · ${description}` : ""}`;
+                option.textContent = `${displayedTicket(task)} · ${description || task.text || "업무"}`.replace(/\s+/g, " ");
                 ticketSelect.appendChild(option);
             });
             if (!visibleTasks.length) {
@@ -9830,13 +10125,20 @@ function openJiraExportModal() {
         const tasks = exportTasks();
         const fields = orderedFields();
         const memoCount = [...new Set(tasks.map(memoKey))].filter(key => String(jiraMemoValues.get(key) || "").trim()).length;
+        const editedCount = tasks.reduce((count, task) => count + new Set(task.jiraEditedFields || []).size, 0);
+        const ticketCount = tasks.filter(task => String(task.ticketId || "").trim()).length;
+        const generalCount = tasks.length - ticketCount;
         summary.textContent = collapseSameTicket
-            ? `선택 ${selected.length}개 · 티켓 ${tasks.length}건으로 묶음 · 필드 ${fields.length}개`
+            ? `선택 ${selected.length}개 · 티켓 ${ticketCount}건 · 일반 업무 ${generalCount}건 · 필드 ${fields.length}개`
             : `선택 ${tasks.length}개 · 필드 ${fields.length}개`;
         if (selectedFieldKeys.has("memo")) summary.textContent += ` · 메모 ${memoCount}건`;
+        if (editedCount) summary.textContent += ` · Export 수정 ${editedCount}칸`;
         copyButton.disabled = translationWorking || !tasks.length || !fields.length;
+        editButton.disabled = translationWorking || !tasks.length || !fields.some(field => field.key !== "number");
+        jsonEditButton.style.display = exportFormat === "json" ? "" : "none";
+        jsonEditButton.disabled = editButton.disabled;
         memoButton.style.display = selectedFieldKeys.has("memo") ? "" : "none";
-        memoButton.disabled = !tasks.length;
+        memoButton.disabled = translationWorking || !tasks.length;
         memoButton.classList.toggle("has-memo", memoCount > 0);
         memoButton.textContent = memoCount ? `메모 입력 · ${memoCount}건` : "메모 입력";
         if (!tasks.length || !fields.length) {
@@ -9845,14 +10147,31 @@ function openJiraExportModal() {
             const pre = document.createElement("pre");
             pre.className = "opus-jira-export-cell-text";
             pre.textContent = buildJiraCellTextPayload(tasks.slice(0, 30), fields).text;
+            pre.addEventListener("dblclick", () => openExportCellEditor());
             preview.replaceChildren(pre);
         } else if (exportFormat === "json") {
             const pre = document.createElement("pre");
             pre.className = "opus-jira-export-cell-text";
             pre.textContent = buildJiraJsonPayload(tasks.slice(0, 30), fields).text;
+            pre.addEventListener("dblclick", () => openExportCellEditor());
             preview.replaceChildren(pre);
         } else {
             preview.innerHTML = buildJiraExportPayload(tasks.slice(0, 30), fields).html;
+            preview.querySelectorAll("tbody tr").forEach((row, index) => {
+                row.dataset.jiraRow = jiraExportRowKey(tasks[index]);
+                row.querySelectorAll("td[data-jira-field]").forEach(cell => {
+                    const key = cell.dataset.jiraField;
+                    if (key === "number") { cell.title = "자동 번호"; return; }
+                    cell.classList.add("is-editable");
+                    cell.classList.toggle("is-edited", tasks[index].jiraEditedFields.includes(key));
+                    cell.tabIndex = 0;
+                    cell.title = "더블클릭 또는 Enter로 Export 전용 편집";
+                    cell.setAttribute("aria-label", `${index + 1}행 ${fields.find(field => field.key === key)?.label || key} 편집`);
+                    const edit = () => openExportCellEditor(jiraExportRowKey(tasks[index]), key);
+                    cell.addEventListener("dblclick", edit);
+                    cell.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === "F2") { event.preventDefault(); edit(); } });
+                });
+            });
             preview.querySelectorAll("th[data-jira-field]").forEach(th => {
                 const key = th.dataset.jiraField;
                 th.classList.add("opus-jira-sortable-header");
@@ -9896,38 +10215,44 @@ function openJiraExportModal() {
     }
     function renderTasks() {
         taskList.innerHTML = "";
-        const matching = todoItems.filter(matchesExportFilters);
+        const matching = exportSourceTasks.filter(matchesExportFilters);
         const groups = new Map();
-        matching.forEach(task => { if (!groups.has(task.ticketId)) groups.set(task.ticketId, []); groups.get(task.ticketId).push(task); });
-        for (const [ticketId, tasks] of groups) {
+        matching.forEach(task => {
+            const ticket = String(task.ticketId || "").trim(), key = ticket ? `ticket:${ticket}` : jiraExportRowKey(task);
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(task);
+        });
+        for (const [groupKey, tasks] of groups) {
+            const ticketId = String(tasks[0].ticketId || "").trim();
+            const groupLabel = ticketId || `티켓 없음 · ${tasks[0].text || "업무"}`;
             const group = document.createElement("div");
             group.className = "opus-jira-export-ticket";
             const ticketHeader = document.createElement("div");
             ticketHeader.className = "opus-jira-export-ticket-header";
             const ticketCheckbox = document.createElement("input");
             ticketCheckbox.type = "checkbox";
-            ticketCheckbox.title = `${ticketId} To-Do 전체 선택`;
+            ticketCheckbox.title = `${groupLabel} To-Do 전체 선택`;
             const ticketToggle = document.createElement("button");
             ticketToggle.type = "button";
             ticketToggle.className = "opus-jira-export-ticket-toggle";
             const chevron = document.createElement("span");
             chevron.className = "opus-jira-export-ticket-chevron";
             const ticketText = document.createElement("span");
-            ticketText.textContent = `${ticketId} · ${tasks.length}개`;
+            ticketText.textContent = `${groupLabel} · ${tasks.length}개`;
             ticketToggle.append(chevron, ticketText);
             ticketHeader.append(ticketCheckbox, ticketToggle);
             group.appendChild(ticketHeader);
             const taskChildren = document.createElement("div");
             taskChildren.className = "opus-jira-export-ticket-tasks";
             const syncExpanded = () => {
-                const expanded = expandedTicketIds.has(ticketId);
+                const expanded = expandedTicketIds.has(groupKey);
                 taskChildren.classList.toggle("is-collapsed", !expanded);
                 chevron.textContent = expanded ? "▼" : "▶";
                 ticketToggle.setAttribute("aria-expanded", String(expanded));
-                ticketToggle.title = expanded ? `${ticketId} To-Do 접기` : `${ticketId} To-Do 펼치기`;
+                ticketToggle.title = expanded ? `${groupLabel} To-Do 접기` : `${groupLabel} To-Do 펼치기`;
             };
             ticketToggle.addEventListener("click", () => {
-                expandedTicketIds.has(ticketId) ? expandedTicketIds.delete(ticketId) : expandedTicketIds.add(ticketId);
+                expandedTicketIds.has(groupKey) ? expandedTicketIds.delete(groupKey) : expandedTicketIds.add(groupKey);
                 syncExpanded();
             });
             const children = [];
@@ -9972,6 +10297,7 @@ function openJiraExportModal() {
         if (!groups.size) taskList.innerHTML = '<div class="opus-jira-export-empty">검색 결과가 없습니다.</div>';
     }
     function close() {
+        closeActiveExportEditor?.();
         document.removeEventListener("keydown", keyHandler);
         document.querySelectorAll(".opus-jira-memo-backdrop").forEach(element => element.remove());
         backdrop.remove();
@@ -9993,6 +10319,8 @@ function openJiraExportModal() {
     completedCheckbox.addEventListener("change", () => { excludeCompleted = completedCheckbox.checked; renderTasks(); renderPreview(); });
     collapseCheckbox.addEventListener("change", () => { collapseSameTicket = collapseCheckbox.checked; renderPreview(); });
     memoButton.addEventListener("click", openMemoEditor);
+    editButton.addEventListener("click", () => openExportCellEditor());
+    jsonEditButton.addEventListener("click", openExportJsonEditor);
     formatSelect.addEventListener("change", () => {
         exportFormat = formatSelect.value;
         copyButton.textContent = exportFormat === "cellText" ? "한 셀용 텍스트 복사" : exportFormat === "json" ? "JSON 복사" : "Jira 표 복사";

@@ -14,7 +14,7 @@ assert.deepEqual(select(["in-progress", "done"], "done").map(task => task.status
 assert.deepEqual(select(["in-progress", "done"], "", true).map(task => task.status), ["in-progress"]);
 assert.equal(select(["in-progress", "done"], "", false, "2026-10-20").length, 0);
 assert.equal(select(["in-progress", "done"], "", false, "", "2026-10-18").length, 0);
-assert(source.includes("state.enabled !== false || todoItems.some(task => task.status === state.key)"));
+assert(source.includes("state.enabled !== false || exportSourceTasks.some(task => task.status === state.key)"));
 assert(source.includes('statusSummary.textContent = "To-Do Status · 전체"'));
 assert(source.includes("allStatusCheckbox.indeterminate"));
 assert(source.includes("selectedTaskIds.has(task.id) && matchesExportFilters(task)"));
