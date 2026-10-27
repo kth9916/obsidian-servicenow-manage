@@ -6,6 +6,8 @@ AI Wiki is disabled by default. When explicitly enabled, its Markdown records an
 
 The plugin does not store AI API keys, run AI agents, install external skills automatically, alter AI permission settings, or send prompts/notes to AI services. Copying a prompt affects only the clipboard. Opening an AI website sends a normal browser request without the prompt or note content. The optional local launcher opens only an explicitly specified supported app path, without arguments or note data. A local read-check note contains a random non-secret code; users manually compare the AI's response. This is not a persistent connection or permission guarantee.
 
+After a successful user-mediated check, ordinary plugin settings retain its provider, Wiki path, non-secret challenge code, local/attachment method and confirmation time to display the last check. No AI login session or authentication token is collected. The helper distinguishes attachment delivery from direct local access, and a changed/missing proof or Wiki location requires rechecking.
+
 Sharing records with an AI, granting its local-file permissions, installing its skills, or uploading attachments is a separate user action governed by that service and organization policy. Disabling AI Wiki preserves existing files and does not recall shared data or revoke external AI permissions. The Wiki's recording preference is guidance for prompts, not a technical sandbox or authority to change external systems.
 
 ServiceNow Manage is a local-first Obsidian desktop plugin. It does not operate a developer-controlled backend and does not include client-side telemetry, analytics, advertising, or usage tracking.

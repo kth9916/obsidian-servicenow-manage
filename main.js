@@ -280,6 +280,8 @@ const DEFAULT_SETTINGS = {
   aiWikiProvider: "codex",
   aiWikiAllowWrites: false,
   aiWikiAppPaths: {},
+  aiWikiFolderApplied: false,
+  aiWikiReadChecks: {},
   instanceUrl: "",
   authMode: "bearer",
   clientId: "",
@@ -4321,14 +4323,17 @@ function aiWikiSkill(plugin) {
   return `---\nname: ai-wiki-recorder\ndescription: Find and maintain evidence-backed work records in the user-configured Obsidian AI Wiki after related analysis, with scoped permission and read-back verification. Does not collect private chats or authorize external changes.\n---\n\n# Obsidian AI Wiki 기록\n\n이 스킬은 Wiki 안에서 제공하는 설치용 사본이며, 자동 설치되지 않는다. 사용자가 선택한 Wiki의 현재 기록 규칙과 서식 경로를 먼저 확인한다. 이 사본과 함께 제공된 규칙은 이 파일 기준 ../../기록 규칙.md, 서식은 ../../Templates/작업기록.md다. 다른 위치에 설치했다면 시작 프롬프트의 실제 Wiki 경로를 사용한다. 경로나 접근 권한을 추측하지 않는다.\n\n- 현재 기록 규칙을 읽고 사용자 요청·상위 지침·승인 범위를 확인한다. 스킬 자체는 쓰기나 외부 변경을 승인하지 않는다.\n- 관련 기록의 요약·티켓·주제·검증 날짜로 범위를 좁히고 필요한 근거만 읽는다. 과거 근거의 환경·브랜치·최신성을 재검증한다.\n- 실제 chat_id와 task_id 또는 record_id로 기존 기록을 찾아 중복을 방지한다. 모르는 식별자는 비워 두고 미확인으로 남긴다.\n- 승인된 범위에서 기존 수동 내용을 보존해 결과·근거·미확인·정정·다음 조치를 기록한다. 여러 티켓은 하나의 상세 기록을 공유하고 연결한다.\n- 저장 후 다시 읽어 ID·내용·링크를 검증하고 실제 경로와 실패·제약을 보고한다. 접근할 수 없는 채팅을 수집했다고 주장하지 않는다.\n`;
 }
 
-function aiWikiStarterPrompt(plugin, provider, purpose = "start") {
+function aiWikiStarterPrompt(plugin, provider, purpose = "start", accessMode = "local") {
   const folder = plugin.aiWikiFolder(), absolute = path => plugin.absoluteVaultPath(path);
   const check = absolute(`${folder}/연결 확인.md`);
-  if (purpose === "check") return `읽기 전용 연결 확인입니다. 로컬 파일 ${JSON.stringify(check)}만 읽고 그 안의 확인 코드를 그대로 답해 주세요. 파일 접근 도구가 없거나 접근이 거부되면 그 사실만 알려 주세요. 코드를 추측하거나 다른 파일을 읽거나 설정·파일을 변경하지 마세요.`;
+  if (purpose === "check") return accessMode === "attachment"
+    ? "첨부 자료 전달 확인입니다. 제가 직접 첨부한 ‘연결 확인.md’ 파일만 읽고 그 안의 확인 코드를 그대로 답해 주세요. 첨부가 없거나 읽을 수 없으면 그 사실만 알려 주세요. PC 폴더에 직접 연결됐다고 말하거나 코드를 추측하거나 다른 자료를 읽거나 변경하지 마세요."
+    : `읽기 전용 연결 확인입니다. 로컬 파일 ${JSON.stringify(check)}만 읽고 그 안의 확인 코드를 그대로 답해 주세요. 파일 접근 도구가 없거나 접근이 거부되면 그 사실만 알려 주세요. 코드를 추측하거나 다른 파일을 읽거나 설정·파일을 변경하지 마세요.`;
   return [
     `ServiceNow Manage의 선택형 AI Wiki를 사용하고 싶습니다. 사용하는 AI: ${AI_WIKI_PROVIDERS[provider]?.label || "다른 AI"}.`,
     `Vault 업무 폴더: ${JSON.stringify(absolute(plugin.rootFolder()))}\nWiki 폴더: ${JSON.stringify(absolute(folder))}`,
-    `먼저 파일 접근 가능 여부를 확인하고 ${JSON.stringify(absolute(`${folder}/기록 규칙.md`))}와 ${JSON.stringify(absolute(`${folder}/Templates/작업기록.md`))}를 읽어 주세요. 접근할 수 없으면 권한을 우회하지 말고 연결 방법이나 필요한 첨부를 알려 주세요.`,
+    accessMode === "attachment" ? "이번 채팅은 파일 직접 첨부 방식입니다. 첨부한 ‘기록 규칙.md’와 ‘작업기록.md’ 서식을 읽어 주세요. 필요한 첨부가 없으면 요청하세요. 위 PC 경로는 위치 참고일 뿐이며 직접 접근하거나 저장할 수 있다고 가정하지 마세요. 결과는 제가 노트에 저장할 수 있는 형태로 제공하고 직접 저장했다고 말하지 마세요."
+      : `먼저 파일 접근 가능 여부를 확인하고 ${JSON.stringify(absolute(`${folder}/기록 규칙.md`))}와 ${JSON.stringify(absolute(`${folder}/Templates/작업기록.md`))}를 읽어 주세요. 접근할 수 없으면 권한을 우회하지 말고 연결 방법이나 필요한 첨부를 알려 주세요.`,
     aiWikiRecordingRules(plugin),
     "이번 요청은 시작 준비 확인까지입니다. 실제 업무를 임의로 수행하지 말고, 읽을 수 있는 범위·기록 승인 방식·다음에 사용자가 입력할 수 있는 요청 예시 2개를 알려 주세요. 스킬은 자동 설치된 것이 아니며 기존 AGENTS.md·CLAUDE.md·AI 전역 설정을 바꾸지 마세요."
   ].join("\n\n");
@@ -4374,58 +4379,107 @@ function aiWikiLegacyHeadings(markdown) {
 }
 
 class AiWikiConnectModal extends Modal {
-  constructor(app, plugin) { super(app); this.plugin = plugin; }
+  constructor(app, plugin) {
+    super(app); this.plugin = plugin; this.step = 0; this.busy = false;
+    this.provider = aiWikiSettings(plugin.settings).provider;
+    this.accessMode = ["codex", "claude"].includes(this.provider) ? "local" : "attachment";
+    this.appPath = plugin.settings.aiWikiAppPaths?.[this.provider] || "";
+    this.folderConfirmed = false; this.promptConfirmed = false; this.answer = "";
+    this.message = ""; this.preparedFolder = ""; this.closed = false;
+  }
   onOpen() {
     this.modalEl.addClass("snm-ai-connect-modal");
-    this.titleEl.setText("AI Wiki · AI 시작 및 접근 확인");
+    this.titleEl.setText("AI Wiki 연결 도우미");
+    this.render();
+  }
+  async act(operation) {
+    if (this.busy || this.closed) return;
+    this.busy = true; this.message = "처리 중입니다…"; this.render();
+    try { await operation(); }
+    catch (error) { this.message = `완료하지 못했습니다: ${error.message || error}`; }
+    finally { this.busy = false; if (!this.closed) this.render(); }
+  }
+  async next() {
+    if (this.step === 0) {
+      if (this.plugin.settings.aiWikiProvider !== this.provider) await this.plugin.configureAiWiki({ aiWikiProvider: this.provider });
+    } else if (this.step === 1 && !this.folderConfirmed) throw new Error("AI 앱에서 폴더 접근 또는 파일 첨부 준비를 확인해 주세요.");
+    else if (this.step === 2) {
+      if (!this.promptConfirmed) throw new Error("시작 프롬프트를 AI에 보낸 뒤 확인란을 선택하세요.");
+      const folder = this.plugin.absoluteVaultPath(this.plugin.aiWikiFolder());
+      if (this.preparedFolder !== folder) { await this.plugin.prepareAiWikiChallenge(); this.answer = ""; }
+      this.preparedFolder = folder;
+    } else if (this.step === 3) {
+      if (this.preparedFolder !== this.plugin.absoluteVaultPath(this.plugin.aiWikiFolder())) throw new Error("Wiki 폴더가 바뀌었습니다. 이전 단계에서 새 확인 요청을 준비하세요.");
+      await this.plugin.verifyAiWikiChallenge(this.answer, { provider: this.provider, mode: this.accessMode });
+      const status = await this.plugin.getAiWikiConnectionStatus(this.provider);
+      if (!["verified", "attachment"].includes(status.state)) throw new Error("현재 폴더의 확인 기록이 유효하지 않습니다. 이전 단계에서 다시 확인해 주세요.");
+    }
+    this.step++; this.message = "";
+  }
+  render() {
+    if (this.closed) return;
     this.contentEl.empty();
     const body = this.contentEl.createDiv({ cls: "snm-ai-connect-body" });
+    const names = ["AI 선택", "AI와 폴더 준비", "시작 프롬프트 전달", "읽기 확인", "연결 결과"];
+    const shortNames = ["AI 선택", "폴더 준비", "프롬프트 전달", "읽기 확인", "연결 결과"];
     const steps = body.createDiv({ cls: "snm-ai-steps" });
-    ["1 · AI 선택", "2 · 폴더 접근 설정", "3 · 프롬프트 전달", "4 · 읽기 확인"].forEach(text => steps.createSpan({ text }));
-    body.createEl("p", { cls: "snm-ai-note", text: "앱 실행이나 프롬프트 복사만으로 연결·권한이 자동 허용되지는 않습니다. 로그인은 각 AI 앱에서 진행하며, 이 플러그인에 AI API 키를 입력할 필요는 없습니다. AI 서비스의 계정·요금·회사 보안 정책은 별도입니다." });
-    const provider = body.createEl("select", { attr: { "aria-label": "사용할 AI" } });
-    Object.entries(AI_WIKI_PROVIDERS).forEach(([value, item]) => provider.createEl("option", { value, text: item.label }));
-    provider.value = aiWikiSettings(this.plugin.settings).provider;
-    const help = body.createEl("p", { cls: "snm-ai-note" });
-    const path = body.createEl("input", { attr: { type: "text", placeholder: "선택: 설치된 로컬 AI 앱의 전체 경로 (.exe / .app)", "aria-label": "로컬 AI 앱 경로" } });
-    const actions = body.createDiv({ cls: "snm-ai-actions" });
-    const command = body.createEl("pre", { cls: "snm-ai-command" });
-    const prompt = body.createEl("textarea", { cls: "snm-ai-prompt", attr: { readonly: "", "aria-label": "AI 시작 프롬프트" } });
-    const message = body.createDiv({ cls: "snm-ai-note", attr: { role: "status" } });
-    const run = (button, operation) => button.addEventListener("click", async () => { button.disabled = true; try { await operation(); } catch (error) { message.setText(`완료하지 못했습니다: ${error.message || error}`); } finally { button.disabled = false; } });
-    const copy = (label, read) => { const button = actions.createEl("button", { text: label }); run(button, async () => { await navigator.clipboard.writeText(read()); message.setText("복사했습니다. 자료의 외부 AI 제공은 회사 정책을 먼저 확인하세요."); }); };
-    copy("시작 프롬프트 복사", () => prompt.value);
-    copy("읽기 확인 프롬프트 복사", () => aiWikiStarterPrompt(this.plugin, provider.value, "check"));
-    const web = actions.createEl("button", { text: "AI 웹 열기" });
-    run(web, async () => { const url = AI_WIKI_PROVIDERS[provider.value]?.url; if (url) await shell.openExternal(url); message.setText("웹을 열었습니다. 파일이나 프롬프트는 자동 전송하지 않았습니다."); });
-    const launch = actions.createEl("button", { text: "지정한 로컬 앱 열기" });
-    run(launch, async () => { await this.plugin.launchAiWikiApp(provider.value, path.value); message.setText("앱을 열었습니다. 업무 폴더는 해당 앱에서 직접 선택하고 프롬프트를 붙여넣으세요. 연결 확인은 아래에서 별도로 진행합니다."); });
-    const savePath = actions.createEl("button", { text: "선택·앱 경로 저장" });
-    run(savePath, async () => { await this.plugin.configureAiWiki({ aiWikiProvider: provider.value, aiWikiAppPaths: { ...this.plugin.settings.aiWikiAppPaths, [provider.value]: path.value.trim() } }); message.setText("이 AI 선택과 앱 경로를 저장했습니다. 앱 실행·권한 설정은 수행하지 않았습니다."); });
-    const challenge = body.createDiv({ cls: "snm-ai-check" });
-    challenge.createEl("strong", { text: "읽기 확인 · 실제 파일을 읽었는지 응답 대조" });
-    challenge.createEl("p", { text: "확인 파일 준비 후 읽기 확인 프롬프트를 AI에 보내세요. AI가 답한 코드만 아래에 붙여넣으세요. 이는 해당 파일의 일회성 응답 대조이며 지속 연결이나 모든 파일 접근을 보장하지 않습니다." });
-    const prepare = challenge.createEl("button", { text: "읽기 확인 파일 준비" });
-    run(prepare, async () => { await this.plugin.prepareAiWikiChallenge(); message.setText("확인 파일을 준비했습니다. 읽기 확인 프롬프트를 다시 복사해 AI에 보내세요."); });
-    const answer = challenge.createEl("input", { attr: { type: "text", placeholder: "AI가 답한 확인 코드", "aria-label": "AI 읽기 확인 코드" } });
-    const verify = challenge.createEl("button", { text: "응답 확인" });
-    run(verify, async () => { await this.plugin.verifyAiWikiChallenge(answer.value); message.setText("코드가 일치합니다. 확인 파일 내용과 응답을 대조했습니다. 첨부한 파일을 이용했다면 로컬 직접 접근 확인은 아닙니다. 다음 채팅과 다른 파일의 권한은 별도입니다."); });
-    const update = () => {
-      help.setText(AI_WIKI_PROVIDERS[provider.value].help);
-      path.value = this.plugin.settings.aiWikiAppPaths?.[provider.value] || "";
-      const base = this.plugin.absoluteVaultPath(this.plugin.rootFolder());
-      const quote = value => process.platform === "win32" ? `'${value.replaceAll("'", "''")}'` : `'${value.replaceAll("'", `'"'"'`)}'`;
-      command.setText(provider.value === "codex" ? `CLI 사용 시(복사 후 직접 실행):\ncodex -C ${quote(base)} --sandbox read-only --ask-for-approval on-request` : provider.value === "claude" ? `CLI 사용 시 업무 폴더에서 직접 실행:\nclaude --permission-mode plan --add-dir ${quote(base)}` : "웹만 사용할 때는 필요한 자료만 직접 첨부하거나 조직이 허용한 연결을 설정하세요.");
-      prompt.value = aiWikiStarterPrompt(this.plugin, provider.value);
-      web.disabled = !AI_WIKI_PROVIDERS[provider.value].url;
-      launch.disabled = !["codex", "claude"].includes(provider.value);
-      path.disabled = launch.disabled;
+    shortNames.forEach((text, index) => { const item = steps.createSpan({ text: `${index + 1} · ${text}` }); if (index === this.step) { item.addClass("is-current"); item.setAttr("aria-current", "step"); } });
+    body.createEl("h3", { text: `${this.step + 1}. ${names[this.step]}` });
+    const action = (host, label, operation) => { const button = host.createEl("button", { text: label }); button.disabled = this.busy; button.addEventListener("click", () => this.act(operation)); return button; };
+    const copy = async value => { await navigator.clipboard.writeText(value); this.message = "복사했습니다. AI 창에 붙여넣어 주세요. 자동 전송하지는 않습니다."; };
+    const checkbox = (label, value, change) => {
+      const row = body.createEl("label", { cls: "snm-ai-wizard-check" }); const input = row.createEl("input", { attr: { type: "checkbox" } });
+      input.checked = value; input.disabled = this.busy; row.createSpan({ text: label }); input.addEventListener("change", () => change(input.checked));
     };
-    provider.addEventListener("change", update); update();
+    if (this.step === 0) {
+      body.createEl("p", { text: "사용할 AI를 하나 고르세요. 다음 화면부터 한 단계씩 따라갑니다. AI 계정 로그인과 회사의 자료 제공 정책은 별도이며, 이 플러그인에 AI API 키를 입력할 필요는 없습니다." });
+      const select = body.createEl("select", { attr: { "aria-label": "사용할 AI" } }); select.disabled = this.busy;
+      Object.entries(AI_WIKI_PROVIDERS).forEach(([value, item]) => select.createEl("option", { value, text: item.label })); select.value = this.provider;
+      select.addEventListener("change", () => { this.provider = select.value; this.appPath = this.plugin.settings.aiWikiAppPaths?.[this.provider] || ""; this.accessMode = ["codex", "claude"].includes(this.provider) ? "local" : "attachment"; this.folderConfirmed = false; this.promptConfirmed = false; this.answer = ""; this.preparedFolder = ""; this.render(); });
+      const status = body.createDiv({ cls: "snm-ai-connection-state", attr: { role: "status", "aria-label": "현재 연결 상태" } });
+      this.plugin.renderAiWikiConnectionStatus?.(status, this.provider);
+    } else if (this.step === 1) {
+      body.createEl("p", { text: AI_WIKI_PROVIDERS[this.provider].help });
+      const mode = body.createEl("select", { attr: { "aria-label": "자료 접근 방식" } }); mode.disabled = this.busy;
+      mode.createEl("option", { value: "local", text: "로컬 폴더에 직접 접근" }); mode.createEl("option", { value: "attachment", text: "필요한 파일을 직접 첨부" }); mode.value = this.accessMode;
+      mode.addEventListener("change", () => { this.accessMode = mode.value; this.folderConfirmed = false; this.promptConfirmed = false; this.answer = ""; this.render(); });
+      body.createEl("p", { text: this.accessMode === "local" ? "① AI 앱을 실행하고 로그인하세요. ② 아래 업무 폴더를 AI의 프로젝트/허용 폴더로 여세요. ③ 처음에는 읽기 전용으로 접근을 확인하세요. 앱 실행만으로 권한이 생기지는 않습니다." : "일반 웹 채팅은 PC 경로만으로 파일을 읽지 못합니다. 회사에서 허용한 자료만 첨부하세요. 이후 읽기 확인 단계에서도 확인 파일을 직접 첨부해야 하며, 결과는 ‘자료 전달 확인됨’으로 구분합니다." });
+      const folder = this.plugin.absoluteVaultPath(this.plugin.rootFolder());
+      body.createEl("pre", { cls: "snm-ai-command", text: folder });
+      const actions = body.createDiv({ cls: "snm-ai-actions" }); action(actions, "업무 폴더 경로 복사", () => copy(folder));
+      if (AI_WIKI_PROVIDERS[this.provider].url) action(actions, "AI 웹 열기", async () => { await shell.openExternal(AI_WIKI_PROVIDERS[this.provider].url); this.message = "웹을 열었습니다. 자료는 자동 전송하지 않았습니다."; });
+      if (["codex", "claude"].includes(this.provider)) {
+        const advanced = body.createEl("details"); advanced.createEl("summary", { text: "앱 경로·CLI 직접 실행 (선택 사항)" });
+        const path = advanced.createEl("input", { attr: { type: "text", placeholder: "설치된 앱의 전체 경로 (.exe / .app)", "aria-label": "로컬 AI 앱 경로" } }); path.value = this.appPath; path.disabled = this.busy; path.addEventListener("input", () => { this.appPath = path.value; });
+        action(advanced, "앱 경로 저장", async () => { await this.plugin.configureAiWiki({ aiWikiAppPaths: { ...this.plugin.settings.aiWikiAppPaths, [this.provider]: this.appPath.trim() } }); this.message = "앱 경로를 저장했습니다. 권한은 AI 앱에서 직접 확인하세요."; });
+        action(advanced, "지정한 로컬 앱 열기", async () => { await this.plugin.launchAiWikiApp(this.provider, this.appPath); this.message = "앱을 열었습니다. 해당 앱에서 업무 폴더를 선택하세요."; });
+        const quote = value => process.platform === "win32" ? `'${value.replaceAll("'", "''")}'` : `'${value.replaceAll("'", `'"'"'`)}'`;
+        advanced.createEl("pre", { cls: "snm-ai-command", text: this.provider === "codex" ? `codex -C ${quote(folder)} --sandbox read-only --ask-for-approval on-request` : `claude --permission-mode plan --add-dir ${quote(folder)}` });
+      }
+      checkbox(this.accessMode === "local" ? "AI 앱에서 업무 폴더 접근 준비를 마쳤습니다" : "허용된 파일을 첨부하는 방식으로 진행하겠습니다", this.folderConfirmed, value => { this.folderConfirmed = value; });
+    } else if (this.step === 2) {
+      body.createEl("p", { text: "① 아래 버튼으로 시작 프롬프트를 복사하세요. ② 선택한 AI의 새 채팅에 붙여넣고 보내세요. ③ AI가 안내를 확인하면 아래 확인란을 선택하고 다음으로 진행하세요." });
+      if (this.accessMode === "attachment") body.createEl("p", { text: "이 단계에서는 Wiki의 ‘기록 규칙.md’와 ‘Templates/작업기록.md’를 직접 첨부하세요. 로컬 폴더 접근이 가능한 것처럼 답하지 않도록 AI에 알려 주세요.", cls: "snm-ai-note" });
+      action(body, "시작 프롬프트 복사", () => copy(aiWikiStarterPrompt(this.plugin, this.provider, "start", this.accessMode)));
+      const preview = body.createEl("details"); preview.createEl("summary", { text: "보낼 프롬프트 미리보기" }); preview.createEl("textarea", { cls: "snm-ai-prompt", text: aiWikiStarterPrompt(this.plugin, this.provider, "start", this.accessMode), attr: { readonly: "", "aria-label": "AI 시작 프롬프트" } });
+      checkbox("시작 프롬프트를 AI에 보냈습니다", this.promptConfirmed, value => { this.promptConfirmed = value; });
+    } else if (this.step === 3) {
+      body.createEl("p", { text: "확인 파일을 준비했습니다. ① 읽기 확인 요청을 복사해 AI에 보내세요. ② AI가 답한 ‘snm-wiki-…’ 코드만 붙여넣으세요. ③ 아래 ‘연결 확인’을 누르세요." });
+      if (this.accessMode === "attachment") body.createEl("p", { cls: "snm-ai-note", text: `직접 첨부할 확인 파일: ${this.plugin.absoluteVaultPath(`${this.plugin.aiWikiFolder()}/연결 확인.md`)}` });
+      action(body, "읽기 확인 요청 복사", () => copy(aiWikiStarterPrompt(this.plugin, this.provider, "check", this.accessMode)));
+      const answer = body.createEl("input", { attr: { type: "text", placeholder: "AI가 답한 snm-wiki-… 코드", "aria-label": "AI 읽기 확인 코드" } }); answer.value = this.answer; answer.disabled = this.busy; answer.addEventListener("input", () => { this.answer = answer.value; });
+    } else {
+      const status = body.createDiv({ cls: "snm-ai-connection-state", attr: { role: "status", "aria-label": "현재 연결 상태" } }); this.plugin.renderAiWikiConnectionStatus?.(status, this.provider);
+      body.createEl("p", { text: "이제 같은 AI 채팅에서 업무를 요청할 수 있습니다. 새 채팅에서는 시작 프롬프트나 제공된 기록 스킬을 다시 적용하세요. 이 상태는 마지막 읽기 응답을 확인한 기록이며 실시간 로그인·연결 상태나 쓰기 권한을 보장하지 않습니다." });
+    }
+    body.createDiv({ cls: "snm-ai-note", text: this.message, attr: { role: "status", "aria-label": "도우미 진행 상태" } });
     const footer = this.contentEl.createDiv({ cls: "snm-ai-actions snm-ai-footer" });
-    footer.createEl("button", { text: "닫기" }).addEventListener("click", () => this.close());
+    const cancel = footer.createEl("button", { text: this.step === 4 ? "완료" : "닫기" }); cancel.disabled = this.busy; cancel.addEventListener("click", () => this.close());
+    if (this.step > 0 && this.step < 4) { const back = footer.createEl("button", { text: "이전" }); back.disabled = this.busy; back.addEventListener("click", () => { this.step--; this.message = ""; this.render(); }); }
+    if (this.step < 4) { const next = action(footer, this.step === 3 ? "연결 확인" : "다음", () => this.next()); next.addClass("mod-cta"); }
+    else action(footer, "다시 확인", async () => { this.step = 0; this.answer = ""; this.preparedFolder = ""; this.message = ""; });
   }
-  onClose() { this.contentEl.empty(); }
+  onClose() { this.closed = true; this.contentEl.empty(); this.plugin.refreshAiWikiConnectionStatus?.(); }
 }
 
 class AiWikiModal extends Modal {
@@ -4537,19 +4591,47 @@ class AiWikiModal extends Modal {
 // END AI WIKI
 
 function renderAiWikiSettings(container, plugin, refresh) {
-  container.createEl("h3", { text: "AI Wiki · 선택 기능" });
-  const report = error => new Notice(`AI Wiki: ${error.message || error}`, 8000);
-  new Setting(container).setName("AI Wiki 사용").setDesc("기본은 사용 안 함입니다. 켜면 현재 업무 루트 아래에 기록 공간과 안내를 준비합니다. 외부 AI·API 호출이나 채팅 수집은 하지 않습니다. 꺼도 기존 기록은 보존합니다.")
-    .addToggle(toggle => toggle.setValue(plugin.settings.aiWikiEnabled === true).onChange(async value => { try { await plugin.configureAiWiki({ aiWikiEnabled: value }); refresh(); } catch (error) { toggle.setValue(plugin.settings.aiWikiEnabled === true); report(error); } }));
+  const block = container.createDiv({ cls: "snm-ai-settings-block" });
+  block.createEl("h3", { text: "AI Wiki · 선택 기능" });
+  block.createEl("p", { cls: "snm-ai-note", text: "사용·기록 허용 스위치는 바꾸면 바로 저장됩니다. 저장 폴더의 이름을 바꿨을 때만 옆의 적용 버튼을 누르세요." });
+  const operation = block.createDiv({ cls: "snm-ai-setting-state", attr: { role: "status", "aria-label": "AI Wiki 설정 저장 상태" } });
   let folder = plugin.settings.aiWikiSubfolder || "LLM WIKI";
-  new Setting(container).setName("AI Wiki 저장 폴더").setDesc(`현재 업무 루트 ${plugin.rootFolder()}/ 아래에 저장합니다. 폴더 변경은 이후 탐색·저장 위치만 바꾸며 기존 기록을 자동 이동·병합하지 않습니다.`)
-    .addText(text => text.setValue(folder).setPlaceholder("LLM WIKI").onChange(value => { folder = value; }))
-    .addButton(button => button.setButtonText("적용").onClick(async () => { try { await plugin.configureAiWiki({ aiWikiSubfolder: folder }); refresh(); } catch (error) { report(error); } }));
-  new Setting(container).setName("AI의 Wiki 내부 기록 허용 안내").setDesc("기본은 저장 전 확인입니다. 켜면 시작 프롬프트에 Wiki 안의 요청 관련 기록만 허용한다고 안내합니다. AI 앱의 실제 파일 권한은 별도이며 티켓 본문·코드·DB·외부 시스템 변경은 허용하지 않습니다.")
-    .addToggle(toggle => toggle.setDisabled(!plugin.settings.aiWikiEnabled).setValue(plugin.settings.aiWikiAllowWrites === true).onChange(async value => { try { await plugin.configureAiWiki({ aiWikiAllowWrites: value }); } catch (error) { toggle.setValue(plugin.settings.aiWikiAllowWrites === true); report(error); } }));
-  new Setting(container).setName("AI 시작·연결 안내").setDesc("Codex·Claude·ChatGPT·다른 AI를 선택하고 시작 프롬프트, 선택형 앱 실행, 읽기 확인을 진행합니다. 이 플러그인에는 AI API 키가 필요하지 않습니다.")
-    .addButton(button => button.setButtonText("연결 안내").setDisabled(!plugin.settings.aiWikiEnabled).onClick(() => plugin.openAiWikiConnect()))
-    .addButton(button => button.setButtonText("AI Wiki 열기").setDisabled(!plugin.settings.aiWikiEnabled).onClick(() => plugin.openAiWiki()));
+  let busy = false, folderBusy = false, enabledToggle, writeToggle, folderInput, applyButton, connectButton, openButton, folderState;
+  const sync = () => {
+    const dirty = folder.trim().replaceAll("\\", "/") !== (plugin.settings.aiWikiSubfolder || "LLM WIKI");
+    const applied = plugin.settings.aiWikiFolderApplied === true || plugin.settings.aiWikiEnabled === true;
+    enabledToggle?.setDisabled(busy); folderInput?.setDisabled(busy);
+    writeToggle?.setDisabled(busy || !plugin.settings.aiWikiEnabled);
+    applyButton?.setDisabled(busy || (!dirty && applied));
+    connectButton?.setDisabled(busy || !plugin.settings.aiWikiEnabled); openButton?.setDisabled(busy || !plugin.settings.aiWikiEnabled);
+    if (folderState) {
+      folderState.setText(folderBusy ? "적용 중…" : dirty ? `변경됨 · 아직 미적용 (현재: ${plugin.settings.aiWikiSubfolder || "LLM WIKI"})` : applied ? `적용됨 · ${plugin.rootFolder()}/${plugin.settings.aiWikiSubfolder || "LLM WIKI"}${plugin.settings.aiWikiEnabled ? "" : " · 사용 안 함"}` : "미적용 · 폴더를 적용하거나 AI Wiki 사용을 켜 주세요");
+      folderState.setAttr("data-state", folderBusy ? "busy" : dirty || !applied ? "pending" : "applied");
+    }
+  };
+  const save = async (changes, label, isFolder = false) => {
+    if (busy) return;
+    busy = true; folderBusy = isFolder; operation.setText(`${label} 저장 중… 잠시 기다려 주세요.`); operation.setAttr("data-state", "busy"); sync();
+    try {
+      await plugin.configureAiWiki(changes);
+      if (isFolder) { folder = plugin.settings.aiWikiSubfolder; folderInput.setValue(folder); }
+      operation.setText(`${label} 저장됨${changes.aiWikiEnabled === true ? " · 내부 기록 허용 안내를 바로 설정할 수 있습니다. 폴더 적용을 다시 누를 필요가 없습니다." : ""}`); operation.setAttr("data-state", "applied");
+    } catch (error) { operation.setText(`저장 실패 · ${error.message || error}`); operation.setAttr("data-state", "error"); new Notice(`AI Wiki: ${error.message || error}`, 8000); }
+    finally { busy = false; folderBusy = false; enabledToggle.setValue(plugin.settings.aiWikiEnabled === true); writeToggle.setValue(plugin.settings.aiWikiAllowWrites === true); sync(); }
+  };
+  new Setting(block).setName("AI Wiki 사용").setDesc("기본은 사용 안 함입니다. 켜면 적용된 업무 루트 아래에 Wiki를 준비하고, 완료되면 아래 설정이 활성화됩니다. 외부 AI 호출·채팅 수집은 하지 않으며 꺼도 기록은 보존합니다.")
+    .addToggle(toggle => { enabledToggle = toggle; toggle.setValue(plugin.settings.aiWikiEnabled === true).onChange(value => save({ aiWikiEnabled: value }, "AI Wiki 사용")); });
+  const setting = new Setting(block).setName("AI Wiki 저장 폴더").setDesc(`현재 업무 루트 ${plugin.rootFolder()}/ 아래에 저장합니다. 폴더 변경은 이후 탐색·저장 위치만 바꾸며 기존 기록을 자동 이동·병합하지 않습니다.`)
+    .addText(text => { folderInput = text; text.setValue(folder).setPlaceholder("LLM WIKI").onChange(value => { folder = value; sync(); }); })
+    .addButton(button => { applyButton = button; button.setButtonText("적용").onClick(() => save({ aiWikiSubfolder: folder }, "저장 폴더", true)); });
+  folderState = (setting.controlEl || setting.control || block).createSpan({ cls: "snm-ai-folder-state", attr: { role: "status", "aria-label": "저장 폴더 적용 상태" } });
+  new Setting(block).setName("AI의 Wiki 내부 기록 허용 안내").setDesc("기본은 저장 전 확인입니다. 켜면 시작 프롬프트에 Wiki 안의 요청 관련 기록만 허용한다고 안내합니다. 실제 AI 권한과 티켓·코드·DB·외부 시스템 변경 승인은 별도입니다.")
+    .addToggle(toggle => { writeToggle = toggle; toggle.setValue(plugin.settings.aiWikiAllowWrites === true).onChange(value => save({ aiWikiAllowWrites: value }, "내부 기록 허용 안내")); });
+  new Setting(block).setName("AI 연결 도우미").setDesc("AI 선택 → 폴더 준비 → 프롬프트 전달 → 읽기 확인 순서로 따라갑니다. 확인을 마치면 아래에 마지막 연결 확인 상태가 표시됩니다.")
+    .addButton(button => { connectButton = button; button.setButtonText("연결 안내").onClick(() => plugin.openAiWikiConnect()); })
+    .addButton(button => { openButton = button; button.setButtonText("AI Wiki 열기").onClick(() => plugin.openAiWiki()); });
+  const status = block.createDiv({ cls: "snm-ai-connection-state", attr: { role: "status", "aria-label": "현재 연결 상태" } }); plugin.renderAiWikiConnectionStatus?.(status);
+  sync();
 }
 
 class FirstRunSetupModal extends Modal {
@@ -5516,6 +5598,9 @@ class CltServiceNowWorkNotes extends Plugin {
 
     this.syncAiWikiNavigation();
     this.addCommand({ id: "open-ai-wiki", name: "AI Wiki 열기 (선택 기능)", callback: () => this.openAiWiki() });
+    for (const event of ["modify", "delete", "rename"]) this.registerEvent(this.app.vault.on(event, (file, oldPath) => {
+      if (/\/연결 확인\.md$/.test(file?.path || "") || /\/연결 확인\.md$/.test(oldPath || "")) void this.refreshAiWikiConnectionStatus();
+    }));
     this.addCommand({ id: "ai-wiki-connect", name: "AI Wiki 시작·연결 안내", callback: () => this.openAiWikiConnect() });
 
     this.addSettingTab(new WorkNotesSettingTab(this.app, this));
@@ -5774,6 +5859,7 @@ class CltServiceNowWorkNotes extends Plugin {
 
   onunload() {
     this.aiWikiViews?.forEach(view => view.close());
+    this.aiWikiStatusElements?.clear();
     this.dateTimeNowDocuments?.forEach(dispose => dispose());
     this.dateTimeNowDocuments?.clear();
     this.popupLayoutDocuments?.forEach((previous, doc) => {
@@ -5900,13 +5986,14 @@ class CltServiceNowWorkNotes extends Plugin {
     this.aiWikiConfiguration = new Promise(resolve => { release = resolve; });
     await pending;
     try {
-    const allowed = ["aiWikiEnabled", "aiWikiSubfolder", "aiWikiProvider", "aiWikiAllowWrites", "aiWikiAppPaths"];
+    const allowed = ["aiWikiEnabled", "aiWikiSubfolder", "aiWikiProvider", "aiWikiAllowWrites", "aiWikiAppPaths", "aiWikiReadChecks"];
     const previous = this.settings;
     const next = { ...previous, ...Object.fromEntries(Object.entries(changes).filter(([key]) => allowed.includes(key))) };
     try { next.aiWikiSubfolder = aiWikiRelativeFolder(next.aiWikiSubfolder); }
     catch (error) { if (changes.aiWikiEnabled === false) next.aiWikiSubfolder = "LLM WIKI"; else throw error; }
     next.aiWikiProvider = Object.hasOwn(AI_WIKI_PROVIDERS, next.aiWikiProvider) ? next.aiWikiProvider : "codex";
     next.aiWikiEnabled = next.aiWikiEnabled === true;
+    next.aiWikiFolderApplied = previous.aiWikiFolderApplied === true || previous.aiWikiEnabled === true || next.aiWikiEnabled || Object.hasOwn(changes, "aiWikiSubfolder");
     next.aiWikiAllowWrites = next.aiWikiAllowWrites === true;
     next.aiWikiAppPaths = Object.fromEntries(Object.keys(AI_WIKI_PROVIDERS).map(key => [key, String(next.aiWikiAppPaths?.[key] || "").trim()]));
     this.settings = next;
@@ -5940,6 +6027,39 @@ class CltServiceNowWorkNotes extends Plugin {
     const documents = new Set(typeof document === "undefined" ? [] : [document]);
     this.app.workspace.iterateAllLeaves?.(leaf => { if (leaf.view?.containerEl?.ownerDocument) documents.add(leaf.view.containerEl.ownerDocument); });
     for (const doc of documents) doc.querySelectorAll("[data-snm-ai-wiki]").forEach(button => { button.hidden = !this.settings.aiWikiEnabled; });
+    void this.refreshAiWikiConnectionStatus?.();
+  }
+
+  async getAiWikiConnectionStatus(provider = this.settings.aiWikiProvider || "codex") {
+    if (!this.settings.aiWikiEnabled) return { state: "disabled", label: "AI Wiki 사용 안 함" };
+    const record = this.settings.aiWikiReadChecks?.[provider];
+    if (!record) return { state: "pending", label: "미연결 · 연결 도우미에서 읽기 확인을 진행하세요" };
+    const stale = { state: "stale", label: "재확인 필요 · 폴더나 확인 파일이 바뀌었거나 확인 기록이 유효하지 않습니다" };
+    try {
+      if (!Object.hasOwn(AI_WIKI_PROVIDERS, provider) || record.folder !== this.absoluteVaultPath(this.aiWikiFolder()) || record.provider !== provider || !["local", "attachment"].includes(record.mode) || !Number.isFinite(Date.parse(record.checkedAt)) || !/^snm-wiki-[a-f0-9-]+$/.test(record.challenge || "")) return stale;
+      const file = this.app.vault.getAbstractFileByPath(`${this.aiWikiFolder()}/연결 확인.md`);
+      if (!(file instanceof TFile)) return stale;
+      const text = (await this.app.vault.read(file)).replace(/\r\n/g, "\n");
+      if (text !== `<!-- snm-ai-wiki-check -->\n확인 코드: ${record.challenge}\n`) return stale;
+      const when = new Date(record.checkedAt).toLocaleString();
+      return { state: record.mode === "local" ? "verified" : "attachment", label: `${record.mode === "local" ? "연결 확인됨 · 로컬 읽기" : "자료 전달 확인됨 · 첨부 방식 (로컬 연결 아님)"} · ${AI_WIKI_PROVIDERS[provider].label} · 마지막 확인 ${when}`, detail: "마지막 읽기 응답을 대조한 기록입니다. 실시간 로그인·연결 또는 쓰기 권한을 보장하지 않습니다." };
+    } catch (_) { return { state: "stale", label: "재확인 필요 · 확인 파일을 읽지 못했습니다" }; }
+  }
+
+  renderAiWikiConnectionStatus(element, provider) {
+    this.aiWikiStatusElements ||= new Map();
+    this.aiWikiStatusElements.set(element, provider);
+    void this.refreshAiWikiConnectionStatus();
+  }
+
+  async refreshAiWikiConnectionStatus() {
+    const revision = this.aiWikiStatusRevision = (this.aiWikiStatusRevision || 0) + 1;
+    await Promise.all([...(this.aiWikiStatusElements || [])].map(async ([element, provider]) => {
+      if (!element.isConnected) { this.aiWikiStatusElements.delete(element); return; }
+      const status = await this.getAiWikiConnectionStatus(provider);
+      if (revision !== this.aiWikiStatusRevision || !element.isConnected || !this.aiWikiStatusElements.has(element)) return;
+      element.setText([status.label, status.detail].filter(Boolean).join("\n")); element.setAttr("data-state", status.state);
+    }));
   }
 
   openAiWiki(ticketId = "") {
@@ -6064,17 +6184,24 @@ class CltServiceNowWorkNotes extends Plugin {
         if (!/^<!-- snm-ai-wiki-check -->\n확인 코드: snm-wiki-[a-f0-9-]+\s*$/.test(current)) throw new Error("확인 파일이 변경되어 갱신하지 않습니다.");
         return next;
       });
+      void this.refreshAiWikiConnectionStatus?.();
       return;
     }
     await this.app.vault.create(path, `<!-- snm-ai-wiki-check -->\n확인 코드: snm-wiki-${crypto.randomUUID()}\n`);
+    void this.refreshAiWikiConnectionStatus?.();
   }
 
-  async verifyAiWikiChallenge(answer) {
+  async verifyAiWikiChallenge(answer, options = {}) {
     if (!this.settings.aiWikiEnabled) throw new Error("AI Wiki가 사용 안 함 상태입니다.");
+    const folder = this.absoluteVaultPath(this.aiWikiFolder());
     const file = this.app.vault.getAbstractFileByPath(`${this.aiWikiFolder()}/연결 확인.md`);
     if (!(file instanceof TFile)) throw new Error("먼저 읽기 확인 파일을 준비하세요.");
-    const content = await this.app.vault.read(file), expected = content.match(/^확인 코드: (snm-wiki-[a-f0-9-]+)$/m)?.[1];
-    if (!content.startsWith("<!-- snm-ai-wiki-check -->\n") || !expected || String(answer).trim() !== expected) throw new Error("코드가 일치하지 않습니다. AI의 실제 파일 접근과 선택한 업무 루트를 확인하세요.");
+    const content = (await this.app.vault.read(file)).replace(/\r\n/g, "\n"), expected = content.match(/^확인 코드: (snm-wiki-[a-f0-9-]+)$/m)?.[1];
+    if (!expected || content !== `<!-- snm-ai-wiki-check -->\n확인 코드: ${expected}\n` || String(answer).trim() !== expected) throw new Error("코드가 일치하지 않습니다. AI의 실제 파일 접근과 선택한 업무 루트를 확인하세요.");
+    if (!this.settings.aiWikiEnabled || folder !== this.absoluteVaultPath(this.aiWikiFolder())) throw new Error("확인 중에 Wiki 설정이 바뀌었습니다. 다시 확인하세요.");
+    const provider = options.provider || this.settings.aiWikiProvider || "codex", mode = options.mode || "local";
+    if (!Object.hasOwn(AI_WIKI_PROVIDERS, provider) || !["local", "attachment"].includes(mode)) throw new Error("사용할 AI와 자료 접근 방식을 확인하세요.");
+    await this.configureAiWiki({ aiWikiReadChecks: { ...this.settings.aiWikiReadChecks, [provider]: { provider, mode, checkedAt: new Date().toISOString(), folder, challenge: expected } } });
     return true;
   }
 

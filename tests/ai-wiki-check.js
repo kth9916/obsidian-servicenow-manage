@@ -18,7 +18,7 @@ function method(name) {
   const rest = main.slice(start), end = rest.slice(1).search(/\n  (?:async )?\w+\(/);
   return rest.slice(0, end + 1).trim();
 }
-const methods = ["aiWikiFolder", "configureAiWiki", "aiWikiRecords", "aiWikiRecordMarkdown", "ensureAiWikiScaffold", "createAiWikiRecord", "prepareAiWikiChallenge", "verifyAiWikiChallenge", "launchAiWikiApp", "linkAiWikiRecordToTickets", "auditAiWikiTicketLogs", "changeRootFolder"];
+const methods = ["aiWikiFolder", "configureAiWiki", "aiWikiRecords", "aiWikiRecordMarkdown", "ensureAiWikiScaffold", "createAiWikiRecord", "prepareAiWikiChallenge", "verifyAiWikiChallenge", "getAiWikiConnectionStatus", "launchAiWikiApp", "linkAiWikiRecordToTickets", "auditAiWikiTicketLogs", "changeRootFolder"];
 const plugin = vm.runInContext("({" + methods.map(method).join(",") + "})", context);
 context.plugin = plugin;
 plugin.settings = { rootFolder: "Project A/Operations", aiWikiEnabled: false, aiWikiSubfolder: "LLM WIKI", aiWikiProvider: "codex", aiWikiAllowWrites: false, authMode: "bearer", unchanged: { preserve: true } };
@@ -61,6 +61,8 @@ plugin.app = {
   await plugin.configureAiWiki({ aiWikiEnabled: true, rootFolder: "must-not-change", unknown: true });
   const folder = plugin.aiWikiFolder(); assert.equal(folder, "Project A/Operations/LLM WIKI");
   assert.equal(texts.size, 5); assert(!Object.hasOwn(plugin.settings, "unknown"));
+  assert.equal(plugin.settings.aiWikiFolderApplied, true);
+  assert.equal((await plugin.getAiWikiConnectionStatus()).state, "pending");
   assert(plugin.settings.unchanged.preserve); assert.equal(plugin.settings.authMode, "bearer");
   for (const name of texts.keys()) assert(name.startsWith(folder + "/"));
   assert(![...texts.keys()].some(name => /AGENTS\.md|CLAUDE\.md|config\.toml/.test(name)));
@@ -80,12 +82,28 @@ plugin.app = {
     assert(prompt.includes("접근할 수 없으면 권한을 우회하지"));
     assert(prompt.includes("기존 AGENTS.md·CLAUDE.md·AI 전역 설정을 바꾸지"));
   }
+  assert(context.aiWikiStarterPrompt(plugin, "chatgpt", "start", "attachment").includes("파일 직접 첨부 방식"));
+  assert(context.aiWikiStarterPrompt(plugin, "chatgpt", "check", "attachment").includes("직접 첨부한"));
+  assert(!context.aiWikiStarterPrompt(plugin, "chatgpt", "check", "attachment").includes("로컬 파일"));
   await plugin.prepareAiWikiChallenge();
   const checkPath = `${folder}/연결 확인.md`, code = texts.get(checkPath).match(/snm-wiki-[a-f0-9-]+/)[0];
   assert(!context.aiWikiStarterPrompt(plugin, "codex", "check").includes(code));
   await assert.rejects(() => plugin.verifyAiWikiChallenge("fake-code"), /일치/);
   assert(await plugin.verifyAiWikiChallenge(code));
+  assert.equal((await plugin.getAiWikiConnectionStatus()).state, "verified");
+  plugin.settings = JSON.parse(JSON.stringify(plugin.settings));
+  assert.equal((await plugin.getAiWikiConnectionStatus()).state, "verified", "saved proof survives reload");
+  assert.equal((await plugin.getAiWikiConnectionStatus("claude")).state, "pending");
+  await plugin.verifyAiWikiChallenge(code, { mode: "attachment" });
+  assert.equal((await plugin.getAiWikiConnectionStatus()).state, "attachment", "upload proof must never claim a local connection");
+  plugin.settings.rootFolder = "Different root";
+  assert.equal((await plugin.getAiWikiConnectionStatus()).state, "stale");
+  plugin.settings.rootFolder = "Project A/Operations";
   await plugin.prepareAiWikiChallenge();
+  assert.equal((await plugin.getAiWikiConnectionStatus()).state, "stale", "renewed challenge invalidates old proof");
+  const renewed = texts.get(checkPath).match(/snm-wiki-[a-f0-9-]+/)[0];
+  failSave = true; await assert.rejects(() => plugin.verifyAiWikiChallenge(renewed)); failSave = false;
+  assert.equal((await plugin.getAiWikiConnectionStatus()).state, "stale", "a failed save must not mark connected");
   await assert.rejects(() => plugin.verifyAiWikiChallenge(code), /일치/);
   texts.set(checkPath, "User-owned note");
   await assert.rejects(() => plugin.prepareAiWikiChallenge(), /덮어쓰지/);

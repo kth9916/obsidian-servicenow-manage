@@ -2168,6 +2168,27 @@ button.mod-warning:hover {
 .snm-ai-connect-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding-right: 4px; }
 .snm-ai-steps { display: flex; flex-wrap: wrap; gap: 8px; }
 .snm-ai-steps > span { flex: 1 1 140px; border-radius: 8px; border: 1px solid var(--background-modifier-border); background: var(--background-secondary); padding: 9px 12px; font-size: var(--font-ui-small); font-weight: 600; }
+.snm-ai-steps > .is-current { border-color: var(--interactive-accent); box-shadow: inset 0 -2px var(--interactive-accent); color: var(--interactive-accent); }
+.snm-ai-wizard-check { display: flex; align-items: flex-start; gap: 10px; padding: 14px 0; font-weight: 600; }
+.snm-ai-connect-modal .snm-ai-wizard-check > input { width: auto; flex: 0 0 auto; margin-top: 3px; }
+.snm-ai-wizard-check > span { min-width: 0; }
+.snm-ai-settings-block .snm-ai-folder-state { flex: 1 0 100%; white-space: normal; font-size: var(--font-ui-smaller); text-align: right; }
+.snm-ai-setting-state, .snm-ai-connection-state { padding: 10px 12px; border-radius: 8px; background: var(--background-secondary); font-size: var(--font-ui-small); white-space: pre-line; overflow-wrap: anywhere; }
+.snm-ai-setting-state:empty { display: none; }
+.snm-ai-settings-block [data-state="pending"], .snm-ai-settings-block [data-state="busy"] { color: var(--text-muted); }
+.snm-ai-settings-block [data-state="error"] { color: var(--text-error); }
+.snm-ai-folder-state[data-state="applied"], .snm-ai-connection-state[data-state="verified"] { color: var(--text-success, var(--interactive-accent)); }
+.snm-ai-connect-body > details { margin: 14px 0; }
+.snm-ai-connect-body > h3 { margin: 18px 0 12px; }
+.modal.snm-ai-connect-modal { height: auto; min-height: min(440px, 92dvh); }
+.snm-ai-settings-block { container: snm-ai-settings / inline-size; }
+.snm-ai-settings-block .setting-item-control { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.snm-ai-settings-block .snm-ai-folder-state { overflow-wrap: anywhere; }
+@container snm-ai-settings (max-width: 600px) {
+  .snm-ai-settings-block .setting-item { flex-direction: column; align-items: stretch; gap: 10px; }
+  .snm-ai-settings-block .setting-item-control { justify-content: flex-start; }
+  .snm-ai-settings-block .snm-ai-folder-state { text-align: left; }
+}
 .snm-ai-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .snm-ai-heading > p { flex: 1 1 250px; margin: 0; }
 .snm-ai-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

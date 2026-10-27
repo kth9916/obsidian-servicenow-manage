@@ -20,6 +20,10 @@ AI Wiki is **off by default**, independent of organization packs and ServiceNow/
 
 The generated `AI 시작 안내.md` explains the start workflow and links to official AI connection documentation. No version number, tag or release is created by enabling this feature.
 
+Wiki settings distinguish unsaved folder edits, applying, applied and failed states. The usage/recording switches save immediately; only folder-name edits need the Apply button. Slow saves show progress and automatically unlock dependent controls when complete, without discarding a folder draft.
+
+The five-step connection helper guides AI selection, folder or attachment preparation, the starter prompt, a read-response check, and the result. The last successful check (provider, Wiki location, non-secret challenge code, access method and time) is stored locally and shown after reopening. Local read checks and attachment-only delivery checks have different labels. Changing the Wiki location, losing/changing the check file or an unsuccessful save cannot show a valid local connection. This is historical read-check evidence, not live AI authentication or write authorization.
+
 ## What's new in 2.16.0
 
 - Separate active work from archived/dormant history, with shared lifecycle settings, on-demand history loading, and automatic reactivation when opening a ticket's root note.
