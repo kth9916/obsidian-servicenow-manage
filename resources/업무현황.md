@@ -56,7 +56,7 @@ const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
 
 // 플러그인이 관리하는 업무현황 실행 영역의 버전입니다.
 const DASHBOARD_RUNTIME_VERSION = "2.11.0";
-const DASHBOARD_LAYOUT_REVISION = "2026-10-27-export-draft-editing";
+const DASHBOARD_LAYOUT_REVISION = "2026-10-27-optional-ai-wiki";
 const TABLE_EDITABLE_DATE_MIN_WIDTH = 190;
 const editableDateColumns = new Set(["releaseDate", "scheduledDate", "lastChecked"]);
 function tableColumnWidth(key, value) {
@@ -4965,6 +4965,12 @@ todoViewButton.classList.add("opus-view-tab");
 
 const meetingViewButton = dashboardElement("button", "🗓️ 회의록", { container: viewTabs });
 meetingViewButton.classList.add("opus-view-tab");
+const aiWikiViewButton = dashboardElement("button", "📚 AI Wiki", { container: viewTabs });
+aiWikiViewButton.classList.add("opus-view-tab");
+aiWikiViewButton.setAttribute("data-snm-ai-wiki", "dashboard");
+const syncAiWikiButton = () => { aiWikiViewButton.hidden = dashboardActivityPlugin()?.settings?.aiWikiEnabled !== true; };
+syncAiWikiButton();
+aiWikiViewButton.addEventListener("click", () => dashboardActivityPlugin()?.openAiWiki?.());
 
 const toolbar = dashboardElement(
     "div",
@@ -11303,6 +11309,9 @@ const todoWorkflowRef = app.workspace.on("servicenow-manage:todo-workflow-change
     await refreshAllTodoItems();
     renderAll();
 });
+const aiWikiRef = app.workspace.on("servicenow-manage:ai-wiki-changed", syncAiWikiButton);
+if (typeof dv.component?.registerEvent === "function") dv.component.registerEvent(aiWikiRef);
+else dv.component?.register?.(() => app.workspace.offref(aiWikiRef));
 const todoSortRef = app.workspace.on("servicenow-manage:todo-sort-changed", () => {
     if (!dv.container.isConnected) { app.workspace.offref(todoSortRef); return; }
     renderAll();

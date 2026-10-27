@@ -6,6 +6,20 @@ This is an independent community project. It is not affiliated with, endorsed by
 
 Maintainer: **thkim9916** · `thkim9916@cyberlogitec.com`
 
+## Optional AI Wiki (development, not yet released)
+
+AI Wiki is **off by default**, independent of organization packs and ServiceNow/Google sign-in. Skip its optional initial-setup step or enable it later in plugin settings. The Wiki lives under the configured work root, not a hard-coded project: `<root>/LLM WIKI` by default. Its folder name is configurable; changing that preference does not move existing records. Disabling the feature hides navigation and preserves files. It does not revoke permissions or data already shared with another AI.
+
+- Open AI Wiki from the dashboard, ribbon, command palette, or a ticket. Browse recent, ticket-specific, topic-specific, and needs-review records. Lists use cached metadata, pagination and local file-change refresh, not repeated whole-Vault content reads.
+- Keep detailed work records in `작업기록`, reusable verified knowledge in `지식`, and attachments in `첨부`. Human-facing guides remain separate. Multiple tickets can share one record; ticketless work is supported. Existing notes are never automatically reclassified or moved.
+- The AI start guide offers Codex, Claude, ChatGPT and other providers, a copyable starter prompt, an optional explicitly configured local app launcher, and a user-mediated file-read challenge. Opening an app is **not** an authenticated connection. No prompts or notes are automatically sent to an AI, no agent is run in the background, and no AI API key is stored.
+- Local folder permissions and sign-in must be configured in the selected AI. Ordinary web chat cannot read a local path by itself; use an approved connector or explicitly attach selected files. CLI examples start in read-only/planning mode and are never executed by this plugin.
+- Recording defaults to asking before saving. A separate setting can tell the AI it may maintain request-related files inside the Wiki only. This is prompt guidance, not an OS permission boundary, and does not authorize ticket-body changes, code/DB changes, external messages, or ServiceNow/Jira/Confluence updates.
+- A portable `ai-wiki-recorder/SKILL.md` is supplied inside the Wiki, **not automatically installed**. No existing AGENTS.md, CLAUDE.md, AI configuration, or global skills are overwritten. Unknown chat/task IDs remain unknown; the plugin cannot audit missing work from inaccessible conversations.
+- The record format includes IDs, dates, tickets, topic, summary, verification and sources. Duplicate IDs and incomplete evidence appear under needs-review. This checks record metadata, not the truth of an AI conclusion. AI recording instructions require read-back verification and preservation of manual content.
+
+The generated `AI 시작 안내.md` explains the start workflow and links to official AI connection documentation. No version number, tag or release is created by enabling this feature.
+
 ## What's new in 2.16.0
 
 - Separate active work from archived/dormant history, with shared lifecycle settings, on-demand history loading, and automatic reactivation when opening a ticket's root note.
