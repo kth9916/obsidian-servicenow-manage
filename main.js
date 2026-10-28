@@ -282,6 +282,7 @@ const DEFAULT_SETTINGS = {
   aiWikiAppPaths: {},
   aiWikiFolderApplied: false,
   aiWikiReadChecks: {},
+  aiWikiLayout: "cards",
   instanceUrl: "",
   authMode: "bearer",
   clientId: "",
@@ -4504,8 +4505,132 @@ class AiWikiConnectModal extends Modal {
   onClose() { this.closed = true; this.contentEl.empty(); this.plugin.refreshAiWikiConnectionStatus?.(); }
 }
 
+function sortAiWikiRecords(records, key = "date", direction = "desc") {
+  const field = ["title", "date", "topic", "type"].includes(key) ? key : "date", sign = direction === "asc" ? 1 : -1;
+  return [...records].sort((a, b) => {
+    const left = field === "date" ? Date.parse(String(a.date || "").replace(/^(\d{4}-\d{2}-\d{2}) /, "$1T")) : String(a[field] || "");
+    const right = field === "date" ? Date.parse(String(b.date || "").replace(/^(\d{4}-\d{2}-\d{2}) /, "$1T")) : String(b[field] || "");
+    if (field === "date" && (!Number.isFinite(left) || !Number.isFinite(right))) return Number.isFinite(left) ? -1 : Number.isFinite(right) ? 1 : a.file.path.localeCompare(b.file.path);
+    const compared = field === "date" ? left - right : left.localeCompare(right, "ko", { numeric: true, sensitivity: "base" });
+    return sign * compared || a.file.path.localeCompare(b.file.path);
+  });
+}
+
+async function aiWikiTicketSummaryStates(plugin, record) {
+  if (!plugin.settings.aiWikiEnabled) return [];
+  return Promise.all(record.tickets.map(async ticket => {
+    try {
+      const file = plugin.rootTicketFile(ticket);
+      if (!(file instanceof TFile)) return { ticket, state: "missing", label: "원본 티켓 없음" };
+      if (!record.id || !/^[a-z0-9_.:-]{1,120}$/i.test(record.id)) return { ticket, state: "unknown", label: "기록 ID 확인 필요" };
+      const markdown = await plugin.app.vault.read(file), marker = `<!-- snm-ai-record:${record.id} -->`;
+      const linked = extractTicketWorkLogs(markdown).some(entry => entry.raw.includes(marker));
+      const heading = String(markdown).split(/\r?\n/).find(line => /^#{1,6}\s+/.test(line) && normalizedHeadingText(line.replace(/^#{1,6}\s+/, "")).includes("작업일지"));
+      return { ticket, state: linked ? "linked" : "unlinked", label: linked ? "요약 연결됨" : "아직 연결 안 됨", path: file.path, heading: heading?.replace(/^#{1,6}\s+/, "") || "" };
+    } catch (_) { return { ticket, state: "error", label: "일지 상태 확인 실패" }; }
+  }));
+}
+
+function confirmAiWikiSummaryLink(app, plugin, record, onSettled) {
+  return new ConfirmActionModal(app, "티켓 작업 일지에 요약 추가", `${record.tickets.join(", ")} 원본 노트의 ‘작업 일지’에 요청·결과·근거·미확인·다음 조치·Wiki 상세 링크를 추가합니다. Wiki 원문을 이동하거나 티켓 상태·To-Do를 바꾸지는 않습니다. 같은 기록 ID는 중복 추가하지 않으며, 이후 Wiki 수정 내용도 기존 일지에 자동 반영되지 않습니다. 계속할까요?`, async () => {
+    let message;
+    try {
+      const tickets = await plugin.linkAiWikiRecordToTickets(record);
+      message = `${tickets.join(", ")} 작업 일지의 요약·상세 링크를 확인했습니다. 같은 기록은 중복 추가하지 않습니다.`;
+      new Notice(message, 7000);
+    } catch (error) { message = error.message || String(error); new Notice(message, 10000); }
+    await onSettled?.(message);
+  }, "요약 추가", "작업 일지 연결").open();
+}
+
+class AiWikiRecordModal extends Modal {
+  constructor(app, plugin, record, onNavigate) { super(app); this.plugin = plugin; this.path = record.file.path; this.onNavigate = onNavigate; this.closed = false; this.revision = 0; this.message = ""; }
+  onOpen() {
+    this.modalEl.addClass("snm-ai-detail-modal"); this.titleEl.setText("AI Wiki 기록 미리보기");
+    this.plugin.aiWikiViews ||= new Set(); this.plugin.aiWikiViews.add(this);
+    const schedule = (file, oldPath) => {
+      if (file?.path !== this.path && oldPath !== this.path) return;
+      if (oldPath === this.path) this.path = file.path;
+      clearTimeout(this.timer); this.timer = setTimeout(() => this.render(), 150);
+    };
+    const metadata = this.app.metadataCache.on("changed", file => schedule(file)), refs = ["modify", "delete", "rename"].map(event => this.app.vault.on(event, schedule));
+    this.dispose = () => { this.app.metadataCache.offref(metadata); refs.forEach(ref => this.app.vault.offref(ref)); };
+    return this.render();
+  }
+  async navigate(path, heading = "") {
+    try {
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (!(file instanceof TFile)) throw new Error("원본 노트를 찾을 수 없습니다.");
+      if (heading && this.app.workspace.openLinkText) await this.app.workspace.openLinkText(`${file.path.replace(/\.md$/, "")}#${heading}`, this.path, false);
+      else await this.app.workspace.getLeaf(false).openFile(file);
+      this.close(); this.onNavigate?.();
+    } catch (error) { new Notice(error.message || String(error)); }
+  }
+  async render() {
+    if (this.closed) return;
+    const revision = ++this.revision, scroll = this.body?.scrollTop || 0;
+    this.markdownChild?.unload(); this.markdownChild = null; this.contentEl.empty();
+    const body = this.body = this.contentEl.createDiv({ cls: "snm-ai-detail-body" });
+    body.createEl("p", { cls: "snm-ai-note", text: "기록을 읽는 중입니다…" });
+    const footer = this.contentEl.createDiv({ cls: "snm-ai-actions snm-ai-footer" });
+    const status = footer.createEl("p", { cls: "snm-ai-inline-status", text: this.message, attr: { role: "status", "aria-label": "Wiki 작업 상태" } });
+    footer.createEl("button", { text: "닫기" }).addEventListener("click", () => this.close());
+    let link;
+    const open = footer.createEl("button", { text: "원본 노트 열기", cls: "mod-cta" }); open.disabled = true; open.addEventListener("click", () => this.navigate(this.path));
+    try {
+      if (!this.plugin.settings.aiWikiEnabled) throw new Error("AI Wiki는 사용 안 함 상태입니다.");
+      if (!this.path.startsWith(this.plugin.aiWikiFolder() + "/")) throw new Error("현재 Wiki 밖으로 이동한 기록입니다. 목록에서 다시 선택하세요.");
+      const file = this.app.vault.getAbstractFileByPath(this.path);
+      if (!(file instanceof TFile)) throw new Error("기록이 삭제되었거나 원본 파일을 찾을 수 없습니다.");
+      const raw = await this.app.vault.read(file);
+      if (this.closed || revision !== this.revision) return;
+      const header = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/); let metadata = {}, metadataError = "";
+      try { metadata = header ? parseYaml(header[1]) || {} : {}; } catch (_) { metadataError = "기록 속성 형식 오류 · 원본에서 확인하세요"; }
+      const record = aiWikiRecord(file, metadata); if (metadataError) record.issues.unshift(metadataError);
+      const others = (this.plugin.aiWikiRecords?.() || []).filter(item => item.file.path !== file.path);
+      if (others.some(item => (record.id && item.id === record.id) || (record.chatId && record.taskId && item.chatId === record.chatId && item.taskId === record.taskId))) record.issues.push("중복 식별자 확인");
+      this.titleEl.setText(record.title); body.empty(); open.disabled = false;
+      body.createEl("p", { cls: "snm-ai-note", text: `${record.type === "knowledge" ? "지식" : "작업기록"} · ${record.topic} · ${record.date || "날짜 미확인"}` });
+      const overview = body.createDiv({ cls: "snm-ai-detail-summary" });
+      for (const [label, text] of [["요약", record.summary || "목록용 요약이 없습니다. 아래 원본 본문을 확인하세요."], ["다음 조치", record.nextAction], ["미확인 사항", record.unknowns]]) {
+        if (text) { overview.createEl("h4", { text: label }); overview.createEl("p", { text }); }
+      }
+      if (record.issues.length) {
+        const review = body.createEl("details", { cls: "snm-ai-review-details" }); review.createEl("summary", { text: `기록 정보 ${record.issues.length}개 확인 필요` });
+        const issues = review.createEl("ul"); record.issues.forEach(text => issues.createEl("li", { text })); if (this.showReview) review.setAttr("open", "");
+      }
+      const section = body.createEl("details", { cls: "snm-ai-detail-links" });
+      const linkHeading = section.createEl("summary", { text: "티켓 작업 일지 연결" });
+      section.createEl("p", { cls: "snm-ai-note", text: "티켓 일지에는 등록 당시의 요약과 이 기록의 상세 링크가 추가됩니다. Wiki 원문은 그대로이며, 같은 기록의 중복 추가나 이후 내용의 자동 갱신은 하지 않습니다." });
+      if (!record.tickets.length) section.createEl("p", { cls: "snm-ai-note", text: "연결된 티켓이 없는 기록입니다." });
+      const states = await aiWikiTicketSummaryStates(this.plugin, record);
+      if (this.closed || revision !== this.revision) return;
+      for (const state of states) {
+        const row = section.createDiv({ cls: "snm-ai-ticket-link-state", attr: { "data-state": state.state } });
+        row.createSpan({ text: `${state.ticket} · ${state.label}` });
+        if (state.path) row.createEl("button", { text: state.state === "linked" ? "일지 위치 열기" : "원본 티켓 열기" }).addEventListener("click", () => this.navigate(state.path, state.state === "linked" ? state.heading : ""));
+      }
+      linkHeading.setText(record.tickets.length ? `티켓 일지 · 요약 연결 ${states.filter(state => state.state === "linked").length}/${record.tickets.length}` : "티켓 없음 · 일지 연결 대상 없음");
+      link = section.createEl("button", { text: "티켓 일지에 요약 추가", attr: { title: "연결된 티켓의 작업 일지가 변경됩니다. 기록 ID·요약·다음 조치가 필요합니다." } });
+      link.hidden = !record.tickets.length;
+      link.disabled = !record.tickets.length || !record.id || !record.summary || !record.nextAction;
+      link.addEventListener("click", () => confirmAiWikiSummaryLink(this.app, this.plugin, record, async message => { this.message = message; this.showLinks = true; await this.render(); }));
+      if (this.showLinks) section.setAttr("open", "");
+      const details = body.createEl("details", { attr: { open: "" } }); details.createEl("summary", { text: "기록 본문" });
+      const markdown = details.createDiv({ cls: "snm-ai-detail-markdown markdown-rendered" }), content = header ? raw.slice(header[0].length) : raw;
+      if (content.length > 200000) details.createEl("p", { cls: "snm-ai-warning", text: "큰 기록은 앞부분만 미리 봅니다. 전체 내용은 ‘원본 노트 열기’를 사용하세요." });
+      const child = this.markdownChild = new MarkdownRenderChild(markdown); child.load();
+      await MarkdownRenderer.render(this.app, content.slice(0, 200000), markdown, file.path, child);
+      if (!this.closed && revision === this.revision) body.scrollTop = scroll;
+    } catch (error) {
+      if (!this.closed && revision === this.revision) { this.markdownChild?.unload(); this.markdownChild = null; body.empty(); body.createEl("p", { cls: "snm-ai-warning", text: error.message || String(error) }); status.setText("기록을 미리 볼 수 없습니다. 목록은 그대로 유지됩니다."); }
+    }
+  }
+  onClose() { this.closed = true; this.revision++; clearTimeout(this.timer); this.dispose?.(); this.markdownChild?.unload(); this.markdownChild = null; this.plugin.aiWikiViews?.delete(this); this.contentEl.empty(); }
+}
+
 class AiWikiModal extends Modal {
-  constructor(app, plugin, ticketId = "") { super(app); this.plugin = plugin; this.ticket = ticketId; this.mode = ticketId ? "tickets" : "recent"; this.query = ""; this.page = 0; }
+  constructor(app, plugin, ticketId = "") { super(app); this.plugin = plugin; this.ticket = ticketId; this.mode = ticketId ? "tickets" : "recent"; this.query = ""; this.page = 0; this.sortKey = "date"; this.sortDirection = "desc"; this.closed = false; this.message = ""; }
   onOpen() {
     this.modalEl.addClass("snm-ai-wiki-modal");
     this.titleEl.setText("AI Wiki");
@@ -4520,15 +4645,17 @@ class AiWikiModal extends Modal {
     clearTimeout(this.timer); this.timer = setTimeout(() => this.render(), 200);
   }
   render() {
+    if (this.closed) return;
     const body = this.contentEl; body.empty();
     if (!this.plugin.settings.aiWikiEnabled) { body.createEl("p", { text: "AI Wiki는 사용 안 함 상태입니다. 설정에서 나중에 켤 수 있으며 기존 기록은 삭제하지 않습니다." }); return; }
     let records;
     try { records = this.plugin.aiWikiRecords(); } catch (error) { body.createEl("p", { text: error.message }); return; }
-    const header = body.createDiv({ cls: "snm-ai-heading" });
+    const controls = body.createDiv({ cls: "snm-ai-list-controls" });
+    const header = controls.createDiv({ cls: "snm-ai-heading" });
     header.createEl("p", { cls: "snm-ai-note", text: `${this.plugin.aiWikiFolder()} · ${records.length}개 기록 · 등록된 파일만 표시하며 모든 AI 채팅을 수집하지 않습니다.` });
     const actions = header.createDiv({ cls: "snm-ai-actions" });
-    actions.createEl("button", { text: "AI 시작·연결 안내", cls: "mod-cta" }).addEventListener("click", () => this.plugin.openAiWikiConnect());
-    const create = actions.createEl("button", { text: "새 기록 서식" });
+    actions.createEl("button", { text: "AI 시작·연결 안내" }).addEventListener("click", () => this.plugin.openAiWikiConnect());
+    const create = actions.createEl("button", { text: "새 기록 서식", cls: "mod-cta" });
     create.addEventListener("click", () => {
       const modal = new Modal(this.app); modal.titleEl.setText("AI Wiki 기록 만들기");
       const input = modal.contentEl.createEl("input", { attr: { type: "text", placeholder: "기록 제목", "aria-label": "기록 제목" } });
@@ -4554,7 +4681,7 @@ class AiWikiModal extends Modal {
       } catch (error) { new Notice(error.message || String(error)); }
       finally { audit.disabled = false; }
     });
-    const filters = body.createDiv({ cls: "snm-ai-filters" });
+    const filters = controls.createDiv({ cls: "snm-ai-filters" });
     const search = filters.createEl("input", { attr: { type: "search", placeholder: "제목·요약·티켓·주제·날짜·ID 검색", "aria-label": "AI Wiki 검색" } });
     search.value = this.query;
     const mode = filters.createEl("select", { attr: { "aria-label": "AI Wiki 보기" } });
@@ -4566,36 +4693,60 @@ class AiWikiModal extends Modal {
     if (this.mode === "tickets") scope.createEl("option", { value: "__ticketless__", text: "티켓 없음" });
     categories.forEach(value => scope.createEl("option", { value, text: value }));
     scope.value = categories.includes(this.ticket) || this.ticket === "__ticketless__" ? this.ticket : "";
-    const list = body.createDiv({ cls: "snm-ai-records" });
+    const layout = filters.createEl("select", { attr: { "aria-label": "AI Wiki 표시 방식" } });
+    layout.createEl("option", { value: "cards", text: "카드 보기" }); layout.createEl("option", { value: "table", text: "표 목록" }); layout.value = this.plugin.settings.aiWikiLayout === "table" ? "table" : "cards";
+    const help = controls.createEl("details", { cls: "snm-ai-list-help" }); help.createEl("summary", { text: "기록은 팝업으로 미리 보기 · ‘티켓 일지에 요약 추가’ 안내" });
+    help.createEl("p", { cls: "snm-ai-note", text: "기록명을 누르면 상세 팝업이 열리고, 원할 때만 원본 노트로 이동합니다. ‘티켓 일지에 요약 추가’는 연결 티켓의 작업 일지에 요약·상세 링크를 추가합니다. Wiki 원문 이동, 티켓 상태 변경, 이후 수정의 자동 동기화는 하지 않습니다. 같은 기록 ID는 중복 추가하지 않습니다." });
+    const message = controls.createEl("p", { cls: "snm-ai-inline-status", text: this.message, attr: { role: "status", "aria-label": "Wiki 목록 작업 상태" } });
+    const list = body.createDiv({ cls: layout.value === "table" ? "snm-ai-records is-table" : "snm-ai-records" });
     const footer = body.createDiv({ cls: "snm-ai-actions snm-ai-footer" });
     const previous = footer.createEl("button", { text: "이전" });
     const count = footer.createSpan();
     const next = footer.createEl("button", { text: "다음" });
     const paint = () => {
       const needle = this.query.trim().toLowerCase();
-      const matching = records.filter(item => (!needle || [item.title, item.summary, ...item.tickets, item.topic, item.date, item.chatId, item.taskId, ...item.issues].join(" ").toLowerCase().includes(needle)) && (this.mode !== "review" || item.issues.length) && (!scope.value || (this.mode === "tickets" ? scope.value === "__ticketless__" ? !item.tickets.length : item.tickets.includes(scope.value) : item.topic === scope.value)));
+      const matching = sortAiWikiRecords(records.filter(item => (!needle || [item.title, item.summary, ...item.tickets, item.topic, item.date, item.chatId, item.taskId, ...item.issues].join(" ").toLowerCase().includes(needle)) && (this.mode !== "review" || item.issues.length) && (!scope.value || (this.mode === "tickets" ? scope.value === "__ticketless__" ? !item.tickets.length : item.tickets.includes(scope.value) : item.topic === scope.value))), this.sortKey, this.sortDirection);
       this.page = Math.min(this.page, Math.max(0, Math.ceil(matching.length / 40) - 1));
       list.empty();
+      const preview = (item, showReview = false) => { const modal = new AiWikiRecordModal(this.app, this.plugin, item, () => this.close()); modal.showReview = showReview; modal.open(); };
+      const addSummary = item => confirmAiWikiSummaryLink(this.app, this.plugin, item, result => { this.message = result; if (!this.closed) message.setText(result); });
+      const reviewBadge = (host, item) => {
+        if (item.issues.length) host.createEl("button", { cls: "snm-ai-review-badge", text: `확인 필요 ${item.issues.length}`, attr: { title: item.issues.join(" · "), "aria-label": `${item.title} 기록 정보 확인 필요 ${item.issues.length}` } }).addEventListener("click", () => preview(item, true));
+        else host.createSpan({ cls: "snm-ai-review-ok", text: "기록 정보 충족", attr: { title: "필수 기록 정보의 점검 결과이며 분석 내용의 정답을 보장하지는 않습니다." } });
+      };
+      let tableBody;
+      if (layout.value === "table" && matching.length) {
+        const table = list.createEl("table", { cls: "snm-ai-table", attr: { "aria-label": "AI Wiki 기록 목록" } }), head = table.createEl("thead").createEl("tr");
+        for (const [label, key] of [["기록명", "title"], ["티켓", ""], ["핵심 요약", ""], ["수정/등록일", "date"], ["기록 점검", ""], ["작업", ""]]) {
+          const th = head.createEl("th", { attr: { scope: "col" } });
+          if (key) {
+            th.setAttr("aria-sort", this.sortKey === key ? this.sortDirection === "asc" ? "ascending" : "descending" : "none");
+            th.createEl("button", { text: label + (this.sortKey === key ? this.sortDirection === "asc" ? " ↑" : " ↓" : ""), attr: { "aria-label": `${label} 정렬` } }).addEventListener("click", () => { this.sortDirection = this.sortKey === key ? this.sortDirection === "asc" ? "desc" : "asc" : key === "date" ? "desc" : "asc"; this.sortKey = key; paint(); });
+          } else th.setText(label);
+        }
+        tableBody = table.createEl("tbody");
+      }
       for (const item of matching.slice(this.page * 40, this.page * 40 + 40)) {
+        if (tableBody) {
+          const row = tableBody.createEl("tr"), title = row.createEl("td"); title.createEl("button", { cls: "snm-ai-title", text: item.title }).addEventListener("click", () => preview(item));
+          title.createEl("small", { cls: "snm-ai-record-subtitle", text: `${item.type === "knowledge" ? "지식" : "작업기록"} · ${item.topic}` });
+          row.createEl("td", { text: item.tickets.join(" · ") || "티켓 없음" });
+          row.createEl("td", { text: item.summary.slice(0, 200) + (item.summary.length > 200 ? "…" : "") || "요약 없음 · 본문에서 확인" }); row.createEl("td", { text: item.date || "날짜 미확인" }); reviewBadge(row.createEl("td"), item);
+          const actions = row.createEl("td"); if (item.tickets.length) actions.createEl("button", { text: "일지에 요약 추가" }).addEventListener("click", () => addSummary(item));
+          continue;
+        }
         const card = list.createDiv({ cls: "snm-ai-card" });
-        card.createEl("button", { text: item.title, cls: "snm-ai-title" }).addEventListener("click", async () => {
-          try { await this.app.workspace.getLeaf(false).openFile(item.file); this.close(); }
-          catch (error) { new Notice(error.message || String(error)); }
-        });
-        card.createEl("p", { text: item.summary.slice(0, 600) || "요약을 기록해 주세요." });
-        card.createEl("small", { text: `${item.type === "knowledge" ? "지식" : "작업기록"} · ${item.topic} · ${item.date || "날짜 미확인"}` });
+        const meta = card.createDiv({ cls: "snm-ai-card-meta" }); meta.createSpan({ cls: "snm-ai-type-badge", text: item.type === "knowledge" ? "지식" : "작업기록" }); meta.createEl("small", { text: String(item.date || "날짜 미확인").replace("T", " ").slice(0, 16) });
+        card.createEl("button", { text: item.title, cls: "snm-ai-title" }).addEventListener("click", () => preview(item));
+        card.createEl("p", { cls: "snm-ai-card-summary", text: item.summary.slice(0, 600) || "목록용 요약이 없습니다. 기록을 눌러 본문을 확인하세요." });
+        card.createEl("small", { cls: "snm-ai-record-subtitle", text: item.topic });
         const links = card.createDiv({ cls: "snm-ai-actions" });
         for (const ticket of item.tickets) links.createEl("button", { text: ticket }).addEventListener("click", async () => {
           try { const file = this.plugin.rootTicketFile(ticket); if (file) { await this.app.workspace.getLeaf(false).openFile(file); this.close(); } else new Notice("연결된 티켓 원본 노트를 찾을 수 없습니다."); }
           catch (error) { new Notice(error.message || String(error)); }
         });
-        if (item.tickets.length) links.createEl("button", { text: "작업 일지에 요약 연결" }).addEventListener("click", () => {
-          new ConfirmActionModal(this.app, "티켓 작업 일지 연결", `${item.tickets.join(", ")}의 작업 일지에 요청·결과·근거·미확인·다음 조치·상세 링크를 추가합니다. Wiki 내부 기록 허용과 별도의 티켓 변경입니다. 같은 기록 ID는 중복 추가하지 않습니다. 계속할까요?`, async () => {
-            try { await this.plugin.linkAiWikiRecordToTickets(item); new Notice("티켓 작업 일지에 통일된 형식으로 연결했습니다."); }
-            catch (error) { new Notice(error.message || String(error), 10000); }
-          }).open();
-        });
-        if (item.issues.length) card.createEl("p", { cls: "snm-ai-warning", text: item.issues.join(" · ") });
+        if (item.tickets.length) links.createEl("button", { text: "티켓 일지에 요약 추가" }).addEventListener("click", () => addSummary(item));
+        reviewBadge(card.createDiv({ cls: "snm-ai-card-review" }), item);
       }
       if (!matching.length) list.createEl("p", { cls: "snm-ai-note", text: "표시할 기록이 없습니다. AI 시작 안내를 따라 기록하거나 새 기록 서식을 만드세요. 기존 노트는 자동 이동하지 않습니다." });
       count.setText(`${matching.length}개 · ${this.page + 1} / ${Math.max(1, Math.ceil(matching.length / 40))}`);
@@ -4604,11 +4755,17 @@ class AiWikiModal extends Modal {
     search.addEventListener("input", () => { this.query = search.value; this.page = 0; paint(); });
     mode.addEventListener("change", () => { this.mode = mode.value; this.ticket = ""; this.page = 0; this.render(); });
     scope.addEventListener("change", () => { this.ticket = scope.value; this.page = 0; paint(); });
+    layout.addEventListener("change", async () => {
+      layout.disabled = true; message.setText("표시 방식을 저장하는 중입니다…");
+      try { await this.plugin.setAiWikiLayout(layout.value); this.message = ""; }
+      catch (error) { this.message = error.message || String(error); new Notice(this.message); }
+      finally { if (!this.closed) this.render(); }
+    });
     previous.addEventListener("click", () => { this.page--; paint(); }); next.addEventListener("click", () => { this.page++; paint(); });
     footer.createEl("button", { text: "닫기" }).addEventListener("click", () => this.close());
     paint();
   }
-  onClose() { clearTimeout(this.timer); this.dispose?.(); this.plugin.aiWikiViews?.delete(this); this.contentEl.empty(); }
+  onClose() { this.closed = true; clearTimeout(this.timer); this.dispose?.(); this.plugin.aiWikiViews?.delete(this); this.contentEl.empty(); }
 }
 // END AI WIKI
 
@@ -6018,6 +6175,19 @@ class CltServiceNowWorkNotes extends Plugin {
     const root = this.rootFolder();
     if (/^[/\\]|^[a-z]:|[\[\]#^\x00-\x1f]/i.test(root) || root.split(/[\\/]/).some(part => !part || part === "." || part === ".." || part.startsWith("."))) throw new Error("AI Wiki를 사용하려면 Vault 안의 일반 업무 루트 폴더를 지정하세요.");
     return `${root}/${aiWikiRelativeFolder(this.settings.aiWikiSubfolder)}`;
+  }
+
+  async setAiWikiLayout(layout) {
+    if (!["cards", "table"].includes(layout)) throw new Error("지원하지 않는 Wiki 표시 방식입니다.");
+    const pending = this.aiWikiConfiguration || Promise.resolve(); let release;
+    this.aiWikiConfiguration = new Promise(resolve => { release = resolve; }); await pending;
+    try {
+      const existed = Object.hasOwn(this.settings, "aiWikiLayout"), previous = this.settings.aiWikiLayout;
+      this.settings.aiWikiLayout = layout;
+      try { await this.savePluginData(); }
+      catch (error) { if (existed) this.settings.aiWikiLayout = previous; else delete this.settings.aiWikiLayout; throw new Error(`보기 설정을 저장하지 못해 이전 방식으로 되돌렸습니다. ${error.message || error}`); }
+      this.aiWikiViews?.forEach(view => view.render());
+    } finally { release(); }
   }
 
   async configureAiWiki(changes) {
