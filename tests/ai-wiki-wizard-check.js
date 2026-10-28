@@ -26,7 +26,7 @@ const Wizard = vm.runInContext("AiWikiConnectModal", ctx);
   let release, fail = false, prepared = 0, verified = 0, launched;
   const plugin = {
     settings: { aiWikiEnabled: false, aiWikiSubfolder: "LLM WIKI", aiWikiProvider: "codex", aiWikiAllowWrites: false }, rootFolder: () => "Project A",
-    aiWikiFolder: () => "Project A/" + plugin.settings.aiWikiSubfolder, absoluteVaultPath: value => "D:/Notes/" + value,
+    aiWikiFolder: () => "Project A/" + plugin.settings.aiWikiSubfolder, ticketsFolder: () => "Project A/Tickets", absoluteVaultPath: value => "D:/Notes/" + value,
     configureAiWiki: async changes => { if (release) await new Promise(resolve => { release.resolve = resolve; }); if (fail) throw Error("disk unavailable"); Object.assign(plugin.settings, changes); if (changes.aiWikiEnabled || changes.aiWikiSubfolder) plugin.settings.aiWikiFolderApplied = true; },
     launchAiWikiApp: async (provider, path) => { launched = [provider, path]; },
     prepareAiWikiChallenge: async () => { prepared++; }, getAiWikiConnectionStatus: async () => ({ state: verified ? "verified" : "pending" }),
@@ -67,5 +67,14 @@ const Wizard = vm.runInContext("AiWikiConnectModal", ctx);
   const cancelled = new Wizard({}, plugin); cancelled.render = () => {}; cancelled.onClose(); await cancelled.act(async () => { throw Error("closed wizard ran"); }); assert.equal(verified, 1);
   const changed = new Wizard({}, plugin); changed.render = () => {}; changed.step = 3; changed.preparedFolder = "old folder"; changed.answer = "correct";
   await assert.rejects(() => changed.next(), /폴더/); assert.equal(verified, 1);
+  const guided = new Wizard({}, plugin); guided.step = 1; guided.render();
+  assert(!guided.contentEl.all().some(el => el.attrs.type === "checkbox"), "preparation must not depend on a theme-sensitive checkbox");
+  await guided.contentEl.all().find(el => el.textContent === "읽기 가능 확인 · 다음").events.click();
+  assert.equal(guided.step, 2); assert(guided.folderConfirmed); assert.equal(verified, 1, "preparation acknowledgement is not connection verification");
+  assert(!guided.contentEl.all().some(el => el.attrs.type === "checkbox"));
+  await guided.contentEl.all().find(el => el.textContent === "프롬프트 전달 완료 · 다음").events.click();
+  assert.equal(guided.step, 3); assert(guided.promptConfirmed); assert.equal(verified, 1);
+  const attachment = new Wizard({}, plugin); attachment.step = 1; attachment.accessMode = "attachment"; attachment.render();
+  await attachment.contentEl.all().find(el => el.textContent === "첨부 준비 완료 · 다음").events.click(); assert.equal(attachment.step, 2);
   console.log("AI Wiki wizard/settings checks passed: explicit pending/applying/applied states; immediate autosave progress; dependent controls; retained folder draft; errors/retry; ordered gated steps; Back/Next preservation; cancellation and changed-root rejection.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

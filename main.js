@@ -4419,7 +4419,7 @@ class AiWikiConnectModal extends Modal {
       if (this.plugin.settings.aiWikiProvider !== this.provider) await this.plugin.configureAiWiki({ aiWikiProvider: this.provider });
     } else if (this.step === 1 && !this.folderConfirmed) throw new Error("AI 앱에서 폴더 접근 또는 파일 첨부 준비를 확인해 주세요.");
     else if (this.step === 2) {
-      if (!this.promptConfirmed) throw new Error("시작 프롬프트를 AI에 보낸 뒤 확인란을 선택하세요.");
+      if (!this.promptConfirmed) throw new Error("시작 프롬프트를 AI에 보낸 뒤 하단의 ‘프롬프트 전달 완료 · 다음’을 눌러 확인하세요.");
       const folder = this.plugin.absoluteVaultPath(this.plugin.aiWikiFolder());
       if (this.preparedFolder !== folder) { await this.plugin.prepareAiWikiChallenge(); this.answer = ""; }
       this.preparedFolder = folder;
@@ -4442,10 +4442,6 @@ class AiWikiConnectModal extends Modal {
     body.createEl("h3", { text: `${this.step + 1}. ${names[this.step]}` });
     const action = (host, label, operation) => { const button = host.createEl("button", { text: label }); button.disabled = this.busy; button.addEventListener("click", () => this.act(operation)); return button; };
     const copy = async value => { await navigator.clipboard.writeText(value); this.message = "복사했습니다. AI 창에 붙여넣어 주세요. 자동 전송하지는 않습니다."; };
-    const checkbox = (label, value, change) => {
-      const row = body.createEl("label", { cls: "snm-ai-wizard-check" }); const input = row.createEl("input", { attr: { type: "checkbox" } });
-      input.checked = value; input.disabled = this.busy; row.createSpan({ text: label }); input.addEventListener("change", () => change(input.checked));
-    };
     if (this.step === 0) {
       body.createEl("p", { text: "사용할 AI를 하나 고르세요. 다음 화면부터 한 단계씩 따라갑니다. AI 계정 로그인과 회사의 자료 제공 정책은 별도이며, 이 플러그인에 AI API 키를 입력할 필요는 없습니다." });
       const select = body.createEl("select", { attr: { "aria-label": "사용할 AI" } }); select.disabled = this.busy;
@@ -4462,11 +4458,11 @@ class AiWikiConnectModal extends Modal {
       (this.accessMode === "local" ? [
         "평소 사용하던 AI 앱을 직접 열고 로그인한 뒤 새 채팅을 여세요.",
         "‘AI에 보낼 준비 요청 복사’를 누르고 AI 채팅 입력창에 붙여넣어 보내세요.",
-        "AI가 권한이나 폴더 선택을 요청하면 확인하고, ‘폴더 읽기 가능’이라는 답을 받으면 아래 확인란을 선택한 뒤 다음으로 가세요."
+        "AI가 권한이나 폴더 선택을 요청하면 확인하고, ‘폴더 읽기 가능’이라는 답을 받으면 하단의 ‘읽기 가능 확인 · 다음’을 누르세요."
       ] : [
         "사용할 AI 웹 또는 앱의 새 채팅을 여세요.",
         "아래 준비 요청을 복사해 보내고 어떤 파일을 첨부할지 안내를 받으세요.",
-        "첨부 방식으로 진행할 준비가 되면 확인란을 선택하세요. PC 폴더 직접 연결로 표시하지는 않습니다."
+        "첨부 방식으로 진행할 준비가 되면 하단의 ‘첨부 준비 완료 · 다음’을 누르세요. PC 폴더 직접 연결로 표시하지는 않습니다."
       ]).forEach(text => instructions.createEl("li", { text }));
       const folder = this.plugin.absoluteVaultPath(this.plugin.rootFolder());
       const actions = body.createDiv({ cls: "snm-ai-actions" });
@@ -4476,14 +4472,12 @@ class AiWikiConnectModal extends Modal {
       const prompt = body.createEl("textarea", { cls: "snm-ai-prompt", attr: { readonly: "", "aria-label": "AI에 보낼 폴더 준비 요청" } }); prompt.value = aiWikiFolderPreparationPrompt(this.plugin, this.provider, this.accessMode);
       const unavailable = body.createEl("details"); unavailable.createEl("summary", { text: "AI가 폴더를 읽을 수 없다고 하면?" });
       unavailable.createEl("p", { text: this.provider === "codex" ? `Codex의 로컬 프로젝트 메뉴에서 프로젝트 편집 → 폴더 추가로 ${folder}를 선택하고 그 프로젝트의 새 채팅에서 준비 요청을 다시 보내세요. 기존 프로젝트에 폴더를 추가할 수도 있습니다. 메뉴 명칭은 앱 버전에 따라 다를 수 있습니다. 프로젝트 선택과 실제 읽기 권한 승인은 별도입니다.` : this.provider === "claude" ? `Claude Code에서는 업무 폴더를 작업 폴더로 열고, Claude Desktop에서는 허용된 로컬 파일 연결의 접근 폴더를 확인하세요. 설정 방법을 모르면 위 준비 요청으로 AI에게 현재 환경에 맞는 안내를 먼저 받으세요. 일반 웹 채팅만 쓴다면 ‘필요한 파일을 직접 첨부’ 방식으로 바꾸세요.` : "이 AI 환경에 로컬 파일 접근 기능이 없다면 위 자료 접근 방식을 ‘필요한 파일을 직접 첨부’로 바꾸세요. 파일 접근 권한이 있는 것처럼 가정하거나 보안 설정을 우회하지 마세요." });
-      checkbox(this.accessMode === "local" ? "AI가 ‘폴더 읽기 가능’이라고 답했습니다" : "허용된 파일을 첨부하는 방식으로 진행하겠습니다", this.folderConfirmed, value => { this.folderConfirmed = value; });
-      body.createEl("p", { cls: "snm-ai-note", text: "2단계는 폴더 접근 준비이고, 3단계에서는 Wiki 기록 규칙이 담긴 별도의 시작 프롬프트를 보냅니다. 확인란은 사용자의 진행 확인이며, 최종 읽기 확인은 4단계에서 따로 진행합니다." });
+      body.createEl("p", { cls: "snm-ai-note", text: "2단계는 폴더 접근 준비입니다. 하단의 확인·다음 버튼을 누르면 3단계로 진행합니다. 별도 체크박스를 찾을 필요는 없습니다. 실제 파일 읽기 확인은 4단계에서 따로 진행합니다." });
     } else if (this.step === 2) {
-      body.createEl("p", { text: "① 아래 버튼으로 시작 프롬프트를 복사하세요. ② 2단계에서 폴더 준비를 진행한 같은 AI 채팅에 붙여넣고 보내세요. ③ AI가 안내를 확인하면 아래 확인란을 선택하고 다음으로 진행하세요." });
+      body.createEl("p", { text: "① 아래 버튼으로 시작 프롬프트를 복사하세요. ② 2단계에서 폴더 준비를 진행한 같은 AI 채팅에 붙여넣고 보내세요. ③ AI가 안내를 확인하면 하단의 ‘프롬프트 전달 완료 · 다음’을 누르세요." });
       if (this.accessMode === "attachment") body.createEl("p", { text: "이 단계에서는 Wiki의 ‘기록 규칙.md’와 ‘Templates/작업기록.md’를 직접 첨부하세요. 로컬 폴더 접근이 가능한 것처럼 답하지 않도록 AI에 알려 주세요.", cls: "snm-ai-note" });
       action(body, "시작 프롬프트 복사", () => copy(aiWikiStarterPrompt(this.plugin, this.provider, "start", this.accessMode)));
       const preview = body.createEl("details"); preview.createEl("summary", { text: "보낼 프롬프트 미리보기" }); preview.createEl("textarea", { cls: "snm-ai-prompt", text: aiWikiStarterPrompt(this.plugin, this.provider, "start", this.accessMode), attr: { readonly: "", "aria-label": "AI 시작 프롬프트" } });
-      checkbox("시작 프롬프트를 AI에 보냈습니다", this.promptConfirmed, value => { this.promptConfirmed = value; });
     } else if (this.step === 3) {
       body.createEl("p", { text: "확인 파일을 준비했습니다. ① 읽기 확인 요청을 복사해 AI에 보내세요. ② AI가 답한 ‘snm-wiki-…’ 코드만 붙여넣으세요. ③ 아래 ‘연결 확인’을 누르세요." });
       if (this.accessMode === "attachment") body.createEl("p", { cls: "snm-ai-note", text: `직접 첨부할 확인 파일: ${this.plugin.absoluteVaultPath(`${this.plugin.aiWikiFolder()}/연결 확인.md`)}` });
@@ -4497,7 +4491,14 @@ class AiWikiConnectModal extends Modal {
     const footer = this.contentEl.createDiv({ cls: "snm-ai-actions snm-ai-footer" });
     const cancel = footer.createEl("button", { text: this.step === 4 ? "완료" : "닫기" }); cancel.disabled = this.busy; cancel.addEventListener("click", () => this.close());
     if (this.step > 0 && this.step < 4) { const back = footer.createEl("button", { text: "이전" }); back.disabled = this.busy; back.addEventListener("click", () => { this.step--; this.message = ""; this.render(); }); }
-    if (this.step < 4) { const next = action(footer, this.step === 3 ? "연결 확인" : "다음", () => this.next()); next.addClass("mod-cta"); }
+    if (this.step < 4) {
+      const label = this.step === 1 ? (this.accessMode === "local" ? "읽기 가능 확인 · 다음" : "첨부 준비 완료 · 다음") : this.step === 2 ? "프롬프트 전달 완료 · 다음" : this.step === 3 ? "연결 확인" : "다음";
+      const next = action(footer, label, async () => {
+        if (this.step === 1) this.folderConfirmed = true;
+        if (this.step === 2) this.promptConfirmed = true;
+        await this.next();
+      }); next.addClass("mod-cta");
+    }
     else action(footer, "다시 확인", async () => { this.step = 0; this.answer = ""; this.preparedFolder = ""; this.message = ""; });
   }
   onClose() { this.closed = true; this.contentEl.empty(); this.plugin.refreshAiWikiConnectionStatus?.(); }
@@ -6140,7 +6141,7 @@ class CltServiceNowWorkNotes extends Plugin {
     const documents = [
       ["홈.md", `# AI Wiki\n\n업무 루트: ${this.rootFolder()}\n\n상세 조사와 재사용 지식을 분리해 보관합니다. 플러그인의 AI Wiki 메뉴에서 최근 기록·티켓별·주제별·확인 필요를 탐색하세요.\n\n- [[${folder}/AI 시작 안내|처음 시작하기]]\n- [[${folder}/기록 규칙|기록과 권한 규칙]]\n- [[${folder}/Templates/작업기록|작업기록 서식]]\n\n지침·교육·운영 절차와 기존 티켓/증거 파일은 자동으로 이동하지 않습니다.`],
       ["기록 규칙.md", `# AI Wiki 기록 규칙\n\n${aiWikiRecordingRules(this)}`],
-      ["AI 시작 안내.md", `# AI Wiki 처음 시작하기\n\n1. 플러그인 설정에서 AI Wiki를 켭니다. 기본은 사용 안 함이며 초기 설정에서 건너뛸 수 있습니다.\n2. AI Wiki → AI 시작·연결 안내에서 AI를 선택합니다. AI 앱은 평소처럼 직접 열면 되며 앱 경로나 CLI 명령어 입력은 필요하지 않습니다.\n3. 도우미 2단계의 ‘AI에 보낼 준비 요청 복사’를 누르고 AI 채팅에 붙여넣어 보냅니다. ‘폴더 경로만 복사’는 AI가 폴더 선택을 요청할 때 쓰는 보조 버튼입니다. AI가 ‘폴더 읽기 가능’이라고 답하면 확인란을 선택하고 다음으로 갑니다. 일반 웹 채팅은 PC 경로만으로 파일을 읽지 못하므로, 해당 환경에서는 도우미의 파일 첨부 방식을 선택하세요.\n4. 도우미 3단계의 시작 프롬프트를 같은 AI 채팅에 붙여넣습니다. 파일 첨부 방식이라면 기록 규칙과 작업기록 서식도 직접 첨부합니다. 프롬프트·파일·인증 정보는 자동 전송하지 않습니다.\n5. 읽기 확인 파일 준비 → 읽기 확인 프롬프트 복사 → AI 응답 코드 대조를 진행합니다. 한 파일의 응답 대조이며 지속 연결 상태가 아닙니다.\n6. 관련 업무를 요청하고 승인 범위에 따라 저장하게 합니다. 저장 후 실제 노트를 다시 읽고 경로를 보고하도록 합니다.\n\n## 다음 요청 예시\n\n- 최근 작업기록에서 이 주제와 관련된 근거를 찾아 현재도 유효한지 확인해 줘.\n- 이번 조사 결과를 Wiki 기록 규칙에 맞춰 정리하고 저장 전 경로와 내용을 보여 줘.\n\n## 스킬은 선택 사항\n\n[[${folder}/스킬/ai-wiki-recorder/SKILL|공통 기록 스킬]]을 제공하지만 자동 설치하지 않습니다. Codex/Claude Code 등 해당 AI의 공식 스킬 설치 방법에 따라 이 폴더를 등록하세요. 기존 AGENTS.md·CLAUDE.md·전역 설정을 자동 수정하지 않습니다. 스킬 설치만으로 모든 채팅 기록이 보장되지 않습니다.\n\n## 접근과 승인\n\nAPI 키를 이 플러그인에 넣지 않습니다. 각 AI 앱 로그인·폴더 권한·조직 보안 정책은 별도입니다. Wiki 기록 허용은 코드/DB/Jira/ServiceNow 수정 승인이 아닙니다. 사용을 끄더라도 기존 파일은 보존하지만 외부 AI에 이미 제공한 자료나 권한까지 회수되는 것은 아닙니다. 외부 AI 설정에서도 별도로 해제하세요.\n\n## 공식 연결 안내\n\n- [Codex 프로젝트와 폴더](https://learn.chatgpt.com/docs/projects)\n- [Claude 로컬/웹 연결 구분](https://support.claude.com/en/articles/11725091-when-to-use-desktop-and-web-connectors)\n- [Claude Code CLI](https://code.claude.com/docs/en/cli-reference)`]
+      ["AI 시작 안내.md", `# AI Wiki 처음 시작하기\n\n1. 플러그인 설정에서 AI Wiki를 켭니다. 기본은 사용 안 함이며 초기 설정에서 건너뛸 수 있습니다.\n2. AI Wiki → AI 시작·연결 안내에서 AI를 선택합니다. AI 앱은 평소처럼 직접 열면 되며 앱 경로나 CLI 명령어 입력은 필요하지 않습니다.\n3. 도우미 2단계의 ‘AI에 보낼 준비 요청 복사’를 누르고 AI 채팅에 붙여넣어 보냅니다. ‘폴더 경로만 복사’는 AI가 폴더 선택을 요청할 때 쓰는 보조 버튼입니다. AI가 ‘폴더 읽기 가능’이라고 답하면 하단의 ‘읽기 가능 확인 · 다음’ 버튼을 누릅니다. 일반 웹 채팅은 PC 경로만으로 파일을 읽지 못하므로, 해당 환경에서는 도우미의 파일 첨부 방식을 선택하세요.\n4. 도우미 3단계의 시작 프롬프트를 같은 AI 채팅에 붙여넣습니다. 파일 첨부 방식이라면 기록 규칙과 작업기록 서식도 직접 첨부합니다. 프롬프트·파일·인증 정보는 자동 전송하지 않습니다.\n5. 읽기 확인 파일 준비 → 읽기 확인 프롬프트 복사 → AI 응답 코드 대조를 진행합니다. 한 파일의 응답 대조이며 지속 연결 상태가 아닙니다.\n6. 관련 업무를 요청하고 승인 범위에 따라 저장하게 합니다. 저장 후 실제 노트를 다시 읽고 경로를 보고하도록 합니다.\n\n## 다음 요청 예시\n\n- 최근 작업기록에서 이 주제와 관련된 근거를 찾아 현재도 유효한지 확인해 줘.\n- 이번 조사 결과를 Wiki 기록 규칙에 맞춰 정리하고 저장 전 경로와 내용을 보여 줘.\n\n## 스킬은 선택 사항\n\n[[${folder}/스킬/ai-wiki-recorder/SKILL|공통 기록 스킬]]을 제공하지만 자동 설치하지 않습니다. Codex/Claude Code 등 해당 AI의 공식 스킬 설치 방법에 따라 이 폴더를 등록하세요. 기존 AGENTS.md·CLAUDE.md·전역 설정을 자동 수정하지 않습니다. 스킬 설치만으로 모든 채팅 기록이 보장되지 않습니다.\n\n## 접근과 승인\n\nAPI 키를 이 플러그인에 넣지 않습니다. 각 AI 앱 로그인·폴더 권한·조직 보안 정책은 별도입니다. Wiki 기록 허용은 코드/DB/Jira/ServiceNow 수정 승인이 아닙니다. 사용을 끄더라도 기존 파일은 보존하지만 외부 AI에 이미 제공한 자료나 권한까지 회수되는 것은 아닙니다. 외부 AI 설정에서도 별도로 해제하세요.\n\n## 공식 연결 안내\n\n- [Codex 프로젝트와 폴더](https://learn.chatgpt.com/docs/projects)\n- [Claude 로컬/웹 연결 구분](https://support.claude.com/en/articles/11725091-when-to-use-desktop-and-web-connectors)\n- [Claude Code CLI](https://code.claude.com/docs/en/cli-reference)`]
     ];
     for (const [name, content] of documents) {
       const path = `${folder}/${name}`, file = this.app.vault.getAbstractFileByPath(path);

@@ -24,6 +24,8 @@ Wiki settings distinguish unsaved folder edits, applying, applied and failed sta
 
 The five-step connection helper guides AI selection, folder or attachment preparation, the starter prompt, a read-response check, and the result. The last successful check (provider, Wiki location, non-secret challenge code, access method and time) is stored locally and shown after reopening. Local read checks and attachment-only delivery checks have different labels. Changing the Wiki location, losing/changing the check file or an unsuccessful save cannot show a valid local connection. This is historical read-check evidence, not live AI authentication or write authorization.
 
+Preparation and prompt-delivery confirmations are explicit buttons in the pinned footer, not separate checkboxes: confirm folder-read/attachment preparation and continue, then confirm prompt delivery and continue. These are user acknowledgements only; the later file-read challenge remains required before a connection check can be saved.
+
 ## What's new in 2.16.0
 
 - Separate active work from archived/dormant history, with shared lifecycle settings, on-demand history loading, and automatic reactivation when opening a ticket's root note.
