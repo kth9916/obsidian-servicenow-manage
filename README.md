@@ -6,6 +6,14 @@ This is an independent community project. It is not affiliated with, endorsed by
 
 Maintainer: **thkim9916** · `thkim9916@cyberlogitec.com`
 
+## Unreleased: optional Atlassian connection
+
+Settings now offers an optional **Jira · Confluence** connection, disabled by default. Enable it, choose **Connect Atlassian account**, and complete company-account login and read-access approval in the browser. Select an accessible site if more than one is available, then run **Connection test**. No API token or OAuth JSON needs to be pasted into the plugin. Company app policies can still require administrator approval.
+
+Jira and Confluence have separate results. **Connected** means the plugin has actually read an issue or page during the current session, not merely stored a token. Empty search results, missing access, expired login, and network errors remain distinct. On restart, a previous success is shown as historical until retested. Optional test links must belong to the selected site; otherwise one recent accessible issue/page is used. Test contents are not saved to notes. The integration requests only identity, offline access, and Jira/Confluence read/search scopes; its tool allowlist contains no external write operations.
+
+This adds account connection and verification only. It does not yet import Jira subtask schedules, register Jira-only tickets, or publish Confluence content. User-mediated end-to-end login still needs to be verified in the installed Obsidian application; automated checks do not replace company-account consent.
+
 ## What's new in 2.17.0
 
 - Optional AI Wiki under the configured work root, with standardized work records, ticket-summary links, metadata checks and a five-step connection helper.
@@ -73,7 +81,7 @@ The dashboard offers Active, All, Archived, and Dormant scopes. Exact ticket-num
 - A ServiceNow account and an approved API token are required only for ServiceNow synchronization. Local note and To-Do features remain available without a connection.
 - Google Drive integration is optional and requires a user-supplied Google Desktop OAuth JSON file and a Google account with access to the target files.
 - Organization-specific status guides, SLA rules, and AI templates are not bundled. They appear only after the user imports a separately supplied ServiceNow Manage work guide pack and enables work guide features.
-- The plugin connects only to the ServiceNow instance configured by the user, Google OAuth/Drive when enabled, Nager.Date for optional public-holiday lookup, and a translation provider selected through an optional translation plugin.
+- The plugin connects only to the configured ServiceNow instance, optional Google OAuth/Drive, optional Atlassian Rovo MCP and Atlassian OAuth, Nager.Date for optional public-holiday lookup, and an optional translation plugin's provider.
 - The plugin has no developer-operated backend, client telemetry, analytics, advertising, or automatic self-update mechanism.
 - Tokens and client secrets are stored with Obsidian Secret Storage. Do not put tokens, OAuth JSON, `data.json`, or organization packs in a public repository or GitHub Release.
 - Ticket details and downloaded documents are written to the user's Vault. Users are responsible for Vault access, backup, and sync permissions.

@@ -267,6 +267,436 @@ const REFRESH_TOKEN_KEY = `${PLUGIN_ID}-refresh-token`;
 const GOOGLE_ACCESS_TOKEN_KEY = `${PLUGIN_ID}-google-access-token`;
 const GOOGLE_REFRESH_TOKEN_KEY = `${PLUGIN_ID}-google-refresh-token`;
 const GOOGLE_CLIENT_SECRET_KEY = `${PLUGIN_ID}-google-client-secret`;
+// BEGIN ATLASSIAN CONNECTION
+const ATLASSIAN_TOKEN_KEY = `${PLUGIN_ID}-atlassian-tokens`;
+const ATLASSIAN_CLIENT_KEY = `${PLUGIN_ID}-atlassian-client`;
+const ATLASSIAN_MCP_URL = "https://mcp.atlassian.com/v2/mcp";
+const ATLASSIAN_REDIRECT = "http://127.0.0.1:42816/atlassian/callback";
+const ATLASSIAN_SCOPES = "read:me read:account offline_access read:jira:agent-interface search:jira:agent-interface read:confluence:agent-interface search:confluence:agent-interface";
+const ATLASSIAN_READ_TOOLS = new Set(["atlassianUserInfo", "getAccessibleAtlassianResources", "getJiraIssue", "searchJiraIssuesUsingJql", "searchConfluence", "getConfluenceContent"]);
+
+function atlassianError(code = "failed") {
+  const messages = {
+    disabled: "먼저 Atlassian 연결 사용을 켜 주세요.", auth: "로그인이 만료되었거나 승인이 필요합니다. 다시 연결해 주세요.",
+    permission: "조회 권한이 없습니다. 계정·사이트·회사 앱 허용 정책을 확인해 주세요.",
+    network: "네트워크 연결을 확인하고 다시 테스트해 주세요.", rate: "요청이 많습니다. 잠시 후 다시 테스트해 주세요.",
+    missing: "대상을 찾을 수 없거나 볼 권한이 없습니다. 링크와 계정을 확인해 주세요.",
+    unsupported: "현재 서버에서 필요한 읽기 기능을 제공하지 않습니다.",
+    registration: "로그인 앱 등록을 완료하지 못했습니다. 회사의 Atlassian 앱 허용 정책을 확인해 주세요.",
+    protocol: "서버 응답을 확인할 수 없습니다. 잠시 후 다시 연결해 주세요.",
+    busy: "연결 또는 테스트가 진행 중입니다.", cancelled: "로그인을 취소했습니다.",
+    timeout: "로그인 대기 시간이 지났습니다. 연결 버튼을 다시 눌러 주세요.",
+    port: "로그인 수신 창을 준비하지 못했습니다. 다른 Obsidian 창의 로그인 작업을 종료하고 다시 시도해 주세요.",
+    site: "로그인 후 사용할 Atlassian 사이트를 선택해 주세요.", target: "선택한 사이트의 올바른 Jira 이슈 또는 Confluence 문서 링크를 입력해 주세요.",
+    storage: "인증 정보를 안전하게 저장하지 못했습니다. Obsidian SecretStorage와 저장 권한을 확인해 주세요.",
+    failed: "연결 확인에 실패했습니다. 다시 테스트하거나 다시 연결해 주세요."
+  };
+  const error = new Error(messages[code] || messages.failed); error.atlassianCode = code; return error;
+}
+
+function atlassianTrustedUrl(value, hosts = ["auth.atlassian.com", "mcp.atlassian.com"]) {
+  let url; try { url = new URL(value); } catch (_) { throw atlassianError("protocol"); }
+  if (url.protocol !== "https:" || !hosts.includes(url.hostname) || url.port || url.username || url.password || url.hash || url.search) throw atlassianError("protocol");
+  return url;
+}
+
+function atlassianSite(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || !/^[a-z0-9-]+\.atlassian\.net$/i.test(url.hostname) || url.port || url.username || url.password || url.search || url.hash || !["", "/"].includes(url.pathname)) return "";
+    return url.origin;
+  } catch (_) { return ""; }
+}
+
+function atlassianTarget(product, value, site) {
+  const text = String(value || "").trim(); if (!text) return "";
+  if (product === "jira" && /^[A-Z][A-Z0-9_]*-\d+$/i.test(text) && text.length < 100) return text.toUpperCase();
+  if (product === "confluence" && /^\d{1,24}$/.test(text)) return text;
+  try {
+    const url = new URL(text); if (url.origin !== site || url.username || url.password) throw 0;
+    const match = product === "jira" ? url.pathname.match(/^\/browse\/([A-Z][A-Z0-9_]*-\d+)\/?$/i) : url.pathname.match(/\/pages\/(\d{1,24})(?:\/|$)/);
+    if (match) return match[1];
+  } catch (_) { /* No target URL is ever requested directly. */ }
+  throw atlassianError("target");
+}
+
+function atlassianResultData(result) {
+  const values = [];
+  if (result?.structuredContent) values.push(result.structuredContent);
+  for (const block of result?.content || []) if (block.type === "text") {
+    try { values.push(JSON.parse(block.text)); } catch (_) { /* Non-JSON content is not rendered. */ }
+  }
+  return values.map(value => value?.data || value);
+}
+
+function atlassianRpcResponse(text, id) {
+  const messages = [];
+  try { messages.push(JSON.parse(text)); } catch (_) {
+    for (const event of String(text).split(/\r?\n\r?\n/)) {
+      const data = event.split(/\r?\n/).filter(line => line.startsWith("data:")).map(line => line.slice(5).trimStart()).join("\n");
+      if (data && data !== "[DONE]") try { messages.push(JSON.parse(data)); } catch (_) { /* Ignore incomplete/notification events. */ }
+    }
+  }
+  const response = messages.find(message => message?.jsonrpc === "2.0" && message.id === id);
+  if (!response) throw atlassianError("protocol");
+  if (response.error) throw atlassianError(response.error.code === -32601 ? "unsupported" : "failed");
+  if (!Object.hasOwn(response, "result")) throw atlassianError("protocol");
+  return response.result;
+}
+
+class AtlassianRovoConnection {
+  constructor(plugin, dependencies = {}) {
+    this.plugin = plugin; this.http = dependencies.http || http; this.https = dependencies.https || https;
+    this.openExternal = dependencies.openExternal || (url => shell.openExternal(url));
+    this.now = dependencies.now || (() => Date.now()); this.listeners = new Set(); this.requests = new Set();
+    this.epoch = 0; this.counter = 0; this.verified = new Set(); this.phase = ""; this.message = "";
+    const saved = plugin.settings.atlassian || {};
+    const sites = (Array.isArray(saved.sites) ? saved.sites : []).slice(0, 100).map(site => ({ id: String(site.id || ""), url: atlassianSite(site.url), name: String(site.name || "").slice(0, 160) })).filter(site => site.id && site.url);
+    const selected = sites.find(site => site.id === saved.cloudId);
+    // Only non-secret, explicitly allowlisted preferences are serialized in data.json.
+    plugin.settings.atlassian = { enabled: saved.enabled === true, sites, cloudId: selected?.id || "", site: selected?.url || "",
+      account: String(saved.account || "").slice(0, 160), connectedAt: String(saved.connectedAt || ""),
+      targets: { jira: String(saved.targets?.jira || "").slice(0, 500), confluence: String(saved.targets?.confluence || "").slice(0, 500) },
+      checks: Object.fromEntries(["jira", "confluence"].map(product => {
+        const check = saved.checks?.[product] || {};
+        return [product, { state: ["connected", "no-data", "auth", "permission", "network", "missing", "unsupported", "failed", "rate"].includes(check.state) ? check.state : "unchecked", at: String(check.at || ""), cloudId: String(check.cloudId || ""), detail: "" }];
+      })) };
+  }
+  get prefs() { return this.plugin.settings.atlassian; }
+  get busy() { return Boolean(this.phase); }
+  secret(key) { try { return JSON.parse(this.plugin.getSecret(key) || "null"); } catch (_) { return null; } }
+  hasLogin() { return Boolean(this.secret(ATLASSIAN_TOKEN_KEY)?.accessToken || this.secret(ATLASSIAN_TOKEN_KEY)?.refreshToken); }
+  hasSecrets() { return this.hasLogin() || Boolean(this.secret(ATLASSIAN_CLIENT_KEY)); }
+  emit() { for (const listener of this.listeners) { try { listener(); } catch (_) { /* Detached settings views must not interrupt authentication. */ } } }
+  guard(epoch) { if (this.disposed || epoch !== this.epoch) throw atlassianError("cancelled"); }
+  async persist(epoch = this.epoch) { this.guard(epoch); try { await this.plugin.savePluginData(); } catch (_) { throw atlassianError("storage"); } this.guard(epoch); }
+  saveSecret(key, value, epoch) { this.guard(epoch); try { this.plugin.setSecret(key, JSON.stringify(value)); } catch (_) { throw atlassianError("storage"); } }
+  async changePreference(change) {
+    const previous = this.prefs, next = JSON.parse(JSON.stringify(previous)); change(next); this.plugin.settings.atlassian = next;
+    try { await this.persist(); } catch (error) { if (this.prefs === next) this.plugin.settings.atlassian = previous; throw error; }
+    finally { this.emit(); }
+  }
+  async setEnabled(enabled) { this.cancel(false); await this.changePreference(prefs => { prefs.enabled = enabled === true; }); }
+  async selectSite(id) {
+    if (this.busy) throw atlassianError("busy");
+    const site = this.prefs.sites.find(item => item.id === id); if (!site) throw atlassianError("site");
+    this.verified.clear(); await this.changePreference(prefs => {
+      prefs.cloudId = site.id; prefs.site = site.url; prefs.targets = { jira: "", confluence: "" };
+      for (const product of ["jira", "confluence"]) prefs.checks[product] = { state: "unchecked", at: "", cloudId: "", detail: "" };
+    });
+  }
+  clearChecks() { for (const product of ["jira", "confluence"]) this.prefs.checks[product] = { state: "unchecked", at: "", cloudId: "", detail: "" }; }
+  async setTarget(product, value) {
+    if (this.busy || !["jira", "confluence"].includes(product)) throw atlassianError("busy");
+    const target = atlassianTarget(product, value, this.prefs.site);
+    this.verified.delete(product); await this.changePreference(prefs => {
+      prefs.targets[product] = target; prefs.checks[product] = { state: "unchecked", at: "", cloudId: "", detail: "" };
+    });
+  }
+  async request(url, { method = "GET", headers = {}, body = "" } = {}) {
+    const target = atlassianTrustedUrl(url);
+    return new Promise((resolve, reject) => {
+      let settled = false, size = 0; const chunks = [];
+      const finish = (error, response) => { if (settled) return; settled = true; clearTimeout(timer); this.requests.delete(req); error ? reject(error) : resolve(response); };
+      const req = this.https.request(target, { method, headers }, res => {
+        res.on("data", chunk => { size += chunk.length; if (size > 4 * 1024 * 1024) { finish(atlassianError("protocol")); req.destroy(); } else chunks.push(chunk); });
+        res.on("end", () => finish(null, { status: res.statusCode, headers: res.headers, text: Buffer.concat(chunks).toString("utf8") }));
+        res.on("error", () => finish(atlassianError("network")));
+      });
+      const timer = setTimeout(() => { finish(atlassianError("network")); req.destroy(); }, 25000);
+      this.requests.add(req); req.on("error", () => finish(atlassianError("network")));
+      // Node HTTPS does not follow redirects. Tokens never leave the two trusted origins.
+      if (body) req.write(body); req.end();
+    });
+  }
+  async json(url, options) {
+    const response = await this.request(url, options); let data;
+    try { data = JSON.parse(response.text); } catch (_) { data = null; }
+    if (response.status < 200 || response.status >= 300) {
+      if (data?.error === "invalid_grant" || response.status === 401) throw atlassianError("auth");
+      throw atlassianError(response.status === 403 ? "permission" : response.status === 429 ? "rate" : "failed");
+    }
+    if (!data || typeof data !== "object") throw atlassianError("protocol");
+    return data;
+  }
+  async metadata() {
+    const resource = await this.json("https://mcp.atlassian.com/.well-known/oauth-protected-resource/v2/mcp");
+    if (resource.resource !== ATLASSIAN_MCP_URL || !Array.isArray(resource.authorization_servers) || !resource.authorization_servers.length) throw atlassianError("protocol");
+    const issuer = atlassianTrustedUrl(resource.authorization_servers[0]);
+    const meta = await this.json(`${issuer.origin}/.well-known/oauth-authorization-server${issuer.pathname.replace(/\/$/, "")}`);
+    if (meta.issuer !== issuer.href.replace(/\/$/, "") || !meta.code_challenge_methods_supported?.includes("S256") || !meta.token_endpoint_auth_methods_supported?.includes("none")) throw atlassianError("protocol");
+    for (const key of ["authorization_endpoint", "token_endpoint", "registration_endpoint"]) atlassianTrustedUrl(meta[key]);
+    if (meta.revocation_endpoint) atlassianTrustedUrl(meta.revocation_endpoint);
+    if (Array.isArray(resource.scopes_supported) && ATLASSIAN_SCOPES.split(" ").some(scope => !resource.scopes_supported.includes(scope))) throw atlassianError("unsupported");
+    return meta;
+  }
+  async client(meta, epoch) {
+    const existing = this.secret(ATLASSIAN_CLIENT_KEY);
+    if (existing?.id && existing.issuer === meta.issuer && existing.redirect === ATLASSIAN_REDIRECT) return existing;
+    let registered;
+    try {
+      registered = await this.json(meta.registration_endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        client_name: "ServiceNow Manage Obsidian", client_uri: "https://github.com/kth9916/obsidian-servicenow-manage",
+        redirect_uris: [ATLASSIAN_REDIRECT], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none", scope: ATLASSIAN_SCOPES
+      }) });
+    } catch (error) { throw error.atlassianCode === "network" ? error : atlassianError("registration"); }
+    if (!registered.client_id || registered.token_endpoint_auth_method !== "none" || !registered.redirect_uris?.includes(ATLASSIAN_REDIRECT)) throw atlassianError("registration");
+    const client = { id: registered.client_id, issuer: meta.issuer, redirect: ATLASSIAN_REDIRECT, tokenEndpoint: meta.token_endpoint, revokeEndpoint: meta.revocation_endpoint || "" };
+    this.saveSecret(ATLASSIAN_CLIENT_KEY, client, epoch); return client;
+  }
+  async connect() {
+    if (!this.prefs.enabled) throw atlassianError("disabled"); if (this.busy) throw atlassianError("busy");
+    const epoch = ++this.epoch; this.phase = "preparing"; this.verified.clear();
+    this.message = "안전한 로그인 창을 준비하고 있습니다…"; this.emit();
+    try {
+      // Fail closed before launching the browser if encrypted credential storage is unavailable.
+      if (!this.plugin.app.secretStorage?.setSecret) throw atlassianError("storage");
+      const meta = await this.metadata(); this.guard(epoch); const client = await this.client(meta, epoch); this.guard(epoch);
+      const verifier = crypto.randomBytes(48).toString("base64url"), state = crypto.randomBytes(32).toString("base64url");
+      this.pending = { epoch, verifier, state, client };
+      await this.listen(epoch); this.guard(epoch);
+      const url = new URL(meta.authorization_endpoint);
+      url.search = new URLSearchParams({ client_id: client.id, redirect_uri: ATLASSIAN_REDIRECT, response_type: "code", scope: ATLASSIAN_SCOPES,
+        state, code_challenge: crypto.createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", resource: ATLASSIAN_MCP_URL }).toString();
+      this.phase = "waiting"; this.message = "브라우저에서 회사 계정으로 로그인하고 읽기 권한을 승인해 주세요. (5분 이내)"; this.emit();
+      await this.openExternal(url.href); this.guard(epoch);
+    } catch (error) { if (epoch !== this.epoch) throw atlassianError("cancelled"); this.cancel(false); this.message = (error.atlassianCode ? error : atlassianError()).message; this.emit(); throw error.atlassianCode ? error : atlassianError(); }
+  }
+  listen(epoch) {
+    return new Promise((resolve, reject) => {
+      const server = this.http.createServer((req, res) => void this.callback(req, res)); this.server = server;
+      server.on("error", () => { if (epoch === this.epoch) { this.closeListener(); reject(atlassianError("port")); } });
+      server.listen(42816, "127.0.0.1", () => {
+        if (epoch !== this.epoch) { server.close(); reject(atlassianError("cancelled")); return; }
+        this.loginTimer = setTimeout(() => { if (epoch === this.epoch) { this.cancel(false); this.message = atlassianError("timeout").message; this.emit(); } }, 5 * 60 * 1000); resolve();
+      });
+    });
+  }
+  closeListener() { clearTimeout(this.loginTimer); this.loginTimer = null; try { this.server?.close(); } catch (_) { /* Already closed. */ } this.server = null; }
+  async callback(req, res) {
+    const respond = (status, text) => { res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'", "X-Content-Type-Options": "nosniff" }); res.end(text); };
+    let url; try { url = new URL(req.url, ATLASSIAN_REDIRECT); } catch (_) { respond(400, "잘못된 로그인 응답입니다."); return; }
+    const flow = this.pending, state = url.searchParams.get("state") || "";
+    if (req.method !== "GET" || req.headers.host !== "127.0.0.1:42816" || url.pathname !== "/atlassian/callback") { respond(404, "Not found"); return; }
+    if (!flow || this.phase !== "waiting" || url.searchParams.getAll("state").length !== 1 || !/^[a-zA-Z0-9_-]{43}$/.test(state) || state.length !== flow.state.length || !crypto.timingSafeEqual(Buffer.from(state), Buffer.from(flow.state))) { respond(403, "로그인 응답을 확인하지 못했습니다. Obsidian에서 시작한 로그인 창을 사용해 주세요."); return; }
+    const code = url.searchParams.get("code");
+    if (url.searchParams.has("error") || url.searchParams.getAll("code").length !== 1 || !code || code.length > 8192) { respond(400, "승인되지 않았습니다. Obsidian으로 돌아가 다시 연결할 수 있습니다."); this.cancel(false); this.message = atlassianError("cancelled").message; this.emit(); return; }
+    respond(200, "승인 응답을 받았습니다. Obsidian으로 돌아가 연결 테스트 결과를 확인해 주세요."); this.closeListener(); this.pending = null;
+    this.phase = "verifying"; this.message = "로그인을 확인하고 사이트의 조회 권한을 테스트합니다…"; this.emit();
+    try {
+      const token = await this.json(flow.client.tokenEndpoint, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({
+        grant_type: "authorization_code", code, redirect_uri: ATLASSIAN_REDIRECT, client_id: flow.client.id, code_verifier: flow.verifier, resource: ATLASSIAN_MCP_URL
+      }).toString() });
+      this.storeToken(token, null, flow.epoch); this.prefs.connectedAt = new Date(this.now()).toISOString(); this.verified.clear(); this.clearChecks();
+      await this.resources(flow.epoch); this.guard(flow.epoch);
+      if (this.prefs.cloudId) await this.testProducts(flow.epoch);
+      else this.message = "로그인했습니다. 사용할 사이트를 선택한 다음 연결 테스트를 눌러 주세요.";
+      await this.persist(flow.epoch);
+    } catch (error) { if (flow.epoch === this.epoch) {
+      const safe = error.atlassianCode ? error : atlassianError(); this.message = safe.message;
+      if (this.hasLogin()) {
+        this.verified.clear();
+        for (const product of ["jira", "confluence"]) this.prefs.checks[product] = { state: safe.atlassianCode, at: new Date(this.now()).toISOString(), cloudId: this.prefs.cloudId, detail: safe.message };
+      }
+    } }
+    finally { if (flow.epoch === this.epoch) { this.phase = ""; this.emit(); } }
+  }
+  storeToken(token, previous, epoch) {
+    if (typeof token.access_token !== "string" || !token.access_token || !/^bearer$/i.test(token.token_type || "") || !Number.isFinite(Number(token.expires_in)) || Number(token.expires_in) <= 0) throw atlassianError("protocol");
+    const scope = String(token.scope || previous?.scope || "");
+    this.saveSecret(ATLASSIAN_TOKEN_KEY, { accessToken: token.access_token, refreshToken: token.refresh_token || previous?.refreshToken || "", expiresAt: this.now() + Number(token.expires_in) * 1000, scope }, epoch);
+    this.session = null;
+  }
+  invalidateAuth() { this.verified.clear(); this.session = null; for (const product of ["jira", "confluence"]) this.prefs.checks[product] = { state: "auth", at: new Date(this.now()).toISOString(), cloudId: this.prefs.cloudId, detail: atlassianError("auth").message }; }
+  async accessToken(epoch, force = false) {
+    this.guard(epoch); const saved = this.secret(ATLASSIAN_TOKEN_KEY), client = this.secret(ATLASSIAN_CLIENT_KEY);
+    if (!force && saved?.accessToken && Number(saved.expiresAt) > this.now() + 60000) return saved.accessToken;
+    if (!saved?.refreshToken || !client?.id) throw atlassianError("auth");
+    // One shared refresh also preserves rotation when both product tests run together.
+    if (!this.refreshing || this.refreshEpoch !== epoch) {
+      this.refreshEpoch = epoch;
+      const promise = (async () => {
+      const response = await this.json(client.tokenEndpoint, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({
+        grant_type: "refresh_token", refresh_token: saved.refreshToken, client_id: client.id, resource: ATLASSIAN_MCP_URL
+      }).toString() }); this.storeToken(response, saved, epoch); return this.secret(ATLASSIAN_TOKEN_KEY).accessToken;
+      })().finally(() => { if (this.refreshing === promise) this.refreshing = null; });
+      this.refreshing = promise;
+    }
+    return this.refreshing;
+  }
+  async mcp(token, method, params, notification = false) {
+    if (!["initialize", "notifications/initialized", "tools/call"].includes(method) || (method === "tools/call" && !ATLASSIAN_READ_TOOLS.has(params?.name))) throw atlassianError("unsupported");
+    const id = notification ? undefined : ++this.counter;
+    const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" };
+    if (this.session?.id) headers["Mcp-Session-Id"] = this.session.id;
+    if (this.session?.protocol) headers["MCP-Protocol-Version"] = this.session.protocol;
+    const response = await this.request(ATLASSIAN_MCP_URL, { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", ...(notification ? {} : { id }), method, params }) });
+    if (response.status === 401) throw atlassianError("auth");
+    if (response.status < 200 || response.status >= 300) throw atlassianError(response.status === 403 ? "permission" : response.status === 404 ? "missing" : response.status === 429 ? "rate" : "failed");
+    return { result: notification ? null : atlassianRpcResponse(response.text, id), sessionId: response.headers["mcp-session-id"] || "" };
+  }
+  async readTool(name, args, epoch = this.epoch) {
+    if (!ATLASSIAN_READ_TOOLS.has(name)) throw atlassianError("unsupported");
+    if (!this.prefs.enabled) throw atlassianError("disabled");
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const token = await this.accessToken(epoch, attempt === 1); this.guard(epoch);
+        if (!this.session) {
+          const hello = await this.mcp(token, "initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "servicenow-manage-obsidian", version: "1" } }); this.guard(epoch);
+          if (!["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"].includes(hello.result.protocolVersion)) throw atlassianError("protocol");
+          this.session = { id: hello.sessionId, protocol: hello.result.protocolVersion }; await this.mcp(token, "notifications/initialized", {}, true);
+        }
+        const response = await this.mcp(token, "tools/call", { name, arguments: args }); this.guard(epoch);
+        if (response.result?.isError) {
+          const internal = JSON.stringify(response.result);
+          throw atlassianError(/invalid.grant|unauthorized|expired.token|\b401\b/i.test(internal) ? "auth" : /forbidden|permission|insufficient.scope|\b403\b/i.test(internal) ? "permission" : /not.found|\b404\b/i.test(internal) ? "missing" : "failed");
+        }
+        return atlassianResultData(response.result);
+      } catch (error) { this.guard(epoch); if (error.atlassianCode === "auth" && attempt === 0) { this.session = null; continue; } throw error; }
+    }
+    throw atlassianError("auth");
+  }
+  async resources(epoch) {
+    const values = await this.readTool("getAccessibleAtlassianResources", {}, epoch);
+    const list = values.map(value => value.resources || value).find(Array.isArray);
+    if (!list) throw atlassianError("protocol");
+    this.prefs.sites = list.slice(0, 100).map(site => ({ id: String(site.cloudId || site.id || ""), url: atlassianSite(site.url), name: String(site.name || "").slice(0, 160) })).filter(site => site.id && site.url);
+    const selected = this.prefs.sites.find(site => site.id === this.prefs.cloudId) || (this.prefs.sites.length === 1 ? this.prefs.sites[0] : null);
+    if (!selected || selected.id !== this.prefs.cloudId) { this.verified.clear(); this.clearChecks(); this.prefs.targets = { jira: "", confluence: "" }; }
+    this.prefs.cloudId = selected?.id || ""; this.prefs.site = selected?.url || "";
+    try { const user = await this.readTool("atlassianUserInfo", {}, epoch); this.prefs.account = String(user.find(value => value.displayName || value.name)?.displayName || user.find(value => value.name)?.name || "Atlassian 계정").slice(0, 160); }
+    catch (_) { this.guard(epoch); this.prefs.account = "Atlassian 계정"; }
+    if (!this.prefs.sites.length) throw atlassianError("permission");
+  }
+  async testProduct(product, epoch) {
+    this.guard(epoch); this.verified.delete(product);
+    const cloudId = this.prefs.cloudId, target = atlassianTarget(product, this.prefs.targets[product], this.prefs.site);
+    try {
+      let found = target;
+      if (!found && product === "jira") {
+        const values = await this.readTool("searchJiraIssuesUsingJql", { cloudId, jql: "ORDER BY updated DESC", maxResults: 1, fields: ["summary"], view: "compact" }, epoch);
+        const candidate = values.flatMap(value => value.issues?.nodes || value.issues || value.results || []).find(issue => issue.key || issue.id);
+        found = candidate?.key || candidate?.id;
+      } else if (!found) {
+        const values = await this.readTool("searchConfluence", { cloudId, cql: "type = page ORDER BY lastmodified DESC", limit: 1 }, epoch);
+        found = values.flatMap(value => value.results || value.search?.results || value.contents?.nodes || []).map(item => item.content || item).find(item => item.id)?.id;
+      }
+      if (!found) this.prefs.checks[product] = { state: "no-data", at: new Date(this.now()).toISOString(), cloudId, detail: "로그인은 되었지만 테스트할 자료가 없습니다. 아래에서 확인할 링크를 지정해 주세요." };
+      else {
+        const values = await this.readTool(product === "jira" ? "getJiraIssue" : "getConfluenceContent", product === "jira"
+          ? { cloudId, issueIdOrKey: found, fields: ["summary"], view: "compact" }
+          : { cloudId, content_id: String(found), detail: "summary" }, epoch);
+        const confirmed = product === "jira" ? values.flatMap(value => value.issues?.nodes || [value]).some(issue => String(issue.key || "").toUpperCase() === String(found).toUpperCase() || String(issue.id || "") === String(found)) : values.some(value => String(value.id || value.content?.id || "") === String(found));
+        if (!confirmed) throw atlassianError("protocol");
+        this.prefs.checks[product] = { state: "connected", at: new Date(this.now()).toISOString(), cloudId, detail: product === "jira" ? "이슈 읽기 테스트 성공 · 조회 전용" : "문서 읽기 테스트 성공 · 조회 전용" }; this.verified.add(product);
+      }
+    } catch (error) {
+      this.guard(epoch); const safe = error.atlassianCode ? error : atlassianError();
+      this.prefs.checks[product] = { state: safe.atlassianCode, at: new Date(this.now()).toISOString(), cloudId, detail: safe.message };
+    }
+  }
+  async testProducts(epoch) {
+    if (!this.prefs.cloudId) throw atlassianError("site");
+    // Sequential initialization avoids duplicate MCP sessions; a product failure never skips the other test.
+    await this.testProduct("jira", epoch); this.emit(); await this.testProduct("confluence", epoch);
+    this.message = this.verified.size === 2 ? "Jira와 Confluence의 읽기 연결을 모두 확인했습니다." : "테스트를 마쳤습니다. 아래에서 서비스별 결과를 확인해 주세요.";
+  }
+  async test() {
+    if (!this.prefs.enabled) throw atlassianError("disabled"); if (this.busy) throw atlassianError("busy");
+    const epoch = ++this.epoch; this.session = null; this.phase = "testing"; this.message = "사이트와 실제 조회 권한을 확인하고 있습니다…"; this.verified.clear(); this.emit();
+    try { await this.resources(epoch); await this.testProducts(epoch); await this.persist(epoch); }
+    catch (error) { if (epoch === this.epoch) {
+      const safe = error.atlassianCode ? error : atlassianError();
+      for (const product of ["jira", "confluence"]) this.prefs.checks[product] = { state: safe.atlassianCode, at: new Date(this.now()).toISOString(), cloudId: this.prefs.cloudId, detail: safe.message };
+      this.message = safe.message; await this.persist(epoch);
+    } if (epoch !== this.epoch) throw atlassianError("cancelled"); throw error.atlassianCode ? error : atlassianError(); }
+    finally { if (epoch === this.epoch) { this.phase = ""; this.emit(); } }
+  }
+  status(product) {
+    const check = this.prefs.checks[product];
+    if (!this.prefs.enabled) return { label: "사용 안 함", kind: "neutral", detail: "선택 기능입니다. 연결하지 않아도 기존 기능을 사용할 수 있습니다." };
+    if (["testing", "verifying"].includes(this.phase)) return { label: "확인 중", kind: "pending", detail: "실제 자료 읽기를 확인합니다…" };
+    if (!this.hasLogin()) return { label: "연결되지 않음", kind: "neutral", detail: "Atlassian 계정 연결 버튼으로 로그인해 주세요." };
+    if (!this.prefs.cloudId) return { label: "사이트 선택 필요", kind: "pending", detail: "사용할 사이트를 선택하고 연결 테스트를 눌러 주세요." };
+    if (this.verified.has(product) && Number(this.secret(ATLASSIAN_TOKEN_KEY)?.expiresAt) > this.now() && check.cloudId === this.prefs.cloudId && check.state === "connected") return { label: "연결됨", kind: "success", detail: check.detail };
+    if (check.state === "connected") return { label: "다시 확인", kind: "neutral", detail: "이전 연결 테스트는 성공했습니다. 현재 상태는 연결 테스트로 확인해 주세요." };
+    const labels = { auth: "재로그인 필요", permission: "접근 권한 필요", network: "네트워크 확인", missing: "대상 확인 필요", "no-data": "테스트 자료 필요", unchecked: "연결 확인 필요", unsupported: "기능 확인 필요", rate: "잠시 후 재시도" };
+    return { label: labels[check.state] || "연결 확인 실패", kind: "warning", detail: check.detail || "연결 테스트를 눌러 실제 조회를 확인해 주세요." };
+  }
+  cancel(announce = true) {
+    this.epoch++; this.closeListener(); this.pending = null; this.session = null; this.phase = ""; this.verified.clear();
+    for (const req of this.requests) req.destroy(); this.requests.clear();
+    if (announce) { this.message = atlassianError("cancelled").message; this.emit(); }
+  }
+  async disconnect() {
+    this.cancel(false); const tokens = this.secret(ATLASSIAN_TOKEN_KEY), client = this.secret(ATLASSIAN_CLIENT_KEY);
+    const epoch = this.epoch;
+    let failed = false;
+    for (const key of [ATLASSIAN_TOKEN_KEY, ATLASSIAN_CLIENT_KEY]) { try { this.plugin.deleteSecret(key); } catch (_) { failed = true; } }
+    this.prefs.account = ""; this.prefs.connectedAt = ""; this.verified.clear(); this.clearChecks();
+    await this.persist(); if (failed) throw atlassianError("storage");
+    this.message = "이 기기에 저장된 Atlassian 인증 정보를 삭제했습니다."; this.emit();
+    if (tokens && client?.revokeEndpoint) {
+      try { const result = await this.request(client.revokeEndpoint, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token: tokens.refreshToken || tokens.accessToken, token_type_hint: tokens.refreshToken ? "refresh_token" : "access_token", client_id: client.id }).toString() }); if (result.status < 200 || result.status >= 300) throw atlassianError(); }
+      catch (_) { if (epoch === this.epoch) { this.message = "이 기기 연결은 해제했습니다. 서버의 앱 권한 회수는 확인하지 못했습니다. Atlassian 계정의 연결된 앱에서 확인해 주세요."; this.emit(); } }
+    }
+  }
+  dispose() { this.cancel(false); this.disposed = true; this.listeners.clear(); }
+}
+
+function renderAtlassianConnectionSettings(container, plugin) {
+  const connection = plugin.atlassianConnection; if (!connection) return;
+  plugin.atlassianSettingsUnsubscribe?.();
+  container.createEl("h3", { text: "Jira · Confluence 연결 (선택)" });
+  const root = container.createDiv({ cls: "snm-atlassian-settings" });
+  const preference = new Setting(root).setName("Atlassian 연결 사용").setDesc("기본은 사용 안 함입니다. 회사 계정으로 로그인하며 Jira·Confluence는 조회만 합니다.");
+  const status = root.createDiv({ cls: "snm-atlassian-content" }); let toggle;
+  const action = async callback => { try { await callback(); } catch (error) { if (error.atlassianCode !== "cancelled") { connection.message = (error.atlassianCode ? error : atlassianError()).message; connection.emit(); } } };
+  preference.addToggle(control => { toggle = control; control.setValue(connection.prefs.enabled).onChange(value => action(() => connection.setEnabled(value))); });
+  const render = () => {
+    status.empty(); const prefs = connection.prefs;
+    const account = status.createDiv({ cls: "snm-atlassian-account" });
+    account.createEl("strong", { text: prefs.account || "Atlassian 회사 계정" });
+    account.createSpan({ text: !prefs.enabled ? "사용 안 함" : connection.hasLogin() ? "로그인 정보 저장됨 · 서비스별 테스트 결과는 아래에 표시됩니다." : "아직 연결하지 않았습니다." });
+    const actions = status.createDiv({ cls: "snm-atlassian-actions" });
+    const button = (text, callback, disabled, primary = false) => {
+      const element = actions.createEl("button", { text, cls: primary ? "mod-cta" : "" }); element.type = "button"; element.disabled = disabled;
+      element.addEventListener("click", () => void action(callback)); return element;
+    };
+    button(connection.hasLogin() ? "다시 연결" : "Atlassian 계정 연결", () => connection.connect(), !prefs.enabled || connection.busy, true);
+    button("연결 테스트", () => connection.test(), !prefs.enabled || !connection.hasLogin() || connection.busy);
+    button("연결 해제", () => connection.disconnect(), !connection.hasSecrets() && !connection.busy);
+    if (connection.busy) button("로그인·테스트 취소", () => connection.cancel(), false);
+    if (prefs.sites.length) {
+      const row = status.createEl("label", { cls: "snm-atlassian-site", text: "사용할 사이트" });
+      const select = row.createEl("select", { attr: { "aria-label": "Atlassian 사이트" } }); select.disabled = !prefs.enabled || connection.busy;
+      select.createEl("option", { text: "사이트를 선택해 주세요", value: "" });
+      for (const site of prefs.sites) select.createEl("option", { text: site.name ? `${site.name} · ${site.url}` : site.url, value: site.id });
+      select.value = prefs.cloudId; select.addEventListener("change", () => void action(() => connection.selectSite(select.value)));
+    }
+    const cards = status.createDiv({ cls: "snm-atlassian-products" });
+    for (const [product, title] of [["jira", "Jira"], ["confluence", "Confluence"]]) {
+      const result = connection.status(product), card = cards.createDiv({ cls: "snm-atlassian-product" });
+      const header = card.createDiv({ cls: "snm-atlassian-product-heading" }); header.createEl("strong", { text: title });
+      header.createSpan({ cls: `snm-atlassian-badge is-${result.kind}`, text: result.label });
+      card.createDiv({ cls: "snm-atlassian-description", text: result.detail });
+      const checked = prefs.checks[product]?.at;
+      if (checked && !Number.isNaN(Date.parse(checked))) card.createEl("small", { text: `마지막 확인: ${new Date(checked).toLocaleString()}` });
+    }
+    const message = status.createDiv({ cls: "snm-atlassian-message", attr: { role: "status", "aria-live": "polite" }, text: connection.message || "로그인 후 이슈 1개와 문서 1개를 읽어 연결을 확인합니다. 테스트 내용은 노트에 저장하지 않습니다." });
+    if (prefs.enabled && connection.hasLogin() && prefs.cloudId) {
+      const detail = status.createEl("details", { cls: "snm-atlassian-test-targets" }); detail.createEl("summary", { text: "특정 이슈·문서로 테스트 (선택)" });
+      detail.createEl("p", { text: "비워 두면 최근 접근 가능한 자료 1개를 찾아 테스트합니다. 자료가 없으면 여기에 링크를 지정하세요. 선택한 사이트의 링크만 사용할 수 있습니다." });
+      for (const [product, label] of [["jira", "Jira 이슈 링크 또는 번호"], ["confluence", "Confluence 문서 링크 또는 ID"]]) {
+        const row = detail.createEl("label", { text: label }), input = row.createEl("input", { type: "text", value: prefs.targets[product], attr: { "aria-label": label, autocomplete: "off", spellcheck: "false" } }); input.disabled = connection.busy;
+        input.addEventListener("change", () => void action(() => connection.setTarget(product, input.value)));
+      }
+    }
+    toggle?.setValue(prefs.enabled); message.hidden = !message.textContent;
+  };
+  connection.listeners.add(render); plugin.atlassianSettingsUnsubscribe = () => connection.listeners.delete(render); render();
+}
+// END ATLASSIAN CONNECTION
 const FIRST_RUN_SETUP_VERSION = 1;
 const DEFAULT_SETTINGS = {
   setupWizardVersion: 0,
@@ -305,6 +735,7 @@ const DEFAULT_SETTINGS = {
   googleConnectedAt: "",
   googleDriveContentAccess: false,
   googleGrantedScopes: "",
+  atlassian: null,
   organizationFeaturesEnabled: false,
   enableDocumentAutomation: false,
   changeRequestTable: "change_request",
@@ -5559,6 +5990,8 @@ class WorkNotesSettingTab extends PluginSettingTab {
         this.display();
       }));
 
+    renderAtlassianConnectionSettings(containerEl, this.plugin);
+
     const statusSyncSetting = new Setting(containerEl)
       .setName("티켓 상태 하루 1회 자동 갱신")
       .setDesc(`Obsidian이 열려 있을 때 ${this.plugin.settings.rootFolder}/티켓의 상태·기본정보·워킹노트를 지정 시간 이후 하루 한 번 갱신합니다.`)
@@ -5768,6 +6201,7 @@ class CltServiceNowWorkNotes extends Plugin {
       this.settings.organizationFeaturesEnabled = true;
     }
     this.migrateLegacySecrets();
+    this.atlassianConnection = new AtlassianRovoConnection(this);
     this.views = new Map();
     this.syncing = new Set();
     this.statusSyncing = new Set();
@@ -6055,6 +6489,8 @@ class CltServiceNowWorkNotes extends Plugin {
   }
 
   onunload() {
+    this.atlassianSettingsUnsubscribe?.();
+    this.atlassianConnection?.dispose();
     this.aiWikiViews?.forEach(view => view.close());
     this.aiWikiStatusElements?.clear();
     this.dateTimeNowDocuments?.forEach(dispose => dispose());

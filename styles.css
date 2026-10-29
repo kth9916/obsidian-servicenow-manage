@@ -2257,6 +2257,27 @@ button.mod-warning:hover {
 .snm-ai-check > input { flex: 1 1 200px; }
 .snm-ai-check > strong { flex: 1 0 100%; }
 [data-snm-ai-wiki][hidden] { display: none !important; }
+.snm-atlassian-settings { border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 16px; margin-bottom: 22px; }
+.snm-atlassian-settings > .setting-item { padding-top: 0; }
+.snm-atlassian-content { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.snm-atlassian-account { display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
+.snm-atlassian-account > span, .snm-atlassian-description, .snm-atlassian-message, .snm-atlassian-test-targets > p { color: var(--text-muted); font-size: var(--font-ui-small); line-height: 1.6; }
+.snm-atlassian-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-start; }
+.snm-atlassian-actions > button { flex: 0 1 auto; min-height: 34px; height: auto; max-width: 100%; white-space: normal; line-height: 1.4; margin: 0; }
+.snm-atlassian-products { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 225px), 1fr)); gap: 10px; }
+.snm-atlassian-product { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px; background: var(--background-primary-alt); border: 1px solid var(--background-modifier-border); border-radius: 8px; overflow-wrap: anywhere; }
+.snm-atlassian-product-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.snm-atlassian-badge { display: inline-flex; border-radius: 5px; padding: 3px 7px; font-size: var(--font-ui-smaller); color: var(--text-muted); background: var(--background-secondary); white-space: nowrap; }
+.snm-atlassian-badge.is-success { color: var(--text-success, #25804c); background: rgba(40, 160, 85, .12); }
+.snm-atlassian-badge.is-warning { color: var(--text-warning, #a46a00); background: rgba(210, 155, 40, .12); }
+.snm-atlassian-badge.is-pending { color: var(--interactive-accent); }
+.snm-atlassian-product > small { color: var(--text-faint); font-size: var(--font-ui-smaller); }
+.snm-atlassian-site, .snm-atlassian-test-targets > label { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: var(--font-ui-small); }
+.snm-atlassian-settings select, .snm-atlassian-test-targets input { width: 100%; min-width: 0; max-width: 100%; }
+.snm-atlassian-test-targets { border-top: 1px solid var(--background-modifier-border); padding-top: 12px; }
+.snm-atlassian-test-targets > summary { cursor: pointer; }
+.snm-atlassian-test-targets > label { margin-top: 10px; }
+.snm-atlassian-message { padding: 10px 12px; border-radius: 7px; background: var(--background-secondary); overflow-wrap: anywhere; }
 @media (max-width: 760px) {
   .modal.snm-ai-wiki-modal, .modal.snm-ai-connect-modal, .modal.snm-ai-detail-modal { width: calc(100vw - 24px); max-width: calc(100vw - 24px); }
   .snm-ai-filters > input { flex-basis: 100%; order: -2; }

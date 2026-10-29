@@ -27,5 +27,7 @@ If a ServiceNow or Google credential may have been exposed:
 - Sensitive credentials use Obsidian SecretStorage and are not stored in plugin `data.json`.
 - OAuth callbacks bind only to `127.0.0.1` or `localhost` and use state validation; ServiceNow OAuth uses PKCE.
 - Google Drive requests use the read-only Drive scope.
+- Optional Atlassian login discovers official OAuth metadata, registers a public client, uses PKCE S256 and a random state, and binds only to `127.0.0.1:42816`. Invalid callbacks do not consume the login; valid callbacks, denial, cancellation, timeout and unload clean up the listener. No token is sent through an untrusted URL or followed redirect. Secrets are held in SecretStorage; UI/errors expose only sanitized state.
+- The Atlassian integration requests read/search scopes only and enforces a fixed six-tool read allowlist at the MCP dispatch boundary. Site-specific test references are validated before use. Each product must pass an actual content read; retained results are historical after restart, and expired tokens cannot retain a green live status.
 - The plugin has no client-side telemetry, advertising, or self-update mechanism.
 - The plugin is desktop-only and declares that limitation in `manifest.json`.

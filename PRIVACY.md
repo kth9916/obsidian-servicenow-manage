@@ -20,6 +20,8 @@ An optional organization pack is copied to `organization-pack.json` inside the l
 
 ServiceNow access tokens, Google access and refresh tokens, and the imported Google OAuth client secret are stored through Obsidian SecretStorage. They are not written to Markdown notes or the plugin's `data.json`. The imported OAuth JSON itself is not copied to the plugin directory. Obsidian 1.11.5 or later is required so SecretStorage benefits from the operating system's encryption support.
 
+The optional Atlassian connection also keeps its public-client registration and access/refresh tokens in SecretStorage. Ordinary settings contain only the account display label, discovered site labels/URLs/IDs, selected site, optional test issue/page identifiers, and per-service test state/timestamps. Login codes, PKCE verifiers, OAuth state, tokens, issue titles/bodies and page contents are not serialized to ordinary settings, logs or Markdown by this connection feature. Service content is read temporarily to verify access, not sent to an AI model or stored as Wiki records.
+
 Ticket content, work notes, translated text, To-Do items, work logs, downloaded documents, and generated prompts are stored in the user's vault. The user controls the vault, its backup policy, and any synchronization service connected to it.
 
 ## Network connections
@@ -28,6 +30,7 @@ The plugin can connect to:
 
 - The ServiceNow instance configured by the user, to read ticket details, work notes, state, and attachments and to complete OAuth operations when enabled.
 - `accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com`, and `drive.google.com`, when the optional Google Drive connection is used.
+- `mcp.atlassian.com` and `auth.atlassian.com`, when the optional Atlassian connection is enabled and the user starts login or connection testing. The browser may use the user's organization identity provider during company sign-in. Authentication uses official metadata discovery, dynamic public-client registration, PKCE and a temporary `127.0.0.1:42816` callback listener. No developer backend or pasted personal API token is involved. Only identity, offline access and Jira/Confluence read/search scopes are requested; no write/delete/manage tools are callable through the plugin integration.
 - `date.nager.at`, to retrieve the Republic of Korea public holiday calendar when automatic holiday synchronization is enabled.
 - A translation provider selected in the separate Translate community plugin, when the user requests translation.
 
@@ -45,6 +48,7 @@ ServiceNow permissions are determined by the credential supplied by the user. Go
 
 - Disconnect ServiceNow to remove the ServiceNow secrets from Obsidian SecretStorage.
 - Disconnect Google Drive to revoke the Google token when possible and remove the Google secrets from SecretStorage.
+- Disconnect Atlassian to remove its local authentication secrets and attempt server-side token revocation. If revocation cannot be confirmed, the UI explains how to review the connected app in the Atlassian account. Disabling the optional feature stops requests and cancels pending login, but preserves credentials and site/test preferences for later reconnection; it does not revoke server-side consent.
 - Delete ticket notes or downloaded documents using normal Obsidian file operations when they are no longer needed.
 - Uninstalling the plugin removes the plugin code but does not automatically delete notes or documents created in the vault.
 - Removing an organization pack deletes the local plugin copy but intentionally does not delete templates or notes already present in the vault.
