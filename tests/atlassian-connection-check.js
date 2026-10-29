@@ -9,7 +9,7 @@ let assertions = 0;
 function check(condition, message) { assertions++; assert(condition, message); }
 function fixture(saved = {}) {
   const secrets = new Map(), requests = [], opened = [], servers = []; let now = 1900000000000;
-  const state = { failJira: false, failConfluence: false, emptyJira: false, emptyConfluence: false, expire: false, failRefresh: false, invalidRead: false, failSave: false, scope: "", refreshes: 0 };
+  const state = { failJira: false, failConfluence: false, emptyJira: false, emptyConfluence: false, expire: false, failRefresh: false, invalidRead: false, failSave: false, scope: "", refreshes: 0, jiraQueries: [], jiraSearchError: "" };
   const plugin = { settings: { atlassian: saved, other: "preserve" }, app: { secretStorage: { setSecret() {} } },
     getSecret: key => secrets.get(key) || "", setSecret: (key, value) => secrets.set(key, value), deleteSecret: key => secrets.delete(key),
     savePluginData: async () => { if (state.failSave) throw Error("test storage failure"); }
@@ -41,7 +41,13 @@ function fixture(saved = {}) {
         const { name, arguments: args } = rpc.params;
         if (name === "getAccessibleAtlassianResources") result = { resources: [{ cloudId: "test-site-a", url: "https://example.atlassian.net" }] };
         if (name === "atlassianUserInfo") result = { displayName: "Example User" };
-        if (name === "searchJiraIssuesUsingJql") result = { issues: state.emptyJira ? [] : [{ id: "100", key: "EXAMPLE-1" }] };
+        if (name === "searchJiraIssuesUsingJql") {
+          state.jiraQueries.push(args.jql);
+          // Model the live server constraint rather than silently accepting unbounded JQL.
+          const error = state.jiraSearchError || (!/updated\s*>=\s*-30d/i.test(args.jql) ? "unbounded" : "");
+          if (error) return reply({ jsonrpc: "2.0", id: rpc.id, result: { isError: true, structuredContent: { error_code: "INVALID_ARGUMENT" }, content: [{ type: "text", text: JSON.stringify({ error: true, statusCode: 400, message: error === "unbounded" ? 'Failed to search issues: 400 {"errorMessages":["무제한 JQL 쿼리는 여기에서 허용되지 않습니다. 쿼리에 검색 제한을 추가하세요."],"errors":{}} private-detail-must-not-leak' : "400 invalid search argument private-detail-must-not-leak" }) }] } });
+          result = { issues: state.emptyJira ? [] : [{ id: "100", key: "EXAMPLE-1" }] };
+        }
         if (name === "searchConfluence") result = { results: state.emptyConfluence ? [] : [{ content: { id: "200" } }] };
         if (name === "getJiraIssue") result = state.invalidRead ? {} : { id: "100", key: args.issueIdOrKey, fields: { summary: "Private test content never saved" } };
         if (name === "getConfluenceContent") result = { id: "200", title: "Private document never saved" };
@@ -80,6 +86,7 @@ function fixture(saved = {}) {
   check((await f.callback(`state=${state}&state=${state}&code=test-code`)).status === 403, "duplicate state rejected");
   check((await f.callback(new URLSearchParams({ code: "test-code", state }))).status === 200, "callback received");
   check(f.connection.status("jira").label === "연결됨" && f.connection.status("confluence").label === "연결됨", "both actual reads required");
+  check(f.state.jiraQueries.length === 1 && f.state.jiraQueries[0] === "updated >= -30d ORDER BY updated DESC", "default Jira probe is bounded, not only result-limited");
   check(f.servers[0].closed && !f.connection.busy, "listener cleaned up after login");
   check(!JSON.stringify(f.plugin.settings).includes("test-access-value"), "tokens not in data.json");
   check(!JSON.stringify(f.plugin.settings).includes("Private test content"), "test contents not persisted");
@@ -93,11 +100,14 @@ function fixture(saved = {}) {
   check(!f.connection.message.includes("private server detail"), "redacted errors only");
   f.state.failJira = false; f.state.emptyJira = true; f.state.emptyConfluence = true; await f.connection.test();
   check(f.connection.status("jira").label === "테스트 자료 필요" && f.connection.status("confluence").label === "테스트 자료 필요", "empty search is not successful content read");
+  check(f.connection.status("jira").detail.includes("최근 30일"), "no recent issue does not mean login failed");
   await f.connection.setTarget("jira", "https://example.atlassian.net/browse/EXAMPLE-2?tracking=remove");
   await f.connection.setTarget("confluence", "https://example.atlassian.net/wiki/spaces/DEMO/pages/200/Example");
   check(f.connection.prefs.targets.jira === "EXAMPLE-2" && f.connection.prefs.targets.confluence === "200", "normalized targets without tracking");
   for (const target of ["https://other.atlassian.net/browse/EXAMPLE-1", "https://example.atlassian.net.evil.test/browse/EXAMPLE-1", "file:///private", "javascript:alert(1)"]) await assert.rejects(() => f.connection.setTarget("jira", target), /올바른/);
   await f.connection.test(); check(f.connection.verified.size === 2, "explicit targets work without global search results");
+  const queryCount = f.state.jiraQueries.length; await f.connection.test();
+  check(f.state.jiraQueries.length === queryCount, "explicit issue bypasses recent-search limit");
   f.advance(3601000); check(f.connection.status("jira").label !== "연결됨", "expired login is not green");
   await f.connection.test(); check(f.state.refreshes === 1, "single refresh with rotation");
   check(JSON.parse(f.secrets.get(constants.token)).refreshToken === "test-rotated-refresh", "rotated refresh retained");
@@ -128,9 +138,21 @@ function fixture(saved = {}) {
   check(sites.connection.prefs.site === "https://other.atlassian.net" && sites.connection.verified.size === 0, "site switch clears prior proof");
   check(!sites.connection.prefs.targets.jira && !sites.connection.prefs.targets.confluence, "site-specific targets do not cross sites");
   await assert.rejects(() => sites.connection.selectSite("unknown"), /사이트/);
+  const query = fixture(); await query.login(); const secretsBefore = [...query.secrets];
+  query.state.jiraSearchError = "unbounded"; await query.connection.test();
+  check(query.connection.prefs.checks.jira.state === "query" && query.connection.status("jira").label === "검색 범위 확인", "localized live unbounded-JQL error gets actionable label");
+  check(query.connection.status("jira").detail.includes("검색 범위") && !query.connection.status("jira").detail.includes("private-detail"), "sanitized query explanation, never raw server payload");
+  check(query.connection.status("confluence").label === "연결됨", "400 Jira search cannot erase Confluence success");
+  check(JSON.stringify([...query.secrets]) === JSON.stringify(secretsBefore) && query.state.refreshes === 0, "query rejection must not reconnect or refresh tokens");
+  query.state.jiraSearchError = "invalid"; await query.connection.test();
+  check(query.connection.status("jira").label === "조회 조건 확인", "other 400 query failures remain separate from auth");
+  query.state.jiraSearchError = ""; await query.connection.test();
+  check(query.connection.status("jira").label === "연결됨", "retry recovers without reauthentication");
+  for (const [payload, status, expected] of [["Unbounded JQL queries are not allowed", 400, "query"], ["bad request", 400, "request"], ["", 403, "permission"], ["", 429, "rate"], ["", 401, "auth"]]) check(context.atlassianReadError(payload, status).atlassianCode === expected, "HTTP/English error classification " + expected);
+  assert.throws(() => context.atlassianRpcResponse('{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"private argument detail"}}', 1), error => error.atlassianCode === "request" && !error.message.includes("private"));
   for (const invalid of ["https://evil.test/token", "http://auth.atlassian.com/token", "https://auth.atlassian.com" + "@" + "evil.test/token", "https://auth.atlassian.com:444/token", "https://auth.atlassian.com/token?secret=value"]) assert.throws(() => context.atlassianTrustedUrl(invalid));
   assert.throws(() => context.atlassianRpcResponse('{"jsonrpc":"2.0","id":2,"result":{}}', 1));
   check(context.atlassianRpcResponse('data: {"jsonrpc":"2.0","method":"notice"}\n\ndata: {"jsonrpc":"2.0","id":1,"result":{"ok":true}}\n\n', 1).ok, "SSE matches request ID and ignores notifications");
-  for (const current of [f, restored, auth, cancel, noStorage, slow, storage, sites]) current.connection.dispose();
+  for (const current of [f, restored, auth, cancel, noStorage, slow, storage, sites, query]) current.connection.dispose();
   console.log(`PASS Atlassian connection: ${assertions} assertions; optional/no background calls, official discovery and public PKCE flow, loopback/state/duplicate/unicode rejection, read-only allowlist, separate product verification, no-data/targets, refresh/restart/expiry, cancellation/storage/disconnect and redacted errors.`);
 })().catch(error => { console.error(error); process.exit(1); });

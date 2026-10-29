@@ -273,6 +273,7 @@ const ATLASSIAN_CLIENT_KEY = `${PLUGIN_ID}-atlassian-client`;
 const ATLASSIAN_MCP_URL = "https://mcp.atlassian.com/v2/mcp";
 const ATLASSIAN_REDIRECT = "http://127.0.0.1:42816/atlassian/callback";
 const ATLASSIAN_SCOPES = "read:me read:account offline_access read:jira:agent-interface search:jira:agent-interface read:confluence:agent-interface search:confluence:agent-interface";
+const ATLASSIAN_JIRA_TEST_JQL = "updated >= -30d ORDER BY updated DESC";
 const ATLASSIAN_READ_TOOLS = new Set(["atlassianUserInfo", "getAccessibleAtlassianResources", "getJiraIssue", "searchJiraIssuesUsingJql", "searchConfluence", "getConfluenceContent"]);
 
 function atlassianError(code = "failed") {
@@ -281,6 +282,8 @@ function atlassianError(code = "failed") {
     permission: "조회 권한이 없습니다. 계정·사이트·회사 앱 허용 정책을 확인해 주세요.",
     network: "네트워크 연결을 확인하고 다시 테스트해 주세요.", rate: "요청이 많습니다. 잠시 후 다시 테스트해 주세요.",
     missing: "대상을 찾을 수 없거나 볼 권한이 없습니다. 링크와 계정을 확인해 주세요.",
+    query: "Jira 검색 범위가 제한되지 않아 서버가 거부했습니다. 특정 이슈를 지정해 연결 테스트해 주세요.",
+    request: "조회 요청 형식 또는 검색 조건을 서버가 거부했습니다. 특정 이슈·문서로 테스트하거나 플러그인 업데이트를 확인해 주세요.",
     unsupported: "현재 서버에서 필요한 읽기 기능을 제공하지 않습니다.",
     registration: "로그인 앱 등록을 완료하지 못했습니다. 회사의 Atlassian 앱 허용 정책을 확인해 주세요.",
     protocol: "서버 응답을 확인할 수 없습니다. 잠시 후 다시 연결해 주세요.",
@@ -292,6 +295,18 @@ function atlassianError(code = "failed") {
     failed: "연결 확인에 실패했습니다. 다시 테스트하거나 다시 연결해 주세요."
   };
   const error = new Error(messages[code] || messages.failed); error.atlassianCode = code; return error;
+}
+
+function atlassianReadError(payload, status = 0) {
+  // Inspect server details only for classification; never display or persist raw payloads.
+  const text = typeof payload === "string" ? payload : JSON.stringify(payload || {});
+  if (status === 401 || /invalid.grant|unauthorized|expired.token|\b401\b/i.test(text)) return atlassianError("auth");
+  if (status === 403 || /forbidden|permission|insufficient.scope|\b403\b/i.test(text)) return atlassianError("permission");
+  if (status === 429 || /\b429\b|rate.limit/i.test(text)) return atlassianError("rate");
+  if (status === 404 || /not.found|\b404\b/i.test(text)) return atlassianError("missing");
+  if (/unbounded\s+JQL|무제한\s*JQL/i.test(text)) return atlassianError("query");
+  if (status === 400 || /INVALID_ARGUMENT|invalid.params|bad.request|\b400\b/i.test(text)) return atlassianError("request");
+  return atlassianError("failed");
 }
 
 function atlassianTrustedUrl(value, hosts = ["auth.atlassian.com", "mcp.atlassian.com"]) {
@@ -339,7 +354,7 @@ function atlassianRpcResponse(text, id) {
   }
   const response = messages.find(message => message?.jsonrpc === "2.0" && message.id === id);
   if (!response) throw atlassianError("protocol");
-  if (response.error) throw atlassianError(response.error.code === -32601 ? "unsupported" : "failed");
+  if (response.error) throw response.error.code === -32601 ? atlassianError("unsupported") : response.error.code === -32602 ? atlassianError("request") : atlassianReadError(response.error);
   if (!Object.hasOwn(response, "result")) throw atlassianError("protocol");
   return response.result;
 }
@@ -359,7 +374,7 @@ class AtlassianRovoConnection {
       targets: { jira: String(saved.targets?.jira || "").slice(0, 500), confluence: String(saved.targets?.confluence || "").slice(0, 500) },
       checks: Object.fromEntries(["jira", "confluence"].map(product => {
         const check = saved.checks?.[product] || {};
-        return [product, { state: ["connected", "no-data", "auth", "permission", "network", "missing", "unsupported", "failed", "rate"].includes(check.state) ? check.state : "unchecked", at: String(check.at || ""), cloudId: String(check.cloudId || ""), detail: "" }];
+        return [product, { state: ["connected", "no-data", "auth", "permission", "network", "missing", "unsupported", "failed", "rate", "query", "request"].includes(check.state) ? check.state : "unchecked", at: String(check.at || ""), cloudId: String(check.cloudId || ""), detail: "" }];
       })) };
   }
   get prefs() { return this.plugin.settings.atlassian; }
@@ -532,7 +547,7 @@ class AtlassianRovoConnection {
     if (this.session?.protocol) headers["MCP-Protocol-Version"] = this.session.protocol;
     const response = await this.request(ATLASSIAN_MCP_URL, { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", ...(notification ? {} : { id }), method, params }) });
     if (response.status === 401) throw atlassianError("auth");
-    if (response.status < 200 || response.status >= 300) throw atlassianError(response.status === 403 ? "permission" : response.status === 404 ? "missing" : response.status === 429 ? "rate" : "failed");
+    if (response.status < 200 || response.status >= 300) throw atlassianReadError(response.text, response.status);
     return { result: notification ? null : atlassianRpcResponse(response.text, id), sessionId: response.headers["mcp-session-id"] || "" };
   }
   async readTool(name, args, epoch = this.epoch) {
@@ -548,8 +563,7 @@ class AtlassianRovoConnection {
         }
         const response = await this.mcp(token, "tools/call", { name, arguments: args }); this.guard(epoch);
         if (response.result?.isError) {
-          const internal = JSON.stringify(response.result);
-          throw atlassianError(/invalid.grant|unauthorized|expired.token|\b401\b/i.test(internal) ? "auth" : /forbidden|permission|insufficient.scope|\b403\b/i.test(internal) ? "permission" : /not.found|\b404\b/i.test(internal) ? "missing" : "failed");
+          throw atlassianReadError(response.result);
         }
         return atlassianResultData(response.result);
       } catch (error) { this.guard(epoch); if (error.atlassianCode === "auth" && attempt === 0) { this.session = null; continue; } throw error; }
@@ -574,14 +588,14 @@ class AtlassianRovoConnection {
     try {
       let found = target;
       if (!found && product === "jira") {
-        const values = await this.readTool("searchJiraIssuesUsingJql", { cloudId, jql: "ORDER BY updated DESC", maxResults: 1, fields: ["summary"], view: "compact" }, epoch);
+        const values = await this.readTool("searchJiraIssuesUsingJql", { cloudId, jql: ATLASSIAN_JIRA_TEST_JQL, maxResults: 1, fields: ["summary"], view: "compact" }, epoch);
         const candidate = values.flatMap(value => value.issues?.nodes || value.issues || value.results || []).find(issue => issue.key || issue.id);
         found = candidate?.key || candidate?.id;
       } else if (!found) {
         const values = await this.readTool("searchConfluence", { cloudId, cql: "type = page ORDER BY lastmodified DESC", limit: 1 }, epoch);
         found = values.flatMap(value => value.results || value.search?.results || value.contents?.nodes || []).map(item => item.content || item).find(item => item.id)?.id;
       }
-      if (!found) this.prefs.checks[product] = { state: "no-data", at: new Date(this.now()).toISOString(), cloudId, detail: "로그인은 되었지만 테스트할 자료가 없습니다. 아래에서 확인할 링크를 지정해 주세요." };
+      if (!found) this.prefs.checks[product] = { state: "no-data", at: new Date(this.now()).toISOString(), cloudId, detail: product === "jira" ? "최근 30일에 수정된 이슈가 없어 자동 읽기 테스트를 하지 못했습니다. 아래에서 확인할 Jira 이슈를 지정해 주세요." : "로그인은 되었지만 테스트할 자료가 없습니다. 아래에서 확인할 링크를 지정해 주세요." };
       else {
         const values = await this.readTool(product === "jira" ? "getJiraIssue" : "getConfluenceContent", product === "jira"
           ? { cloudId, issueIdOrKey: found, fields: ["summary"], view: "compact" }
@@ -620,8 +634,8 @@ class AtlassianRovoConnection {
     if (!this.prefs.cloudId) return { label: "사이트 선택 필요", kind: "pending", detail: "사용할 사이트를 선택하고 연결 테스트를 눌러 주세요." };
     if (this.verified.has(product) && Number(this.secret(ATLASSIAN_TOKEN_KEY)?.expiresAt) > this.now() && check.cloudId === this.prefs.cloudId && check.state === "connected") return { label: "연결됨", kind: "success", detail: check.detail };
     if (check.state === "connected") return { label: "다시 확인", kind: "neutral", detail: "이전 연결 테스트는 성공했습니다. 현재 상태는 연결 테스트로 확인해 주세요." };
-    const labels = { auth: "재로그인 필요", permission: "접근 권한 필요", network: "네트워크 확인", missing: "대상 확인 필요", "no-data": "테스트 자료 필요", unchecked: "연결 확인 필요", unsupported: "기능 확인 필요", rate: "잠시 후 재시도" };
-    return { label: labels[check.state] || "연결 확인 실패", kind: "warning", detail: check.detail || "연결 테스트를 눌러 실제 조회를 확인해 주세요." };
+    const labels = { auth: "재로그인 필요", permission: "접근 권한 필요", network: "네트워크 확인", missing: "대상 확인 필요", "no-data": "테스트 자료 필요", unchecked: "연결 확인 필요", unsupported: "기능 확인 필요", rate: "잠시 후 재시도", query: "검색 범위 확인", request: "조회 조건 확인" };
+    return { label: labels[check.state] || "연결 확인 실패", kind: "warning", detail: check.detail || (["query", "request"].includes(check.state) ? atlassianError(check.state).message : "연결 테스트를 눌러 실제 조회를 확인해 주세요.") };
   }
   cancel(announce = true) {
     this.epoch++; this.closeListener(); this.pending = null; this.session = null; this.phase = ""; this.verified.clear();

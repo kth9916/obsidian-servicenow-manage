@@ -14,6 +14,8 @@ Jira and Confluence have separate results. **Connected** means the plugin has ac
 
 This adds account connection and verification only. It does not yet import Jira subtask schedules, register Jira-only tickets, or publish Confluence content. User-mediated end-to-end login still needs to be verified in the installed Obsidian application; automated checks do not replace company-account consent.
 
+The automatic Jira test searches only issues updated in the last 30 days, then reads one result. A result limit alone is not a search bound: the Jira service rejects unbounded JQL. If there is no recent issue, specify an accessible issue in **Test a specific issue/page**; direct issue tests do not require recent updates. Query rejection is shown separately from account/permission errors, with a sanitized explanation instead of raw server details.
+
 ## What's new in 2.17.0
 
 - Optional AI Wiki under the configured work root, with standardized work records, ticket-summary links, metadata checks and a five-step connection helper.
