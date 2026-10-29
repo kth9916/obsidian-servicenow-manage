@@ -6,6 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "embed:dashboard": "node scripts/embed-dashboard.mjs",
+    "embed:jira": "node scripts/embed-jira-workspace.mjs",
     "security:audit": "node scripts/community-security-audit.mjs",
     "release:check": "node scripts/community-release-check.mjs",
     "test": "node scripts/run-tests.mjs"

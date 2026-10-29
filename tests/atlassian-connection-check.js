@@ -9,7 +9,7 @@ let assertions = 0;
 function check(condition, message) { assertions++; assert(condition, message); }
 function fixture(saved = {}) {
   const secrets = new Map(), requests = [], opened = [], servers = []; let now = 1900000000000;
-  const state = { failJira: false, failConfluence: false, emptyJira: false, emptyConfluence: false, expire: false, failRefresh: false, invalidRead: false, failSave: false, scope: "", refreshes: 0, jiraQueries: [], jiraSearchError: "" };
+  const state = { failJira: false, failConfluence: false, emptyJira: false, emptyConfluence: false, expire: false, failRefresh: false, invalidRead: false, failSave: false, scope: "", refreshes: 0, jiraQueries: [], jiraSearchError: "", omitScope: false, mutationFail: false };
   const plugin = { settings: { atlassian: saved, other: "preserve" }, app: { secretStorage: { setSecret() {} } },
     getSecret: key => secrets.get(key) || "", setSecret: (key, value) => secrets.set(key, value), deleteSecret: key => secrets.delete(key),
     savePluginData: async () => { if (state.failSave) throw Error("test storage failure"); }
@@ -28,7 +28,7 @@ function fixture(saved = {}) {
     if (url.endsWith("/oauth/token")) {
       const params = new URLSearchParams(options.body);
       if (params.get("grant_type") === "refresh_token") { state.refreshes++; if (state.failRefresh) return { status: 400, text: '{"error":"invalid_grant"}' }; }
-      return reply({ access_token: "test-access-value", refresh_token: "test-rotated-refresh", token_type: "Bearer", expires_in: 3600, scope: state.scope });
+      return reply({ access_token: "test-access-value", refresh_token: "test-rotated-refresh", token_type: "Bearer", expires_in: 3600, ...(!state.omitScope ? {scope: state.scope} : {}) });
     }
     if (url.endsWith("/oauth/revoke")) return reply({});
     if (url === constants.resource) {
@@ -51,6 +51,11 @@ function fixture(saved = {}) {
         if (name === "searchConfluence") result = { results: state.emptyConfluence ? [] : [{ content: { id: "200" } }] };
         if (name === "getJiraIssue") result = state.invalidRead ? {} : { id: "100", key: args.issueIdOrKey, fields: { summary: "Private test content never saved" } };
         if (name === "getConfluenceContent") result = { id: "200", title: "Private document never saved" };
+        if (name === "executeRead") result = { transitions: [], requested: args.name };
+        if (["editJiraIssue", "transitionJiraIssue", "addOrEditJiraIssueComment"].includes(name)) {
+          if (state.mutationFail) return {status:503,text:"private service error"};
+          result = {id:"900",success:true};
+        }
         if ((state.failJira && name === "getJiraIssue") || (state.failConfluence && name === "getConfluenceContent")) return reply({ jsonrpc: "2.0", id: rpc.id, result: { isError: true, content: [{ type: "text", text: "403 permission denied with private server detail" }] } });
       }
       const response = { jsonrpc: "2.0", id: rpc.id, result: { content: [{ type: "text", text: JSON.stringify({ data: result }) }] } };
@@ -148,6 +153,28 @@ function fixture(saved = {}) {
   check(query.connection.status("jira").label === "조회 조건 확인", "other 400 query failures remain separate from auth");
   query.state.jiraSearchError = ""; await query.connection.test();
   check(query.connection.status("jira").label === "연결됨", "retry recovers without reauthentication");
+  const edit = fixture(); await edit.login();
+  check(!edit.connection.hasWriteAccess(), "default account remains read-only");
+  await edit.connection.setEditingEnabled(true);
+  check(!edit.connection.hasWriteAccess(), "toggle alone cannot grant OAuth write access");
+  const oldSecrets = JSON.stringify([...edit.secrets]);await edit.connection.connect();edit.connection.cancel();
+  check(JSON.stringify([...edit.secrets])===oldSecrets, "canceled write consent preserves working read credentials");
+  edit.state.omitScope=true;await edit.login();
+  check(edit.connection.hasWriteAccess(), "OAuth omitted scope inherits consented request, not an invented narrower grant");
+  const args={cloudId:edit.connection.prefs.cloudId,issueIdOrKey:"EXAMPLE-1",fields:{duedate:"2026-12-01"}};
+  assert.throws(()=>edit.connection.authorizeInteractiveWrite("editJiraIssue",{...args,fields:{summary:"not allowed"}}));
+  assert.throws(()=>edit.connection.authorizeInteractiveWrite("editJiraIssue",{...args,cloudId:"another-site"}));
+  assert.throws(()=>edit.connection.authorizeInteractiveWrite("addOrEditJiraIssueComment",{cloudId:args.cloudId,issueIdOrKey:"EXAMPLE-1",commentId:"existing",commentBody:"not an edit",contentFormat:"markdown"}));
+  await assert.rejects(()=>edit.connection.writeTool("editJiraIssue",args,{}),/확인/);
+  const permit=edit.connection.authorizeInteractiveWrite("editJiraIssue",args);await edit.connection.writeTool("editJiraIssue",args,permit);
+  await assert.rejects(()=>edit.connection.writeTool("editJiraIssue",args,permit),/확인/);
+  const altered=edit.connection.authorizeInteractiveWrite("editJiraIssue",args);await assert.rejects(()=>edit.connection.writeTool("editJiraIssue",{...args,fields:{duedate:null}},altered),/확인/);
+  const expired=edit.connection.authorizeInteractiveWrite("editJiraIssue",args);edit.advance(121000);await assert.rejects(()=>edit.connection.writeTool("editJiraIssue",args,expired),/확인/);
+  const beforeWrites=()=>edit.requests.filter(r=>{try{return JSON.parse(r.body||"{}").params?.name==="editJiraIssue"}catch(_){return false}}).length;
+  const beforeFail=beforeWrites();edit.state.mutationFail=true;const failed=edit.connection.authorizeInteractiveWrite("editJiraIssue",args);await assert.rejects(()=>edit.connection.writeTool("editJiraIssue",args,failed));check(beforeWrites()===beforeFail+1,"mutation errors are never retried");
+  const deferred=await edit.connection.readTool("listJiraIssueTransitions",{cloudId:args.cloudId,issueIdOrKey:"EXAMPLE-1"});check(deferred[0].requested==="listJiraIssueTransitions","only exact deferred read operation dispatched");
+  const narrowed=JSON.parse(edit.secrets.get(constants.token));narrowed.scope="read:jira:agent-interface";edit.secrets.set(constants.token,JSON.stringify(narrowed));check(!edit.connection.hasWriteAccess(),"explicit narrower token scope cannot inherit write permission");
+  edit.connection.dispose();
   for (const [payload, status, expected] of [["Unbounded JQL queries are not allowed", 400, "query"], ["bad request", 400, "request"], ["", 403, "permission"], ["", 429, "rate"], ["", 401, "auth"]]) check(context.atlassianReadError(payload, status).atlassianCode === expected, "HTTP/English error classification " + expected);
   assert.throws(() => context.atlassianRpcResponse('{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"private argument detail"}}', 1), error => error.atlassianCode === "request" && !error.message.includes("private"));
   for (const invalid of ["https://evil.test/token", "http://auth.atlassian.com/token", "https://auth.atlassian.com" + "@" + "evil.test/token", "https://auth.atlassian.com:444/token", "https://auth.atlassian.com/token?secret=value"]) assert.throws(() => context.atlassianTrustedUrl(invalid));

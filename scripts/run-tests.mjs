@@ -14,6 +14,7 @@ function run(args) {
 }
 
 await run(["--check", "main.js"]);
+await run(["scripts/embed-jira-workspace.mjs", "--check"]);
 const tests = (await readdir(path.join(root, "tests")))
   .filter(name => name.endsWith(".js") && name !== "dashboard-check.js")
   .sort();
