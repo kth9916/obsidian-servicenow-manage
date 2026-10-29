@@ -6,7 +6,17 @@ This is an independent community project. It is not affiliated with, endorsed by
 
 Maintainer: **thkim9916** · `thkim9916@cyberlogitec.com`
 
-## Optional AI Wiki (development, not yet released)
+## What's new in 2.17.0
+
+- Optional AI Wiki under the configured work root, with standardized work records, ticket-summary links, metadata checks and a five-step connection helper.
+- Compact cards or a saved spreadsheet-style table, shared search/filter/pagination, and a read-only detail popup before opening a Wiki note.
+- Export-only editing for Jira tables, cell text and JSON, synchronized across formats without changing source notes.
+- Keep every ticketless To-Do separate even when grouping ticket-based work; fill missing Ticket No. and Description only for this export.
+- Clear pending/applied Wiki settings, visible confirmation actions, read-check status and approval boundaries.
+
+See the [full 2.17.0 release notes](releases/2.17.0.md) for changes, upgrade steps, and limitations.
+
+## Optional AI Wiki
 
 AI Wiki is **off by default**, independent of organization packs and ServiceNow/Google sign-in. Skip its optional initial-setup step or enable it later in plugin settings. The Wiki lives under the configured work root, not a hard-coded project: `<root>/LLM WIKI` by default. Its folder name is configurable; changing that preference does not move existing records. Disabling the feature hides navigation and preserves files. It does not revoke permissions or data already shared with another AI.
 
@@ -28,7 +38,7 @@ The five-step connection helper guides AI selection, folder or attachment prepar
 
 Preparation and prompt-delivery confirmations are explicit buttons in the pinned footer, not separate checkboxes: confirm folder-read/attachment preparation and continue, then confirm prompt delivery and continue. These are user acknowledgements only; the later file-read challenge remains required before a connection check can be saved.
 
-## What's new in 2.16.0
+## Previous release: 2.16.0
 
 - Separate active work from archived/dormant history, with shared lifecycle settings, on-demand history loading, and automatic reactivation when opening a ticket's root note.
 - Import weekly/common meetings without a ticket, then link, relink, or unlink tickets later. File and Drive imports share searchable multi-select chips and an explicit ticketless option.
@@ -81,6 +91,8 @@ See [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
 - Maintain a configurable ticket dashboard with persistent columns, sorting, filters, widths, and field order.
 - Optionally discover BS links from a description and FS/DS/UT files from Google Drive naming conventions.
 - Optionally generate organization-specific AI prompts when an organization pack is installed.
+- Optionally browse AI Wiki records as cards or a table and preview the original Markdown in a detail popup.
+- Edit a shared Jira Export draft across table, cell-text and JSON formats without writing back to source notes.
 - Schedule daily status refresh and optional work-note refresh.
 - Configure the CR, SR, and Incident ServiceNow table names for different instances.
 
@@ -92,7 +104,8 @@ The first time the plugin starts, it opens a setup wizard. The wizard checks the
 2. Enter the full ServiceNow instance URL and, when applicable, a Bearer Token issued for the user or organization.
 3. Optionally import a Google Desktop OAuth JSON file or paste the JSON content.
 4. Optionally import a separately supplied work guide pack.
-5. Review the summary and finish.
+5. Optionally enable AI Wiki and review its access and recording guidance. Skip this step to leave it disabled; it can be enabled later.
+6. Review the summary and finish.
 
 Selecting **Set up later** dismisses the automatic wizard without disabling the plugin. Open it again from **Settings → ServiceNow Manage → Initial setup wizard** or from the command palette. All individual options remain available in the normal settings page.
 
