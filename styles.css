@@ -2369,6 +2369,24 @@ button.mod-warning:hover {
 .snm-jira-composer, .snm-jira-panel { border: 1px solid var(--background-modifier-border); background: var(--background-primary-alt); border-radius: 10px; padding: 14px; }
 .snm-jira-composer h4, .snm-jira-panel h4 { margin: 0 0 12px; }
 .snm-jira-composer > textarea { display: block; width: 100%; height: 170px; min-height: 100px; max-height: 40dvh; resize: vertical; margin: 12px 0; font-family: var(--font-text); }
+.snm-jira-composer-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.snm-jira-composer-heading h4 { margin: 0; }
+.snm-jira-composer-target { margin: 8px 0 4px; font-weight: 600; font-size: var(--font-ui-small); overflow-wrap: anywhere; }
+.snm-jira-composer-options { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; position: sticky; bottom: 0; z-index: 2; padding: 8px 0; background: var(--background-primary); border-top: 1px solid var(--background-modifier-border); }
+.snm-jira-composer-options > label { flex: 0 1 200px; }
+.snm-jira-composer-options .snm-jira-field > select { height: 34px; }
+.snm-jira-composer-buttons { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; }
+.snm-jira-composer-buttons > button { min-height: 34px; }
+.snm-jira-composer-buttons > button[hidden] { display: none !important; }
+.snm-jira-composer .snm-jira-note:empty, .snm-jira-translation-note:empty { display: none; }
+.snm-jira-translation-note { font-size: var(--font-ui-small); color: var(--text-muted); padding: 6px 0; }
+.snm-jira-thread-start { margin: 10px 0; }
+.snm-jira-comment > .snm-jira-composer { margin-top: 14px; background: var(--background-primary); border-color: var(--interactive-accent); }
+@media (max-width: 760px) {
+  .snm-jira-composer-options > label, .snm-jira-composer-buttons { flex: 1 1 100%; }
+  .snm-jira-composer-buttons > button { flex: 1 1 120px; }
+  .snm-jira-composer > textarea { height: 130px; min-height: 96px; }
+}
 .snm-jira-change-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr)); gap: 12px; }
 .snm-jira-panel { display: flex; flex-direction: column; gap: 10px; }
 .snm-jira-panel > p { margin: 0; }

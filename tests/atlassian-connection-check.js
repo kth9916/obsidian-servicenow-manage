@@ -165,6 +165,10 @@ function fixture(saved = {}) {
   assert.throws(()=>edit.connection.authorizeInteractiveWrite("editJiraIssue",{...args,fields:{summary:"not allowed"}}));
   assert.throws(()=>edit.connection.authorizeInteractiveWrite("editJiraIssue",{...args,cloudId:"another-site"}));
   assert.throws(()=>edit.connection.authorizeInteractiveWrite("addOrEditJiraIssueComment",{cloudId:args.cloudId,issueIdOrKey:"EXAMPLE-1",commentId:"existing",commentBody:"not an edit",contentFormat:"markdown"}));
+  const limitedComment={cloudId:args.cloudId,issueIdOrKey:"EXAMPLE-1",commentBody:"Restricted reply",contentFormat:"markdown",commentVisibility:{type:"role",value:"Reviewers"}};
+  check(Boolean(edit.connection.authorizeInteractiveWrite("addOrEditJiraIssueComment",limitedComment)),"new contextual comments may preserve the source role/group");
+  for(const value of [null,{type:"public",value:"all"},{type:"role",value:""},{type:"role",value:"role\nname"},{type:"role",value:"safe",admin:true}])assert.throws(()=>edit.connection.authorizeInteractiveWrite("addOrEditJiraIssueComment",{...limitedComment,commentVisibility:value}));
+  assert.throws(()=>edit.connection.authorizeInteractiveWrite("addOrEditJiraIssueComment",{...limitedComment,parentId:"invented"}));
   await assert.rejects(()=>edit.connection.writeTool("editJiraIssue",args,{}),/확인/);
   const permit=edit.connection.authorizeInteractiveWrite("editJiraIssue",args);await edit.connection.writeTool("editJiraIssue",args,permit);
   await assert.rejects(()=>edit.connection.writeTool("editJiraIssue",args,permit),/확인/);
