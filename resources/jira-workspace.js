@@ -78,11 +78,13 @@ function jiraNormalizeIssue(raw, site, startField = "Plan Start Date") {
   return { id: String(raw.id || ""), key: jiraKey(raw.key), url: `${site}/browse/${jiraKey(raw.key)}`, title: String(f.summary || ""),
     parent: f.parent?.key ? jiraKey(f.parent.key) : "", parentTitle:String(f.parent?.fields?.summary||""), type: String(f.issuetype?.name || ""), level: Number(f.issuetype?.hierarchyLevel ?? (f.issuetype?.subtask ? -1 : 0)), hierarchyKnown:Number.isFinite(f.issuetype?.hierarchyLevel),
     status: String(f.status?.name || ""), statusId: String(f.status?.id || ""), done: f.status?.statusCategory?.key === "done",
-    due: jiraDate(f.duedate), start: jiraDate(typeof start === "object" ? start?.value : start), pic: String(f.assignee?.displayName || ""), updated: String(f.updated || ""),
+    due: jiraDate(f.duedate), start: jiraDate(typeof start === "object" ? start?.value : start), pic: String(f.assignee?.displayName || ""), reporter: String(f.reporter?.displayName || ""), updated: String(f.updated || ""),
     projectType: String(f.project?.projectTypeKey || ""),projectKey:String(f.project?.key||""),projectName:String(f.project?.name||""),description:jiraMarkdown(f.description),created:String(f.created||""),priority:String(f.priority?.name||""),attachments: Array.isArray(f.attachment) ? f.attachment.map(a => ({ id: String(a.id || ""), filename: String(a.filename || ""), size: Number(a.size || 0), mimeType: String(a.mimeType || "") })) : null };
 }
 const JIRA_WORKSPACE_RESOLUTION_VERSION=2;
-const JIRA_WORKSPACE_TABS=[["comments","댓글 읽고 쓰기","Jira 대화 · 번역 · 댓글 작성"],["timeline","ServiceNow와 함께 보기","두 서비스의 대화를 시간순으로"],["schedule","하위 업무를 할 일로","일정을 골라 To-Do 생성"],["change","상태·마감일 바꾸기","선택한 Jira 업무 정보 변경"]];
+const JIRA_WORKSPACE_TABS=[["comments","Jira 댓글·작성","여러 업무 선택 · 시간순 댓글"],["timeline","업무 기록·댓글","ServiceNow / Jira 탭으로 보기"],["schedule","일정 생성","DS 문서 / Jira → To-Do"],["change","상태·마감일 바꾸기","선택한 Jira 업무 정보 변경"]];
+function jiraStartText(issue){return issue.startReadFailed?"조회 미완료":issue.start||"미지정";}
+function jiraIssueFacts(issue,startLabel="Plan Start Date"){return `담당자 ${issue.pic||"미지정"} · 보고자 ${issue.reporter||"미지정"} · ${startLabel} ${jiraStartText(issue)}`;}
 function jiraHierarchyLabel(issue){return issue?.hierarchyKnown===false?"유형 확인 필요":issue?.level>=1?"메인 업무 · 에픽":issue?.level<0?"하위 작업":"작업";}
 function jiraSearchTerm(value){const term=String(value||"").replace(/[\x00-\x1f\x7f]/g," ").trim().slice(0,160);if(term.length<2||!/[\p{L}\p{N}]/u.test(term))throw Error("검색어를 두 글자 이상 입력해 주세요.");return term;}
 function jiraJqlPhrase(value){return '"\\"'+String(value).replace(/\\/g,"\\\\").replace(/"/g,'\\"')+'\\""';}
@@ -123,7 +125,7 @@ async function jiraFetchImage(url) {
 }
 
 class JiraTicketWorkspace {
-  constructor(plugin) { this.plugin=plugin;this.connection=plugin.atlassianConnection;this.memory=new Map();this.inflight=new Map();this.inflightOptions=new Map();this.listeners=new Set();this.views=new Set();this.reviews=new WeakMap();this.queued=new Map();this.tail=Promise.resolve();this.now=()=>Date.now();this.fetchImage=jiraFetchImage; }
+  constructor(plugin) { this.plugin=plugin;this.connection=plugin.atlassianConnection;this.memory=new Map();this.inflight=new Map();this.inflightOptions=new Map();this.startFields=new Map();this.listeners=new Set();this.views=new Set();this.reviews=new WeakMap();this.queued=new Map();this.tail=Promise.resolve();this.now=()=>Date.now();this.fetchImage=jiraFetchImage; }
   enabled() { const c=this.connection;return !this.disposed && c?.prefs.enabled && c.hasLogin() && Boolean(c.prefs.cloudId); }
   identity(ticket) { return jiraHash(`${this.connection.prefs.site}|${normalizeTicketId(ticket)}`); }
   cachePath(ticket) { const base=this.plugin.manifest?.dir || `${this.plugin.app.vault.configDir || ".obsidian"}/plugins/${PLUGIN_ID}`;return normalizePath(`${base}/jira-cache/${this.identity(ticket)}.json`); }
@@ -149,20 +151,21 @@ class JiraTicketWorkspace {
     const job=this.tail.catch(()=>{}).then(async()=>this.enabled()&&site===this.connection.prefs.site?this.sync(ticket,{force:true}):null).catch(()=>null).finally(()=>this.queued.delete(key));this.queued.set(key,job);this.tail=job;return job;
   }
   async issue(key, dates=false, preview=false) {
-    const fields=["summary","parent","issuetype","status","duedate","assignee","attachment","updated","project"];
+    const fields=["summary","parent","issuetype","status","duedate","assignee","reporter","attachment","updated","project"];
     if(preview)fields.push("description","created","priority");
-    const start=this.connection.prefs.startField;if(dates && /^customfield_\d+$/.test(start))fields.push(start);
+    const start=this.connection.prefs.startField,fieldKey=`${this.connection.prefs.site}|${start.toLowerCase()}`,startId=/^customfield_\d+$/.test(start)?start:this.startFields.get(fieldKey);if(dates&&startId)fields.push(startId);
     // MCP compact/evidence are output projections: even requested parent/status IDs can be removed.
     const values=await this.connection.readTool("getJiraIssue",{cloudId:this.connection.prefs.cloudId,issueIdOrKey:jiraKey(key),fields,view:"full"});
     const raw=jiraIssueRows(values)[0] || values.find(v=>v.key);if(!raw?.id)throw Error("Jira 이슈 정보를 확인하지 못했습니다.");
-    if(dates&&!/^customfield_\d+$/.test(start)){const evidence=await this.connection.readTool("getJiraIssue",{cloudId:this.connection.prefs.cloudId,issueIdOrKey:jiraKey(key),view:"evidence"});const detail=jiraIssueRows(evidence)[0]||evidence.find(v=>v.key);raw.fields={...raw.fields,customFields:detail?.fields?.customFields||{}};}
-    return jiraNormalizeIssue(raw,this.connection.prefs.site,start);
+    let startReadFailed=false;
+    if(dates&&!startId){try{const evidence=await this.connection.readTool("getJiraIssue",{cloudId:this.connection.prefs.cloudId,issueIdOrKey:jiraKey(key),view:"evidence"});const detail=jiraIssueRows(evidence)[0]||evidence.find(v=>v.key),custom=detail?.fields?.customFields||{};raw.fields={...raw.fields,customFields:custom};const match=Object.entries(custom).find(([name])=>name.toLowerCase()===start.toLowerCase());if(/^customfield_\d+$/.test(match?.[1]?.id))this.startFields.set(fieldKey,match[1].id);}catch(_){startReadFailed=true;}}
+    return {...jiraNormalizeIssue(raw,this.connection.prefs.site,startId||start),startReadFailed};
   }
   async search(jql) {
     const items=[],tokens=new Set();let token;
     for(let page=0;page<50;page++){
-      const values=await this.connection.readTool("searchJiraIssuesUsingJql",{cloudId:this.connection.prefs.cloudId,jql,maxResults:100,fields:["summary","parent","issuetype","status","duedate","assignee","updated","project"],view:"full",...(token?{nextPageToken:token}:{})});
-      const raw=jiraIssueRows(values);for(const issue of raw)items.push(jiraNormalizeIssue(issue,this.connection.prefs.site));
+      const values=await this.connection.readTool("searchJiraIssuesUsingJql",{cloudId:this.connection.prefs.cloudId,jql,maxResults:100,fields:["summary","parent","issuetype","status","duedate","assignee","reporter","updated","project"],view:"full",...(token?{nextPageToken:token}:{})});
+      const raw=jiraIssueRows(values);for(const issue of raw)items.push(jiraNormalizeIssue(issue,this.connection.prefs.site,this.connection.prefs.startField));
       const envelope=values.find(v=>v.issues?.pageInfo || v.nextPageToken || typeof v.isLast==="boolean");
       const next=envelope?.issues?.pageInfo?.hasNextPage?envelope.issues.pageInfo.endCursor:envelope?.isLast===false?envelope.nextPageToken:undefined;
       if(!next){if(envelope?.issues?.pageInfo?.hasNextPage || envelope?.isLast===false)throw Error("Jira 다음 페이지 정보를 확인하지 못했습니다.");return [...new Map(items.map(i=>[i.id,i])).values()];}
@@ -212,7 +215,7 @@ class JiraTicketWorkspace {
   }
   async preview(ticket,key) {
     if(!this.enabled())throw Error("Atlassian 계정을 먼저 연결해 주세요.");
-    const site=this.connection.prefs.site,issue=await this.issue(key,false,true),parents=[],known=new Map([[issue.key,issue]]),seen=new Set([issue.key]),warnings=[];let current=issue;
+    const site=this.connection.prefs.site,issue=await this.issue(key,true,true),parents=[],known=new Map([[issue.key,issue]]),seen=new Set([issue.key]),warnings=[];let current=issue;
     while(current.parent){if(parents.length>=12||seen.has(current.parent))throw Error("Jira 상위 관계를 확인하지 못했습니다.");const parent=await this.issue(current.parent);seen.add(parent.key);parents.push(parent);known.set(parent.key,parent);current=parent;}
     const linkTarget=await this.topForTicket(issue,ticket,known);let children=[],comments=[];
     try{if(issue.level>=0)children=await this.search(`parent = ${jiraKey(issue.key)} ORDER BY created ASC`);}catch(_){warnings.push("하위 업무 목록을 읽지 못했습니다.");}
@@ -261,7 +264,7 @@ class JiraTicketWorkspace {
       bundle.issues=await this.descendants(bundle.root);
       const budget={bytes:0,warnings:bundle.warnings};
       for(let index=0;index<bundle.issues.length;index++){const issue=bundle.issues[index];
-        try{const detailed=dates||!issue.attachments?await this.issue(issue.key,dates):issue;bundle.issues[index]=detailed;if(detailed.id===bundle.root.id)bundle.root=detailed;const assets=await this.images(ticket,detailed,previous,budget);bundle.assets.push(...assets);const comments=await this.comments(detailed,assets);bundle.comments.push(...comments)}
+        try{const detailed=await this.issue(issue.key,true);bundle.issues[index]=detailed;if(detailed.startReadFailed){bundle.warnings.push(`${issue.key}의 시작일 필드를 확인하지 못했습니다. 댓글은 정상 조회하며 날짜는 조회 미완료로 표시합니다.`);if(dates)bundle.stale=true;}if(detailed.id===bundle.root.id)bundle.root=detailed;const assets=await this.images(ticket,detailed,previous,budget);bundle.assets.push(...assets);const comments=await this.comments(detailed,assets);bundle.comments.push(...comments)}
         catch(_){bundle.stale=true;bundle.warnings.push(`${issue.key}의 댓글 전체 조회에 실패하여 이전 저장본을 보존했습니다.`);bundle.comments.push(...(previous?.comments||[]).filter(c=>c.issueId===issue.id));bundle.assets.push(...(previous?.assets||[]).filter(a=>a.issueKey===issue.key))}
       }
       if(site!==this.connection.prefs.site || !this.enabled())throw Error("연결이 변경되었습니다.");
@@ -367,16 +370,52 @@ class JiraChangeConfirmModal extends Modal {
 }
 class ServiceNowWorkNotesModal extends Modal {
   constructor(app,plugin,ticket){super(app);this.plugin=plugin;this.ticket=ticket;}
-  onOpen(){this.modalEl.addClass("snm-jira-modal");this.titleEl.setText(`${this.ticket} ServiceNow 워킹노트`);const body=this.contentEl.createDiv({cls:"snm-jira-scroll"});this.child=new WorkNotesRenderChild(body,this.plugin,this.ticket);this.child.load();const footer=this.contentEl.createDiv({cls:"snm-jira-footer"});jiraButton(footer,"닫기",()=>this.close());jiraButton(footer,"원본 티켓 열기",()=>{const f=this.plugin.rootTicketFile(this.ticket);if(f)void this.app.workspace.getLeaf(false).openFile(f)});}
-  onClose(){this.child?.unload();this.contentEl.empty();}
+  onOpen(){this.modalEl.addClass("snm-jira-modal");this.titleEl.setText(`${this.ticket} 업무 기록·댓글`);this.panel=new TicketServicePanel(this.contentEl,this.app,this.plugin,this.ticket,"history");const footer=this.contentEl.createDiv({cls:"snm-jira-footer"});jiraButton(footer,"닫기",()=>this.close());jiraButton(footer,"원본 티켓 열기",()=>{const f=this.plugin.rootTicketFile(this.ticket);if(f)void this.app.workspace.getLeaf(false).openFile(f)});}
+  onClose(){this.panel?.dispose();this.contentEl.empty();}
 }
 class ScheduleSourceModal extends Modal {
   constructor(app,plugin,ticket){super(app);this.plugin=plugin;this.ticket=ticket;}
-  onOpen(){this.modalEl.addClass("snm-jira-source-modal");this.titleEl.setText(`${this.ticket} 일정 가져오기`);this.contentEl.createEl("p",{cls:"snm-jira-note",text:"원본의 최신 일정을 확인한 뒤 선택한 항목만 To-Do로 만듭니다. 원본 상태와 기한은 바꾸지 않습니다."});const choices=this.contentEl.createDiv({cls:"snm-jira-source-choices"});
-    const ds=jiraButton(choices,"DS 문서 일정",()=>{this.close();new DsScheduleModal(this.app,this.plugin,this.ticket).open()});ds.createEl("small",{text:"다시 다운로드 · Schedule / PROD Schedule"});
-    const jira=jiraButton(choices,"Jira 하위 업무 일정",()=>{this.close();new JiraWorkspaceModal(this.app,this.plugin,this.ticket,"schedule").open()});jira.createEl("small",{text:"최신 Start / Due · 담당자 · 상태"});jira.disabled=!this.plugin.jiraWorkspace?.enabled();
-    if(jira.disabled)this.contentEl.createEl("p",{cls:"snm-jira-note",text:"Jira 일정은 플러그인 설정에서 Atlassian 계정을 연결한 뒤 사용할 수 있습니다."});const footer=this.contentEl.createDiv({cls:"snm-jira-footer"});jiraButton(footer,"취소",()=>this.close());}
-  onClose(){this.contentEl.empty();}
+  onOpen(){this.modalEl.addClass("snm-jira-modal");this.titleEl.setText(`${this.ticket} 일정 생성`);this.panel=new TicketServicePanel(this.contentEl,this.app,this.plugin,this.ticket,"schedule");const footer=this.contentEl.createDiv({cls:"snm-jira-footer"});jiraButton(footer,"닫기",()=>this.close());}
+  onClose(){this.panel?.dispose();this.contentEl.empty();}
+}
+// Shared panels are mounted in place: switching source never opens another modal.
+class TicketServicePanel {
+  constructor(parent,app,plugin,ticket,kind,initial=""){
+    Object.assign(this,{app,plugin,ticket,kind,views:new Map()});this.el=parent.createDiv({cls:"snm-ticket-service-panel"});
+    this.tabs=this.el.createDiv({cls:"snm-service-tabs",attr:{role:"tablist","aria-label":kind==="history"?"기록 서비스":"일정 원본"}});
+    const first=kind==="history"?"ServiceNow 워크노트":"DS 문서";
+    this.options=[["primary",first],["jira",kind==="history"?"Jira 댓글":"Jira"]];
+    for(const [key,label]of this.options){const b=jiraButton(this.tabs,label,()=>this.show(key));b.dataset.service=key;b.setAttribute("role","tab");b.setAttribute("aria-label",label);}
+    this.host=this.el.createDiv({cls:"snm-service-host"});this.show(initial||"primary");
+  }
+  show(key){if(this.closed)return;this.active=key;for(const b of this.tabs.children)b.setAttribute("aria-selected",String(b.dataset.service===key));
+    if(!this.views.has(key)){
+      const host=this.host.createDiv({cls:"snm-service-pane",attr:{role:"tabpanel","aria-label":this.options.find(o=>o[0]===key)[1]}});let view;
+      if(key==="jira")view=JiraWorkspaceModal.mount(host,this.app,this.plugin,this.ticket,this.kind==="history"?"comments":"schedule");
+      else if(this.kind==="history"){const body=host.createDiv({cls:"snm-jira-scroll"});view=new WorkNotesRenderChild(body,this.plugin,this.ticket);view.load();}
+      else view=DsScheduleModal.mount(host,this.app,this.plugin,this.ticket);
+      this.views.set(key,{host,view});
+    }
+    for(const [name,item]of this.views)item.host.hidden=name!==key;
+  }
+  dispose(){this.closed=true;for(const {view}of this.views.values()){if(view.onClose)view.onClose();else view.unload?.();}this.views.clear();this.el.remove();}
+}
+class JiraCommentIssueFilter {
+  constructor(parent,view){this.view=view;this.el=parent.createDiv({cls:"snm-jira-issue-filter"});this.details=this.el.createEl("details");this.summary=this.details.createEl("summary");const panel=this.details.createDiv({cls:"snm-jira-issue-picker"});
+    this.search=panel.createEl("input",{attr:{type:"search",placeholder:"업무·담당자·보고자 검색","aria-label":"표시할 업무 검색"}});this.search.addEventListener("input",()=>this.applyQuery());
+    const actions=panel.createDiv({cls:"snm-jira-actions"});jiraButton(actions,"전체 업무 선택",()=>{view.commentKeys=null;this.update();view.page=0;view.drawEventList()});jiraButton(actions,"선택 모두 해제",()=>{view.commentKeys=new Set();this.update();view.page=0;view.drawEventList()});
+    this.list=panel.createDiv({cls:"snm-jira-issue-options"});this.chips=this.el.createDiv({cls:"snm-jira-issue-chips"});this.refresh();
+  }
+  refresh(){this.list.empty();this.rows=[];const view=this.view;for(const issue of view.bundle?.issues||[]){const row=this.list.createEl("label",{cls:"snm-jira-issue-option"});const check=row.createEl("input",{attr:{type:"checkbox","aria-label":`댓글 업무 ${issue.key} 선택`}});const content=row.createDiv();content.createDiv({cls:"snm-jira-issue-title",text:`${issue.key} · ${issue.title}`});content.createDiv({cls:"snm-jira-note",text:`${issue.id===view.bundle.root?.id?"메인 업무":jiraHierarchyLabel(issue)} · ${issue.status||"상태 미확인"}`});
+      const facts=content.createDiv({cls:"snm-jira-issue-facts"});for(const [name,value]of [["담당자",issue.pic],["보고자",issue.reporter],[view.startLabel(),jiraStartText(issue)]]){const cell=facts.createDiv();cell.createEl("small",{text:name});cell.createSpan({text:value||"미지정"});}
+      check.addEventListener("change",()=>{if(view.commentKeys===null)view.commentKeys=new Set(view.bundle.issues.map(i=>i.key));check.checked?view.commentKeys.add(issue.key):view.commentKeys.delete(issue.key);this.update();view.page=0;view.drawEventList()});this.rows.push({issue,el:row,check});}this.update();this.applyQuery();
+  }
+  applyQuery(){const q=this.search.value.toLowerCase();for(const {issue,el}of this.rows)el.hidden=!`${issue.key} ${issue.title} ${issue.pic} ${issue.reporter}`.toLowerCase().includes(q);}
+  update(){const view=this.view,issues=view.bundle?.issues||[],chosen=issues.filter(i=>view.commentKeys===null||view.commentKeys.has(i.key));this.summary.setText(`표시할 업무 · ${view.commentKeys===null?`전체 ${issues.length}개`:`${chosen.length} / ${issues.length}개 선택`}`);for(const row of this.rows)row.check.checked=view.commentKeys===null||view.commentKeys.has(row.issue.key);this.chips.empty();
+    if(view.commentKeys===null)this.chips.createSpan({cls:"snm-jira-note",text:"모든 업무의 댓글을 시간순으로 표시합니다. 업무 선택을 펼쳐 원하는 것만 체크하세요."});
+    else if(!chosen.length)this.chips.createSpan({cls:"snm-jira-note",text:"선택한 업무가 없습니다. 표시할 업무를 체크하세요."});
+    else for(const issue of chosen){const button=jiraButton(this.chips,`${issue.key} · ${issue.pic||"담당 미지정"} ×`,()=>{view.commentKeys.delete(issue.key);this.update();view.page=0;view.drawEventList()});button.setAttribute("aria-label",`${issue.key} 댓글 선택 해제`);button.title=issue.title;}
+  }
 }
 class JiraIssuePreviewModal extends Modal {
   constructor(app,plugin,ticket,candidate,onLinked){super(app);this.plugin=plugin;this.manager=plugin.jiraWorkspace;this.ticket=ticket;this.candidate=candidate;this.onLinked=onLinked;this.renderers=[];this.revision=0;}
@@ -385,7 +424,7 @@ class JiraIssuePreviewModal extends Modal {
   clear(){for(const child of this.renderers)child.unload();this.renderers=[];this.body.empty();}
   async load(key){const revision=++this.revision;this.select.disabled=true;this.status.setText("본문·상위/하위 업무·댓글을 불러오는 중…");this.clear();try{const data=await this.manager.preview(this.ticket,key);if(this.closed||revision!==this.revision)return;this.data=data;const i=data.issue;
     const heading=this.body.createDiv({cls:"snm-jira-preview-heading"});heading.createSpan({cls:"snm-jira-type-badge",text:jiraHierarchyLabel(i)});heading.createEl("strong",{text:i.key});heading.createEl("h3",{text:i.title});
-    const facts=this.body.createDiv({cls:"snm-jira-preview-facts"});for(const [name,value]of [["프로젝트",i.projectName||i.projectKey],["현재 상태",i.status],["담당자",i.pic],["마감일",i.due],["최근 수정",i.updated]]){const cell=facts.createDiv();cell.createEl("small",{text:name});cell.createDiv({text:value||"미지정"});}
+    const facts=this.body.createDiv({cls:"snm-jira-preview-facts"});for(const [name,value]of [["프로젝트",i.projectName||i.projectKey],["현재 상태",i.status],["담당자",i.pic],["보고자",i.reporter],[this.manager.connection.prefs.startField||"Plan Start Date",i.start],["마감일",i.due],["최근 수정",i.updated]]){const cell=facts.createDiv();cell.createEl("small",{text:name});cell.createDiv({text:value||"미지정"});}
     if(data.parents.length){const parents=this.body.createDiv({cls:"snm-jira-preview-parents"});parents.createEl("h4",{text:"상위 업무"});for(const parent of [...data.parents].reverse())jiraButton(parents,`${jiraHierarchyLabel(parent)} · ${parent.key} · ${parent.title}`,()=>this.load(parent.key));}
     this.body.createEl("h4",{text:"업무 내용"});this.markdown(this.body,i.description||"등록된 설명이 없습니다.");
     if(data.children.length){const section=this.body.createDiv();section.createEl("h4",{text:`하위 업무 ${data.children.length}개`});const list=section.createDiv({cls:"snm-jira-preview-child-list"});for(const child of data.children)jiraButton(list,`${child.key} · ${child.title} · ${child.status}`,()=>this.load(child.key));}
@@ -423,11 +462,15 @@ class JiraLinkSearchModal extends Modal {
 }
 class JiraWorkspaceModal extends Modal {
   constructor(app,plugin,ticket,tab="comments"){
-    super(app);this.plugin=plugin;this.manager=plugin.jiraWorkspace;this.ticket=normalizeTicketId(ticket);this.tab=tab;this.scope="";this.filter={query:"",sort:"desc",language:"original",from:"",to:""};this.page=0;this.renderers=[];this.drafts=new Map();this.draftTarget="";this.selected=new Set();this.pickerState={};this.basis="due";this.todoState=plugin.getTodoWorkflow().find(s=>s.enabled)?.key||"pending";
+    super(app);this.initialize(plugin,ticket,tab);
+  }
+  initialize(plugin,ticket,tab){this.plugin=plugin;this.manager=plugin.jiraWorkspace;this.ticket=normalizeTicketId(ticket);this.tab=tab;this.scope="";this.commentKeys=null;this.filter={query:"",sort:"desc",language:"original",from:"",to:""};this.page=0;this.renderers=[];this.drafts=new Map();this.draftTarget="";this.selected=new Set();this.pickerState={};this.basis="due";this.todoState=plugin.getTodoWorkflow().find(s=>s.enabled)?.key||"pending";}
+  static mount(parent,app,plugin,ticket,tab){
+    const view=Object.create(JiraWorkspaceModal.prototype);view.app=app;view.initialize(plugin,ticket,tab);view.embedded=true;view.contentEl=parent.createDiv({cls:"snm-jira-embedded snm-jira-modal"});view.close=()=>view.onClose();view.onOpen();return view;
   }
   onOpen(){
     this.manager.views?.add(this);
-    this.modalEl.addClass("snm-jira-modal");this.titleEl.setText(`${this.ticket} Jira 업무`);this.header=this.contentEl.createDiv({cls:"snm-jira-header"});this.summary=this.header.createDiv({cls:"snm-jira-summary"});
+    if(!this.embedded){this.modalEl.addClass("snm-jira-modal");this.titleEl.setText(`${this.ticket} Jira 업무`);}this.header=this.contentEl.createDiv({cls:"snm-jira-header"});this.summary=this.header.createDiv({cls:"snm-jira-summary"});
     const actions=this.header.createDiv({cls:"snm-jira-actions"});this.refresh=jiraButton(actions,"다시 불러오기",()=>this.load(true,this.tab==="schedule"));const connections=actions.createEl("details",{cls:"snm-jira-connection-menu"});connections.createEl("summary",{text:"연결 관리"});const connectionActions=connections.createDiv({cls:"snm-jira-menu-actions"});this.relink=jiraButton(connectionActions,"다른 Jira 업무 연결",()=>{connections.open=false;new JiraLinkSearchModal(this.app,this.plugin,this.ticket,async bundle=>{this.bundle=bundle;this.scope="";this.draw()},this.pickerState).open()});jiraButton(connectionActions,"계정 연결 설정",()=>{connections.open=false;this.app.setting.open();this.app.setting.openTabById(PLUGIN_ID)});
     this.updateHint=this.contentEl.createDiv({cls:"snm-jira-note"});this.status=this.contentEl.createDiv({cls:"snm-jira-status",attr:{role:"status"}});
     this.tabs=this.contentEl.createDiv({cls:"snm-jira-tabs",attr:{role:"tablist","aria-label":"Jira 업무 화면"}});
@@ -440,28 +483,30 @@ class JiraWorkspaceModal extends Modal {
   async action(fn){if(this.busy)return;this.busy=true;this.refresh.disabled=true;try{return await fn()}catch(error){if(!this.closed)this.status.setText(error.atlassianCode?error.message:String(error.message||"작업 실패"))}finally{this.busy=false;if(!this.closed){this.refresh.disabled=false;if(this.pendingSnapshot){const next=this.pendingSnapshot;this.pendingSnapshot=null;this.acceptBundle(next)}if(this.pendingLoad){const next=this.pendingLoad;this.pendingLoad=null;void this.load(next.force,next.dates)}}}}
   async load(force,dates=false){if(this.busy){this.pendingLoad={force:force||this.pendingLoad?.force,dates:dates||this.pendingLoad?.dates};return;}return this.action(async()=>{this.status.setText(dates?"Jira 일정을 새로 읽어 할 일 목록을 준비하는 중…":`${this.ticket}의 메인 업무를 자동으로 찾고 최신 댓글을 불러오는 중…`);const cached=await this.manager.read(this.ticket);if(!this.bundle){this.bundle=cached;this.draw()}
     const data=dates?await this.manager.schedule(this.ticket):await this.manager.sync(this.ticket,{force});if(this.closed)return;this.bundle=data;this.scheduleReady=Boolean(data?.scheduleReadAt&&!data?.stale);this.selected=new Set([...this.selected].filter(id=>data?.issues.some(i=>i.id===id)));this.status.setText(!this.manager.enabled()?"현재 연결되지 않았습니다. 마지막 저장본만 표시하며 최신 값이 아닐 수 있습니다.":!data?"Atlassian 계정을 먼저 연결해 주세요.":data.stale?"일부 최신 조회를 완료하지 못했습니다. 저장본과 경고를 확인하세요.":data.root?"최신 자료를 자동으로 불러왔습니다. Obsidian 티켓 갱신 때 Jira도 함께 갱신됩니다.":"메인 업무를 하나로 정할 수 없어 확인이 필요합니다.");this.updateHint.setText("");this.pendingSnapshot=null;this.draw();});}
-  acceptBundle(bundle){if(this.closed||!bundle)return;const before=this.bundle,oldRoot=before?.root?.id;this.bundle=bundle;this.scheduleReady=Boolean(bundle.scheduleReadAt&&!bundle.stale);if(!oldRoot||oldRoot!==bundle.root?.id){if(oldRoot!==bundle.root?.id){this.scope="";this.draftTarget="";}this.draw();}else{this.drawHeader();this.drawFooter();if(["comments","timeline"].includes(this.tab)&&this.eventsEl?.isConnected)this.drawEventList();else if(this.tab==="schedule"&&this.scheduleReady)this.draw();}
+  acceptBundle(bundle){if(this.closed||!bundle)return;const before=this.bundle,oldRoot=before?.root?.id;this.bundle=bundle;this.scheduleReady=Boolean(bundle.scheduleReadAt&&!bundle.stale);if(!oldRoot||oldRoot!==bundle.root?.id){if(oldRoot!==bundle.root?.id){this.scope="";this.commentKeys=null;this.draftTarget="";this.historyPanel?.dispose();this.historyPanel=null;this.schedulePanel?.dispose();this.schedulePanel=null;}this.draw();}else{this.drawHeader();this.drawFooter();this.commentPicker?.refresh();if(this.tab==="comments"&&this.eventsEl?.isConnected)this.drawEventList();else if(this.embedded&&this.tab==="schedule"&&this.scheduleReady)this.draw();}
     this.updateHint.setText(bundle.stale?"최신 조회 일부를 완료하지 못했습니다. 확인된 저장본과 경고를 표시합니다.":"자동 갱신된 자료를 화면에 반영했습니다. 입력 중인 댓글은 유지됩니다.");if(this.tab==="schedule"&&bundle.root&&!this.scheduleReady)void this.load(true,true);
   }
   clearRenderers(){for(const child of this.renderers)child.unload();this.renderers=[];}
   markdown(parent,text){const el=parent.createDiv({cls:"snm-jira-markdown"}),safe=jiraMarkdown(text,this.bundle?.assets||[]),child=new JiraMarkdownChild(el,this.app,safe,this.plugin.rootTicketFile(this.ticket)?.path||"");this.renderers.push(child);child.load();return el;}
-  issueOptions(blank="전체 이슈"){return [["",blank],...(this.bundle?.issues||[]).map(i=>[i.key,`${i.key} · ${i.id===this.bundle.root?.id?"원본 / ":i.level<0?"하위 / ":"업무 / "}${i.title}`])];}
+  startLabel(){return this.manager.connection.prefs.startField||"Plan Start Date";}
+  issueOptions(blank="전체 이슈"){return [["",blank],...(this.bundle?.issues||[]).map(i=>[i.key,`${i.key} · ${i.id===this.bundle.root?.id?"메인 / ":i.level<0?"하위 / ":"업무 / "}${i.title} · ${jiraIssueFacts(i,this.startLabel())}`])];}
   drawHeader(){const bundle=this.bundle;this.summary.empty();
-    const focused=bundle?.issues.find(i=>i.key===this.scope)||bundle?.root;
+    const focused=["change","schedule"].includes(this.tab)&&bundle?.issues.find(i=>i.key===this.scope)||bundle?.root;
     this.summary.createEl("strong",{text:focused?`${focused.key} · ${focused.title}`:this.busy?"메인 업무를 자동으로 찾고 있습니다…":"연결할 메인 업무 확인"});
     if(focused)this.summary.createEl("small",{text:`${this.scope?"선택 이슈":"원본"} · ${focused.status} · 기한 ${focused.due||"미지정"}`});
     this.summary.createEl("small",{text:bundle?.syncedAt?`마지막 조회 ${new Date(bundle.syncedAt).toLocaleString()}${bundle.stale?" · 최신 확인 필요":""}`:"메인 업무 연결 대기"});
-    this.tabs.hidden=!bundle?.root;this.mobileViewField.hidden=!bundle?.root;this.mobileView.value=this.tab;this.relink.hidden=!bundle?.root;for(const button of this.tabs.children){const active=button.dataset.tab===this.tab;button.classList.toggle("is-active",active);button.setAttribute("aria-selected",String(active));}
+    this.tabs.hidden=this.embedded||!bundle?.root;this.mobileViewField.hidden=this.embedded||!bundle?.root;this.mobileView.value=this.tab;this.relink.hidden=!bundle?.root;for(const button of this.tabs.children){const active=button.dataset.tab===this.tab;button.classList.toggle("is-active",active);button.setAttribute("aria-selected",String(active));}
   }
   drawFooter(){const bundle=this.bundle;this.footer.empty();
-    jiraButton(this.footer,"닫기",()=>this.close());if(bundle?.root)jiraButton(this.footer,"Jira 원본 열기",()=>void shell.openExternal((bundle.issues.find(i=>i.key===this.scope)||bundle.root).url));
-    jiraButton(this.footer,"ServiceNow 기록",()=>new ServiceNowWorkNotesModal(this.app,this.plugin,this.ticket).open());
-    if(bundle?.notePath)jiraButton(this.footer,"댓글 노트 열기",()=>{const file=this.app.vault.getAbstractFileByPath(bundle.notePath);if(file)void this.app.workspace.getLeaf(false).openFile(file)});
+    if(!this.embedded)jiraButton(this.footer,"닫기",()=>this.close());if(!this.embedded&&["timeline","schedule"].includes(this.tab))return;if(bundle?.root)jiraButton(this.footer,"Jira 원본 열기",()=>void shell.openExternal((bundle.issues.find(i=>i.key===this.scope)||bundle.root).url));
+    if(!this.embedded)jiraButton(this.footer,"업무 기록·댓글",()=>new ServiceNowWorkNotesModal(this.app,this.plugin,this.ticket).open());
+    if(bundle?.notePath&&this.tab!=="schedule")jiraButton(this.footer,"댓글 노트 열기",()=>{const file=this.app.vault.getAbstractFileByPath(bundle.notePath);if(file)void this.app.workspace.getLeaf(false).openFile(file)});
   }
-  draw(){if(this.closed)return;this.picker?.dispose();this.picker=null;this.clearRenderers();this.body.empty();const bundle=this.bundle;this.drawHeader();this.drawFooter();
+  draw(){if(this.closed)return;this.picker?.dispose();this.picker=null;this.commentPicker=null;this.clearRenderers();this.body.empty();this.body.classList.remove("is-service-panel");this.contentEl.classList.toggle("snm-jira-shared-view",!this.embedded&&["timeline","schedule"].includes(this.tab));const bundle=this.bundle;this.drawHeader();this.drawFooter();
+    if(!this.embedded&&["timeline","schedule"].includes(this.tab)){this.body.addClass("is-service-panel");const key=this.tab==="timeline"?"historyPanel":"schedulePanel";if(!this[key])this[key]=new TicketServicePanel(this.body,this.app,this.plugin,this.ticket,this.tab==="timeline"?"history":"schedule",this.tab==="schedule"?"jira":"primary");else this.body.appendChild(this[key].el);return;}
     if(!bundle?.root){this.drawLink();return;}
-    const controls=this.body.createDiv({cls:"snm-jira-scope"});jiraSelect(controls,"표시할 업무",this.issueOptions("메인·하위 업무 모두"),this.scope,value=>{this.scope=value;this.page=0;this.selected.clear();this.draw()});
-    const current=bundle.issues.find(i=>i.key===this.scope);controls.createDiv({cls:"snm-jira-current",text:current?`${current.type} · ${current.status} · 기한 ${current.due||"미지정"}`:`원본·하위 업무 ${bundle.issues.length}개 · 댓글 ${bundle.comments.length}개`});
+    if(this.tab==="comments")this.commentPicker=new JiraCommentIssueFilter(this.body,this);
+    else if(this.tab==="change"){const controls=this.body.createDiv({cls:"snm-jira-scope"});jiraSelect(controls,"변경할 업무",this.issueOptions("변경할 업무 하나 선택"),this.scope,value=>{this.scope=value;this.page=0;this.selected.clear();this.draw()});const current=bundle.issues.find(i=>i.key===this.scope);controls.createDiv({cls:"snm-jira-current",text:current?`${jiraIssueFacts(current,this.startLabel())} · 기한 ${current.due||"미지정"}`:`원본·하위 업무 ${bundle.issues.length}개`});}
     if(bundle.warnings?.length){const warnings=this.body.createEl("details",{cls:"snm-jira-warning"});warnings.createEl("summary",{text:`조회 제약 ${bundle.warnings.length}건${bundle.stale?" · 최신 확인 필요":""}`});for(const w of bundle.warnings)warnings.createDiv({text:w});}
     if(bundle.uncertainWrite){const warning=this.body.createDiv({cls:"snm-jira-caution"});warning.createDiv({text:`${bundle.uncertainWrite.key}의 이전 변경 결과가 미확인입니다. 중복 전송을 막기 위해 변경을 잠갔습니다.`});jiraButton(warning,"원본 확인을 마쳤습니다",()=>new ConfirmActionModal(this.app,"Jira 적용 여부 확인","Jira 원본에서 이전 변경의 적용 여부를 직접 확인했나요? 잠금 해제는 취소나 재전송이 아닙니다.",async()=>{await this.manager.unlockWrite(this.ticket);this.bundle=await this.manager.read(this.ticket);this.draw()},"확인 · 잠금 해제").open());}
     if(this.tab==="schedule")this.drawSchedule();else if(this.tab==="change")this.drawChange();else this.drawComments();
@@ -469,7 +514,7 @@ class JiraWorkspaceModal extends Modal {
   drawLink(){if(this.busy&&this.manager.enabled()&&!this.bundle?.stale&&this.bundle?.resolutionVersion!==JIRA_WORKSPACE_RESOLUTION_VERSION){this.body.createDiv({cls:"snm-jira-auto-loading",text:"메인 에픽과 하위 작업을 구분하고 있습니다. 잠시만 기다려 주세요."});return;}
     const host=this.body.createDiv();this.picker=new JiraLinkPicker(host,this.plugin,this.ticket,{candidates:this.bundle?.resolutionVersion===JIRA_WORKSPACE_RESOLUTION_VERSION?this.bundle.candidates||[]:[],state:this.pickerState,onLinked:async bundle=>{this.bundle=bundle;this.scope="";this.draw()}});
   }
-  matchingEvents(){const events=jiraTimeline(this.bundle,this.tab==="timeline"?this.plugin.data.tickets[this.ticket]?.entries||[]:[],{includeRestricted:true}),f=this.filter;return events.filter(c=>(!this.scope||c.issueKey===this.scope||this.tab==="timeline"&&c.source==="ServiceNow")&&(!f.from||String(c.created).slice(0,10)>=f.from)&&(!f.to||String(c.created).slice(0,10)<=f.to)&&(!f.query||`${c.text} ${c.author} ${c.issueKey}`.toLowerCase().includes(f.query.toLowerCase()))).sort((a,b)=>f.sort==="asc"?a.instant-b.instant:b.instant-a.instant);}
+  matchingEvents(){const events=jiraTimeline(this.bundle,[],{includeRestricted:true}),f=this.filter;return events.filter(c=>(this.commentKeys===null||this.commentKeys.has(c.issueKey))&&(!f.from||String(c.created).slice(0,10)>=f.from)&&(!f.to||String(c.created).slice(0,10)<=f.to)&&(!f.query||`${c.text} ${c.author} ${c.issueKey}`.toLowerCase().includes(f.query.toLowerCase()))).sort((a,b)=>f.sort==="asc"?a.instant-b.instant:b.instant-a.instant);}
   drawComments(){const controls=this.body.createDiv({cls:"snm-jira-filters"}),query=controls.createEl("input",{attr:{type:"search",placeholder:"댓글·작성자·이슈 검색","aria-label":"댓글 검색"}});query.value=this.filter.query;query.addEventListener("input",()=>{this.filter.query=query.value;this.page=0;this.drawEventList()});
     jiraSelect(controls,"시간순",[["desc","최신 순"],["asc","오래된 순"]],this.filter.sort,v=>{this.filter.sort=v;this.page=0;this.drawEventList()});
     jiraSelect(controls,"표시 언어",[["original","원문"],["ko","한국어"],["en","English"]],this.filter.language,v=>{this.filter.language=v;this.drawEventList()});
@@ -481,6 +526,7 @@ class JiraWorkspaceModal extends Modal {
   drawEventList(){if(!this.eventsEl)return;this.clearRenderers();this.eventsEl.empty();this.pager.empty();const all=this.matchingEvents(),last=Math.max(0,Math.ceil(all.length/50)-1);this.page=Math.min(this.page,last);const current=all.slice(this.page*50,(this.page+1)*50);
     if(!current.length)this.eventsEl.createDiv({cls:"snm-jira-empty",text:"이 범위에 표시할 댓글이 없습니다."});
     for(const event of current){const card=this.eventsEl.createEl("article",{cls:"snm-jira-comment"});const head=card.createDiv({cls:"snm-jira-comment-head"});head.createEl("strong",{text:`${event.source}${event.issueKey?" · "+event.issueKey:""}`});head.createSpan({text:`${event.author} · ${event.created||"날짜 미확인"}`});if(jiraCommentRestricted(event))head.createSpan({cls:"snm-jira-restricted",text:"내부/제한 · 공유 전 확인"});
+      const issue=this.bundle.issues.find(i=>i.key===event.issueKey);if(issue)card.createDiv({cls:"snm-jira-note",text:`${issue.title} · 담당자 ${issue.pic||"미지정"}`});
       if(event.updated&&event.updated!==event.created)card.createEl("small",{text:`수정 ${event.updated}`});if(event.parentId)card.createEl("small",{text:`상위 댓글 ${event.parentId}`});
       const translated=this.filter.language!=="original"&&event.translations?.[this.filter.language];this.markdown(card,translated||event.text);if(this.filter.language!=="original"&&!translated)card.createEl("small",{text:"번역 없음 · 원문 표시"});
       if(translated){const details=card.createEl("details");details.createEl("summary",{text:"원문 보기"});this.markdown(details,event.text)}
@@ -501,19 +547,20 @@ class JiraWorkspaceModal extends Modal {
   review(kind,key,payload,success=()=>{}){return this.action(async()=>{if(!key)throw Error("변경할 이슈를 먼저 선택해 주세요.");const review=await this.manager.prepareChange(this.ticket,key,kind,payload);if(this.closed)return;new JiraChangeConfirmModal(this.app,this.manager,review,async()=>{success();this.bundle=await this.manager.read(this.ticket);if(!this.closed){this.status.setText("Jira 반영을 확인했습니다. 최신 목록은 다시 가져오는 중이며 새 자료 안내가 뜨면 반영할 수 있습니다.");this.draw()}}).open()});}
   drawChange(){const box=this.body.createDiv({cls:"snm-jira-change"});box.createEl("p",{cls:"snm-jira-note",text:"상태와 기한은 각각 확인 후 반영합니다. Jira가 현재 허용하는 상태 전환만 표시하며 추가 필수 입력이 있는 전환은 Jira 원본에서 진행합니다."});
     if(!this.manager.connection.hasWriteAccess()){box.createDiv({cls:"snm-jira-empty",text:"현재 읽기 전용입니다. 연결 설정 → Jira 직접 변경 허용 → 편집 권한 승인 후 사용할 수 있습니다."});return;}
-    const key=this.scope;const issue=this.bundle.issues.find(i=>i.key===key);if(!issue){box.createDiv({cls:"snm-jira-empty",text:"위 ‘표시할 업무’에서 변경할 업무 하나를 선택해 주세요. 전체 업무를 한 번에 변경하지 않습니다."});return;}
+    const key=this.scope;const issue=this.bundle.issues.find(i=>i.key===key);if(!issue){box.createDiv({cls:"snm-jira-empty",text:"위 ‘변경할 업무’에서 업무 하나를 선택해 주세요. 댓글 표시 필터와 별개이며 여러 업무를 한 번에 변경하지 않습니다."});return;}
     const row=box.createDiv({cls:"snm-jira-change-grid"}),status=row.createDiv({cls:"snm-jira-panel"});status.createEl("h4",{text:"상태 변경"});status.createEl("p",{text:`현재 ${issue.status}`});const loading=status.createDiv({cls:"snm-jira-note",text:"전환 가능한 상태를 확인하는 중…"});
     const generation=this.drawGeneration=(this.drawGeneration||0)+1;
     void this.manager.transitions(key).then(transitions=>{if(this.closed||generation!==this.drawGeneration||!loading.isConnected)return;loading.remove();if(!transitions.length){status.createEl("p",{text:"사용 가능한 상태 전환이 없습니다."});return;}let chosen="";const select=jiraSelect(status,"변경할 상태",[["","상태 선택"],...transitions.map(t=>[String(t.id),`${t.name} → ${t.to?.name||""}${Object.values(t.fields||{}).some(f=>f.required&&!f.hasDefaultValue)?" (Jira에서 추가 입력 필요)":""}`])],"",v=>{chosen=v;confirm.disabled=!v});for(const option of select.options){const t=transitions.find(t=>String(t.id)===option.value);if(t&&(t.isAvailable===false||Object.values(t.fields||{}).some(f=>f.required&&!f.hasDefaultValue)))option.disabled=true;}const confirm=jiraButton(status,"변경 전후 확인",()=>this.review("status",key,{transitionId:chosen}),"mod-cta");confirm.disabled=true;}).catch(()=>{if(loading.isConnected)loading.setText("상태 전환 조회에 실패했습니다. 새로고침하거나 Jira 원본에서 확인하세요.")});
     const due=row.createDiv({cls:"snm-jira-panel"});due.createEl("h4",{text:"기한 변경"});due.createEl("p",{text:`현재 ${issue.due||"미지정"}`});let date=issue.due;const input=jiraDateField(due,"새 기한",date,v=>{date=v;confirmDue.disabled=date===issue.due});jiraButton(due,"입력 지우기",()=>{date="";input.value="";confirmDue.disabled=date===issue.due});const confirmDue=jiraButton(due,"변경 전후 확인",()=>this.review("due",key,{due:date}),"mod-cta");confirmDue.disabled=true;
   }
-  drawSchedule(){const controls=this.body.createDiv({cls:"snm-jira-filters"});controls.createEl("p",{cls:"snm-jira-note",text:"최신 원본을 다시 읽고 선택한 하위 업무만 로컬 To-Do로 만듭니다. 날짜만 있으면 생성 당시 시간을 넣으며 날짜가 없으면 미지정으로 둡니다."});
-    jiraSelect(controls,"완료 예정일 기준",[["due","Jira Due Date"],["start","Jira Start Date"]],this.basis,v=>{this.basis=v;this.draw()});jiraSelect(controls,"생성할 To-Do 상태",this.plugin.getTodoWorkflow().filter(s=>s.enabled).map(s=>[s.key,s.label]),this.todoState,v=>this.todoState=v);
+  drawSchedule(){const options=this.body.createEl("details",{cls:"snm-jira-schedule-options"});options.open=Boolean(this.scheduleOptionsOpen);options.addEventListener("toggle",()=>this.scheduleOptionsOpen=options.open);const stateLabel=this.plugin.getTodoWorkflow().find(s=>s.key===this.todoState)?.label||this.todoState;options.createEl("summary",{text:`생성 옵션 · ${this.basis==="start"?this.startLabel():"Due Date"} → 완료 예정일 · ${stateLabel}`});const controls=options.createDiv({cls:"snm-jira-filters"});controls.createEl("p",{cls:"snm-jira-note",text:"원하는 업무를 아래 목록에서 체크하세요. 날짜만 있으면 생성 당시 시간을 넣고, 날짜가 없으면 미지정으로 만듭니다. Jira 원본은 바꾸지 않습니다."});
+    jiraSelect(controls,"일정 업무 범위",this.issueOptions("메인·하위 업무 모두"),this.scope,value=>{this.scope=value;this.selected.clear();this.draw()});
+    jiraSelect(controls,"완료 예정일 기준",[["due","Jira Due Date"],["start",this.startLabel()]],this.basis,v=>{this.basis=v;this.draw()});jiraSelect(controls,"생성할 To-Do 상태",this.plugin.getTodoWorkflow().filter(s=>s.enabled).map(s=>[s.key,s.label]),this.todoState,v=>{this.todoState=v;this.draw()});
     jiraCheck(controls,"Jira 완료 업무도 표시",Boolean(this.includeDone),v=>{this.includeDone=v;this.selected.clear();this.draw()});
     const rows=this.bundle.issues.filter(i=>i.id!==this.bundle.root.id&&(!this.scope||i.key===this.scope||i.parent===this.scope)&&(this.includeDone||!i.done));const scroll=this.body.createDiv({cls:"snm-jira-table-wrap"}),table=scroll.createEl("table",{cls:"snm-jira-table"}),head=table.createEl("thead").createEl("tr");const allCell=head.createEl("th");const all=jiraCheck(allCell,"전체 선택",rows.length>0&&rows.every(i=>this.selected.has(i.id)),checked=>{this.selected=new Set(checked?rows.map(i=>i.id):[]);this.draw()});all.disabled=!this.scheduleReady||this.bundle.stale;
-    for(const text of ["이슈 / Activity","PIC","Start","Due","Jira 상태"])head.createEl("th",{text});const tbody=table.createEl("tbody");for(const issue of rows){const tr=tbody.createEl("tr");const check=jiraCheck(tr.createEl("td"),issue.key,this.selected.has(issue.id),checked=>{checked?this.selected.add(issue.id):this.selected.delete(issue.id);this.drawScheduleFooter(rows)});check.disabled=!this.scheduleReady||this.bundle.stale;tr.createEl("td",{text:issue.title});tr.createEl("td",{text:issue.pic||"미지정"});tr.createEl("td",{text:issue.start||"미지정"});tr.createEl("td",{text:issue.due||"미지정"});tr.createEl("td",{text:issue.status});}
+    for(const text of ["이슈 / Activity","담당자","보고자",this.startLabel(),"Due Date","Jira 상태"])head.createEl("th",{text});const tbody=table.createEl("tbody");for(const issue of rows){const tr=tbody.createEl("tr");const check=jiraCheck(tr.createEl("td"),issue.key,this.selected.has(issue.id),checked=>{checked?this.selected.add(issue.id):this.selected.delete(issue.id);this.drawScheduleFooter(rows)});check.disabled=!this.scheduleReady||this.bundle.stale;tr.createEl("td",{text:issue.title});tr.createEl("td",{text:issue.pic||"미지정"});tr.createEl("td",{text:issue.reporter||"미지정"});tr.createEl("td",{text:jiraStartText(issue)});tr.createEl("td",{text:issue.due||"미지정"});tr.createEl("td",{text:issue.status});}
     if(!rows.length)this.body.createDiv({cls:"snm-jira-empty",text:"표시할 하위 업무가 없습니다. 완료 업무 또는 이슈 범위를 확인하세요."});this.drawScheduleFooter(rows);
   }
   drawScheduleFooter(rows){this.scheduleActions?.remove();this.scheduleActions=this.footer.createDiv({cls:"snm-jira-actions snm-jira-primary-action"});this.scheduleActions.createSpan({text:`선택 ${rows.filter(i=>this.selected.has(i.id)).length}개`});const create=jiraButton(this.scheduleActions,"선택 일정 → To-Do 생성",()=>this.action(async()=>{const selected=rows.filter(i=>this.selected.has(i.id));if(!selected.length)throw Error("일정을 선택해 주세요.");const result=await this.manager.createTodos(this.ticket,selected,this.todoState,this.basis);this.selected.clear();this.status.setText(`${result.created}건 생성 · 이미 연결된 ${result.skipped}건 제외 · Jira 원본 변경 없음`);this.draw()}),"mod-cta");create.disabled=!this.scheduleReady||this.bundle.stale||!rows.some(i=>this.selected.has(i.id));}
-  onClose(){this.closed=true;this.picker?.dispose();this.pendingLoad=null;this.manager.views?.delete(this);this.manager.listeners.delete(this.listener);this.clearRenderers();this.contentEl.empty();}
+  onClose(){this.closed=true;this.picker?.dispose();this.historyPanel?.dispose();this.schedulePanel?.dispose();this.pendingLoad=null;this.manager.views?.delete(this);this.manager.listeners.delete(this.listener);this.clearRenderers();this.contentEl.empty();}
 }

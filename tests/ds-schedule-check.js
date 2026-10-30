@@ -106,7 +106,7 @@ plugin.assertTodoStatusEnabled = status => { if (!["pending", "in-progress", "wa
   plugin.searchGoogleDriveDocuments = async () => ({ DS: [{ url: "a" }, { url: "b" }] });
   await assert.rejects(plugin.loadLatestDsSchedule("CR0000000"), /취소/);
   assert(main.includes('text: "일정 생성"') && main.includes("new ScheduleSourceModal(this.app, this, ticketId).open()"));
-  assert(main.includes("new DsScheduleModal(this.app,this.plugin,this.ticket).open()"), "DS remains available through schedule source selection");
+  assert(main.includes("class TicketServicePanel") && main.includes("DsScheduleModal.mount(host,this.app,this.plugin,this.ticket)"), "DS remains available in the shared schedule source tabs without another popup");
   assert(main.includes('"aria-label": "DS 완료 예정일 기준"') && main.includes('"완료 예정일"].forEach'));
   assert(!method("loadLatestDsSchedule").includes("syncTicket("), "schedule generation does not depend on or mutate ServiceNow");
   console.log("DS schedule checks passed: XLSX tabs/cached cells/dates, activity mapping, fresh-only downloads, atomic To-Dos, state settings, review without dates, deduplication, and failure recovery.");
