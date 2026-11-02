@@ -56,7 +56,7 @@ const ROOT_FOLDER = "__SERVICENOW_ROOT_FOLDER__";
 
 // 플러그인이 관리하는 업무현황 실행 영역의 버전입니다.
 const DASHBOARD_RUNTIME_VERSION = "2.11.0";
-const DASHBOARD_LAYOUT_REVISION = "2026-10-27-optional-ai-wiki";
+const DASHBOARD_LAYOUT_REVISION = "2026-11-02-single-worklog-owner";
 const TABLE_EDITABLE_DATE_MIN_WIDTH = 190;
 const editableDateColumns = new Set(["releaseDate", "scheduledDate", "lastChecked"]);
 function tableColumnWidth(key, value) {
@@ -1060,103 +1060,12 @@ function findWorkLogSection(markdown) {
 // ================================================================
 
 function extractWorkLogs(markdown) {
-    const section =
-        findWorkLogSection(markdown);
-
-    if (!section) {
-        return [];
-    }
-
-    const entries = [];
-    let currentEntry = null;
-
-    for (
-        let index =
-            section.headingLineIndex + 1;
-        index <
-            section.sectionEndLineIndex;
-        index += 1
-    ) {
-        const line = section.lines[index];
-
-        const bulletMatch =
-            line.match(
-                /^[-*+]\s+(.+)$/
-            );
-
-        if (bulletMatch) {
-            if (currentEntry) {
-                entries.push(currentEntry);
-            }
-
-            currentEntry = {
-                raw: bulletMatch[1].trim(),
-                order: entries.length
-            };
-
-            continue;
-        }
-
-        if (
-            currentEntry
-            && line.trim()
-        ) {
-            currentEntry.raw +=
-                `\n${line.trim()}`;
-        }
-    }
-
-    if (currentEntry) {
-        entries.push(currentEntry);
-    }
-
-    return entries.map(
-        (entry, index) => {
-            const dateTimeMatch =
-                entry.raw.match(
-                    /\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?/
-                );
-
-            const dateTime =
-                dateTimeMatch?.[0] ?? "";
-
-            let text =
-                stripMarkdown(entry.raw);
-
-            let contentMarkdown =
-                entry.raw;
-
-            if (dateTime) {
-                text = text
-                    .replace(dateTime, "")
-                    .replace(
-                        /^[:\s.,-]+/,
-                        ""
-                    )
-                    .trim();
-
-                contentMarkdown =
-                    contentMarkdown
-                        .replace(
-                            dateTime,
-                            ""
-                        )
-                        .replace(
-                            /^[\s*_`~:.,]+/,
-                            ""
-                        )
-                        .trim();
-            }
-
-            return {
-                dateTime,
-                text,
-                contentMarkdown,
-                raw: entry.raw,
-                index
-            };
-        }
-    );
+    const workLogPlugin = app.plugins.getPlugin("servicenow-manage");
+    if (typeof workLogPlugin?.extractTicketWorkLogs !== "function") return [];
+    return workLogPlugin.extractTicketWorkLogs(markdown).map(entry => ({
+        ...entry,
+        text: stripMarkdown(entry.contentMarkdown)
+    }));
 }
 
 function getLatestWorkLog(workLogs) {
@@ -1181,7 +1090,7 @@ function getLatestWorkLog(workLogs) {
                 );
             }
 
-            return left.index - right.index;
+            return right.index - left.index;
         })
         .at(-1);
 }

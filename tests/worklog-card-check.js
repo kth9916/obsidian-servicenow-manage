@@ -22,7 +22,7 @@ const stripWorkLogEntryPrefix = Function(`${prefixStripperSource}; return stripW
 if (stripWorkLogEntryPrefix("2026-08-26 16:54 : - 테스트3\n- 테스트4", "2026-08-26 16:54") !== "- 테스트3\n- 테스트4") {
   throw new Error("Existing work-log first bullet is not preserved");
 }
-if (!dashboard.includes('/^[\\s*_`~:.,]+/')) throw new Error("Dashboard work-log parser still removes the first Markdown bullet");
+if (!dashboard.includes('workLogPlugin.extractTicketWorkLogs(markdown)')) throw new Error("Dashboard work-log parser must share the source-note parser");
 if (!main.includes("renderTicketWorkLogCards(sourceList, ticketId, workLogs")) throw new Error("Ticket work-log card renderer is missing");
 if (!main.includes("await mountWorkLogCards()")) throw new Error("Ticket work-log cards are not mounted");
 if (!main.includes('sourceList.dataset.cltWorklogView || "latest"')) throw new Error("Recent work-log view is not the default");

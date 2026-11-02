@@ -6,7 +6,15 @@ This is an independent community project. It is not affiliated with, endorsed by
 
 Maintainer: **thkim9916** · `thkim9916@cyberlogitec.com`
 
-## What's new in 2.18.0: optional Atlassian connection and Jira workspace
+## What's new in 2.18.1: work-log display and date correction
+
+- Keep one work-log history per section; do not duplicate it into each list mentioning a date.
+- Read dates only at record starts. Preserve legacy dated headings, undated notes and nested content without rewriting source notes.
+- Share the parser between ticket notes and the dashboard, and refuse stale or ambiguous deletion requests.
+
+See the [2.18.1 patch notes](releases/2.18.1.md) for changes and update precautions.
+
+## Previous release: 2.18.0 — optional Atlassian connection and Jira workspace
 
 Connect Jira and Confluence optionally, automatically refresh linked Jira work with ServiceNow tickets, and read comments as conversations. Import Jira schedules into local To-Dos, translate comments automatically, and make separately authorized, human-confirmed Jira changes. Existing notes and settings are preserved; Atlassian remains off for users who have not enabled it.
 
