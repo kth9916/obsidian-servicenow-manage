@@ -2349,6 +2349,18 @@ button.mod-warning:hover {
 .snm-jira-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: var(--font-ui-small); }
 .snm-jira-check > input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; }
 .snm-jira-comment { padding: 14px 16px; border: 1px solid var(--background-modifier-border); border-radius: 10px; margin-bottom: 10px; background: var(--background-primary-alt); }
+.snm-jira-thread { min-width: 0; margin-bottom: 22px; }
+.snm-jira-thread-heading { font-size: var(--font-ui-smaller); color: var(--text-muted); margin: 0 0 8px 2px; }
+.snm-jira-replies { margin-inline-start: 18px; padding-inline-start: 18px; border-inline-start: 2px solid var(--background-modifier-border); }
+.snm-jira-comment-reply { position: relative; margin-inline-start: calc(var(--snm-reply-level, 0) * 12px); background: var(--background-primary); }
+.snm-jira-comment-reply::before { content: ""; position: absolute; inset-inline-start: calc(-20px - var(--snm-reply-level, 0) * 12px); top: 26px; width: calc(18px + var(--snm-reply-level, 0) * 12px); height: 2px; background: var(--background-modifier-border); }
+.snm-jira-reply-badge { font-size: var(--font-ui-smaller); color: var(--text-accent) !important; background: var(--background-secondary); padding: 2px 7px; border-radius: 6px; }
+.snm-jira-reply-to { color: var(--text-muted); font-size: var(--font-ui-smaller); margin: 6px 0; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .snm-jira-replies { margin-inline-start: 5px; padding-inline-start: 12px; }
+  .snm-jira-comment-reply { margin-inline-start: 0; }
+  .snm-jira-comment-reply::before { inset-inline-start: -14px; width: 12px; }
+}
 .snm-jira-comment-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
 .snm-jira-comment-head > span, .snm-jira-comment > small { font-size: var(--font-ui-smaller); color: var(--text-muted); }
 .snm-jira-restricted { color: var(--text-warning) !important; background: var(--background-secondary); padding: 2px 6px; border-radius: 4px; }

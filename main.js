@@ -859,6 +859,33 @@ function jiraTimeline(bundle, serviceNowEntries = [], { includeRestricted = fals
   for (const entry of serviceNowEntries) if (entry.type === "Work Note") events.push({ source: "ServiceNow", id: entry.id || "", issueKey: "", created: entry.time || "", author: entry.author || "", text: entry.content || "", instant: jiraInstant(entry.time, true) });
   return events.sort((a,b) => (a.instant === b.instant ? `${a.source}:${a.issueKey}:${a.id}`.localeCompare(`${b.source}:${b.issueKey}:${b.id}`) : a.instant-b.instant));
 }
+function jiraCommentIdentity(event) { return JSON.stringify([event.issueKey || event.issueId || "", String(event.id)]); }
+function jiraCommentThreads(events, matches = events, sort = "desc") {
+  const nodes = new Map(), matched = new Set(matches.map(jiraCommentIdentity));
+  const instant = e => { const n=jiraInstant(e.created); return Number.isFinite(n)?n:0; };
+  const chronological = (a,b) => instant(a.event)-instant(b.event) || a.key.localeCompare(b.key);
+  for(const event of events){const key=jiraCommentIdentity(event);if(!nodes.has(key))nodes.set(key,{key,event,parent:null,children:[],set:null});}
+  const ordered=[...nodes.values()].sort(chronological);for(const node of ordered)node.set=node;
+  const find=node=>{let root=node;while(root.set!==root)root=root.set;while(node.set!==node){const next=node.set;node.set=root;node=next;}return root;};
+  // Link only within the original issue. Reject malformed cycles without hiding comments.
+  for(const node of ordered){if(!node.event.parentId)continue;
+    const parent=nodes.get(jiraCommentIdentity({...node.event,id:node.event.parentId}));
+    if(!parent){node.missingParent=true;continue;}
+    const childRoot=find(node),parentRoot=find(parent);if(childRoot===parentRoot){node.invalidParent=true;continue;}
+    node.parent=parent;parent.children.push(node);childRoot.set=parentRoot;
+  }
+  const groups=new Map();
+  for(const node of ordered){const root=find(node),key=root.missingParent?JSON.stringify([root.event.issueKey||root.event.issueId||"","missing",String(root.event.parentId)]):root.key;
+    if(!groups.has(key))groups.set(key,{key,roots:[],rows:[],matchedCount:0,latest:0,first:Infinity,missingParent:Boolean(root.missingParent),invalidParent:false});
+    const group=groups.get(key);if(!node.parent)group.roots.push(node);if(matched.has(node.key))group.matchedCount++;group.latest=Math.max(group.latest,instant(node.event));group.first=Math.min(group.first,instant(node.event));group.invalidParent ||= Boolean(node.invalidParent);
+  }
+  for(const group of groups.values()){
+    const stack=group.roots.sort(chronological).reverse().map(node=>({node,depth:group.missingParent?1:0}));
+    while(stack.length){const {node,depth}=stack.pop();group.rows.push({event:node.event,depth,parent:node.parent?.event||null,contextOnly:!matched.has(node.key)});for(let i=node.children.length-1;i>=0;i--)stack.push({node:node.children[i],depth:depth+1});}
+    delete group.roots;
+  }
+  return [...groups.values()].filter(group=>group.matchedCount).sort((a,b)=>(sort==="asc"?a.first-b.first:b.latest-a.latest)||a.key.localeCompare(b.key));
+}
 function jiraPromptHistory(bundle, entries) {
   const omitted = (bundle.comments || []).filter(jiraCommentRestricted).length;
   const tree = ["Jira 이슈 구조 (각 댓글의 출처를 구분하세요):", ...(bundle.issues || []).map(i => `- ${i.key} | ${i.type} | 상위 ${i.parent || "원본"} | ${i.title} | ${i.status} | 기한 ${i.due || "미지정"}`)];
@@ -1305,16 +1332,22 @@ class JiraWorkspaceModal extends Modal {
     const host=this.body.createDiv();this.picker=new JiraLinkPicker(host,this.plugin,this.ticket,{candidates:this.bundle?.resolutionVersion===JIRA_WORKSPACE_RESOLUTION_VERSION?this.bundle.candidates||[]:[],state:this.pickerState,onLinked:async bundle=>{this.bundle=bundle;this.scope="";this.draw()}});
   }
   matchingEvents(){const events=jiraTimeline(this.bundle,[],{includeRestricted:true}),f=this.filter;return events.filter(c=>(this.commentKeys===null||this.commentKeys.has(c.issueKey))&&(!f.from||String(c.created).slice(0,10)>=f.from)&&(!f.to||String(c.created).slice(0,10)<=f.to)&&(!f.query||`${c.text} ${c.author} ${c.issueKey}`.toLowerCase().includes(f.query.toLowerCase()))).sort((a,b)=>f.sort==="asc"?a.instant-b.instant:b.instant-a.instant);}
+  commentPage(){const matches=this.matchingEvents(),threads=jiraCommentThreads(jiraTimeline(this.bundle,[],{includeRestricted:true}),matches,this.filter.sort),pages=[[]];let size=0;
+    // Keep the existing ~50-comment render budget without detaching replies.
+    // A single larger conversation stays intact on its own page.
+    for(const thread of threads){if(size&&size+thread.rows.length>50){pages.push([]);size=0;}pages[pages.length-1].push(thread);size+=thread.rows.length;}
+    const last=pages.length-1;this.page=Math.max(0,Math.min(this.page,last));const current=pages[this.page];return {matches,threads,last,current,rows:current.flatMap(thread=>thread.rows.map(row=>row.event))};}
   drawComments(){const controls=this.body.createDiv({cls:"snm-jira-filters"}),query=controls.createEl("input",{attr:{type:"search",placeholder:"댓글·작성자·이슈 검색","aria-label":"댓글 검색"}});query.value=this.filter.query;query.addEventListener("input",()=>{this.filter.query=query.value;this.page=0;this.drawEventList()});
-    jiraSelect(controls,"시간순",[["desc","최신 순"],["asc","오래된 순"]],this.filter.sort,v=>{this.filter.sort=v;this.page=0;this.drawEventList()});
+    jiraSelect(controls,"대화 시간순",[["desc","최근 답글·댓글 순"],["asc","오래된 대화 순"]],this.filter.sort,v=>{this.filter.sort=v;this.page=0;this.drawEventList()});
     jiraSelect(controls,"표시 언어",[["original","원문"],["ko","한국어"],["en","English"]],this.filter.language,v=>{this.filter.language=v;this.drawEventList()});
     const advanced=this.body.createEl("details",{cls:"snm-jira-advanced"});advanced.createEl("summary",{text:this.filter.from||this.filter.to?`기간: ${this.filter.from||"처음"} ~ ${this.filter.to||"현재"}`:"기간 필터 (선택)"});const dates=advanced.createDiv({cls:"snm-jira-actions"});jiraDateField(dates,"시작일",this.filter.from,v=>{this.filter.from=v;this.page=0;this.drawEventList()});jiraDateField(dates,"종료일",this.filter.to,v=>{this.filter.to=v;this.page=0;this.drawEventList()});jiraButton(dates,"기간 지우기",()=>{this.filter.from="";this.filter.to="";this.page=0;this.draw()});
     this.retryTranslation=jiraButton(controls,"번역 다시 시도",()=>this.requestVisibleTranslations(true));this.translationNote=this.body.createDiv({cls:"snm-jira-translation-note",attr:{role:"status","aria-live":"polite"}});
+    this.body.createDiv({cls:"snm-jira-note",text:"원댓글 아래에 답글을 작성 순서로 표시합니다. 검색·기간 조건에 걸린 대화는 앞뒤 맥락도 함께 보여줍니다."});
     this.eventsEl=this.body.createDiv({cls:"snm-jira-events"});this.pager=this.body.createDiv({cls:"snm-jira-pager"});this.drawEventList();
   }
-  translationKey(){if(this.closed||this.tab!=="comments"||this.filter.language==="original")return "";return JSON.stringify([this.manager.connection.prefs.site,this.ticket,this.filter.language,...this.matchingEvents().slice(this.page*50,(this.page+1)*50).map(c=>[c.issueId,c.id,c.hash])]);}
+  translationKey(){if(this.closed||this.tab!=="comments"||this.filter.language==="original")return "";return JSON.stringify([this.manager.connection.prefs.site,this.ticket,this.filter.language,...this.commentPage().rows.map(c=>[c.issueId,c.id,c.hash])]);}
   requestVisibleTranslations(retry=false){
-    const key=this.translationKey(),language=this.filter.language,rows=this.matchingEvents().slice(this.page*50,(this.page+1)*50),missing=rows.filter(c=>String(c.body||"").trim()&&!c.translations?.[language]);
+    const key=this.translationKey(),language=this.filter.language,rows=this.commentPage().rows,missing=rows.filter(c=>String(c.body||"").trim()&&!c.translations?.[language]);
     if(!key){this.translationJob=null;if(this.translationNote)this.translationNote.hidden=true;if(this.retryTranslation)this.retryTranslation.disabled=true;return Promise.resolve();}
     this.translationNote.hidden=false;if(!missing.length){this.translationNote.setText(rows.length?"번역 표시 완료 · Jira 원문은 변경하지 않습니다.":"");this.retryTranslation.disabled=true;return Promise.resolve();}
     if(this.translationJob?.key===key){this.retryTranslation.disabled=true;this.translationNote.setText(`${language==="ko"?"한국어":"영어"}로 자동 번역 중… 남은 댓글 ${missing.length}개`);return this.translationJob.promise;}
@@ -1326,20 +1359,22 @@ class JiraWorkspaceModal extends Modal {
       catch(_){if(current()){this.translationFailures.add(key);if(this.translationFailures.size>24)this.translationFailures.delete(this.translationFailures.values().next().value);this.translationJob=null;this.drawEventList();}}
       finally{if(this.translationJob===job)this.translationJob=null;}})();return job.promise;
   }
-  drawEventList(){if(!this.eventsEl)return;const editor=this.composerEl,active=this.app.workspace?.activeWindow?.document?.activeElement||this.contentEl.ownerDocument?.activeElement,focused=editor?.contains(active),selection=focused&&typeof active.selectionStart==="number"?[active.selectionStart,active.selectionEnd]:null,scroll=this.body.scrollTop;editor?.remove();this.clearRenderers();this.eventsEl.empty();this.pager.empty();const all=this.matchingEvents(),last=Math.max(0,Math.ceil(all.length/50)-1);this.page=Math.min(this.page,last);const current=all.slice(this.page*50,(this.page+1)*50);let composerHost=null;
+  drawEventList(){if(!this.eventsEl)return;const editor=this.composerEl,active=this.app.workspace?.activeWindow?.document?.activeElement||this.contentEl.ownerDocument?.activeElement,focused=editor?.contains(active),selection=focused&&typeof active.selectionStart==="number"?[active.selectionStart,active.selectionEnd]:null,scroll=this.body.scrollTop;editor?.remove();this.clearRenderers();this.eventsEl.empty();this.pager.empty();const {matches,threads,last,current:conversations,rows:current}=this.commentPage();let composerHost=null;
     if(!current.length)this.eventsEl.createDiv({cls:"snm-jira-empty",text:"이 범위에 표시할 댓글이 없습니다."});
-    for(const event of current){const card=this.eventsEl.createEl("article",{cls:"snm-jira-comment",attr:{"data-issue-key":event.issueKey,"data-comment-id":event.id}});const head=card.createDiv({cls:"snm-jira-comment-head"});head.createEl("strong",{text:`${event.source}${event.issueKey?" · "+event.issueKey:""}`});head.createSpan({text:`${event.author} · ${event.created||"날짜 미확인"}`});if(jiraCommentRestricted(event))head.createSpan({cls:"snm-jira-restricted",text:"내부/제한 · 공유 전 확인"});
+    for(const thread of conversations){const host=this.eventsEl.createEl("section",{cls:"snm-jira-thread",attr:{"aria-label":`${thread.rows[0].event.issueKey} 댓글 대화`}});host.createDiv({cls:"snm-jira-thread-heading",text:`대화 · 댓글 ${thread.rows.length}개`});if(thread.missingParent)host.createDiv({cls:"snm-jira-note",text:"원댓글이 현재 불러온 자료에 없습니다. 확인 가능한 답글만 표시합니다."});if(thread.invalidParent)host.createDiv({cls:"snm-jira-note",text:"일부 댓글의 연결 정보가 올바르지 않아 확인 가능한 관계만 표시합니다."});let replies=null;
+    for(const row of thread.rows){const event=row.event;if(row.depth&&!replies)replies=host.createDiv({cls:"snm-jira-replies"});const card=(row.depth?replies:host).createEl("article",{cls:`snm-jira-comment${row.depth?" snm-jira-comment-reply":""}`,attr:{"data-issue-key":event.issueKey,"data-comment-id":event.id,"data-parent-comment-id":event.parentId||""}});if(row.depth)card.style.setProperty("--snm-reply-level",String(Math.min(row.depth-1,3)));const head=card.createDiv({cls:"snm-jira-comment-head"});if(row.depth)head.createSpan({cls:"snm-jira-reply-badge",text:"답글"});head.createEl("strong",{text:`${event.source}${event.issueKey?" · "+event.issueKey:""}`});head.createSpan({text:`${event.author} · ${event.created||"날짜 미확인"}`});if(row.parent)card.createDiv({cls:"snm-jira-reply-to",text:`↳ ${row.parent.author||"원댓글 작성자"}에게 답글`});if(row.contextOnly)card.createDiv({cls:"snm-jira-note",text:"검색·기간 조건 밖 · 대화 맥락으로 함께 표시"});if(jiraCommentRestricted(event))head.createSpan({cls:"snm-jira-restricted",text:"내부/제한 · 공유 전 확인"});
       const issue=this.bundle.issues.find(i=>i.key===event.issueKey);if(issue)card.createDiv({cls:"snm-jira-note",text:`${issue.title} · 담당자 ${issue.pic||"미지정"}`});
-      if(event.updated&&event.updated!==event.created)card.createEl("small",{text:`수정 ${event.updated}`});if(event.parentId)card.createEl("small",{text:`상위 댓글 ${event.parentId}`});
+      if(event.updated&&event.updated!==event.created)card.createEl("small",{text:`수정 ${event.updated}`});
       const translated=this.filter.language!=="original"&&event.translations?.[this.filter.language];this.markdown(card,translated||event.text);if(this.filter.language!=="original"&&!translated&&event.text.trim())card.createEl("small",{text:"번역 준비 중 · 우선 원문 표시"});
       if(translated){const details=card.createEl("details");details.createEl("summary",{text:"원문 보기"});this.markdown(details,event.text)}
       const actions=card.createDiv({cls:"snm-jira-actions"});jiraButton(actions,"댓글 달기",()=>this.openComposer(event));if(event.url)jiraButton(actions,"원본 댓글",()=>void shell.openExternal(event.url));jiraButton(actions,"내용 복사",()=>{const copy=()=>navigator.clipboard.writeText(translated||event.text);if(jiraCommentRestricted(event))new ConfirmActionModal(this.app,"제한 댓글 복사","이 댓글은 내부 또는 제한 자료입니다. 공유할 수 있는 범위인지 확인했나요?",copy,"확인 · 복사").open();else void copy()});
       if(this.composing&&this.replyContext?.commentId===event.id&&this.replyContext.issueKey===event.issueKey)composerHost=card;
     }
+    }
     const keys=new Set(current.map(c=>c.issueKey));const assets=(this.bundle.assets||[]).filter(a=>keys.has(a.issueKey));if(assets.length){const gallery=this.eventsEl.createEl("details",{cls:"snm-jira-gallery"});gallery.createEl("summary",{text:`이슈 이미지 ${assets.length}개 · 댓글 내 위치가 없으면 여기서 확인`});const grid=gallery.createDiv();for(const a of assets){const file=this.app.vault.getAbstractFileByPath(a.localPath);if(!file)continue;const figure=grid.createEl("figure");figure.createEl("img",{attr:{src:this.app.vault.getResourcePath(file),alt:a.filename,loading:"lazy"}});figure.createEl("figcaption",{text:`${a.issueKey} · ${a.filename}`});}}
     const target=this.commentKeys?.size===1?this.bundle.issues.find(i=>this.commentKeys.has(i.key)):this.bundle.root;if(target){const start=this.eventsEl.createDiv({cls:"snm-jira-thread-start"});jiraButton(start,`${target.key}에 새 댓글`,()=>this.openComposer({issueKey:target.key}));}
     if(this.composing){if(!this.bundle.issues.some(i=>i.key===this.draftTarget)){this.composing=false;this.composerEl=null;}else{if(!composerHost){composerHost=this.eventsEl.createDiv({cls:"snm-jira-held-composer"});if(this.replyContext?.commentId)composerHost.createDiv({cls:"snm-jira-note",text:"원댓글은 현재 표시 범위 밖에 있습니다. 작성 대상과 입력 내용은 그대로 유지됩니다."});}this.drawComposer(composerHost);}}
-    const before=jiraButton(this.pager,"이전",()=>{this.page--;this.drawEventList()});before.disabled=this.page===0;this.pager.createSpan({text:`${all.length}개 · ${this.page+1} / ${last+1}`});const next=jiraButton(this.pager,"다음",()=>{this.page++;this.drawEventList()});next.disabled=this.page===last;
+    const before=jiraButton(this.pager,"이전",()=>{this.page--;this.drawEventList()});before.disabled=this.page===0;this.pager.createSpan({text:`댓글 ${matches.length}개 · 대화 ${threads.length}개 · ${this.page+1} / ${last+1}`});const next=jiraButton(this.pager,"다음",()=>{this.page++;this.drawEventList()});next.disabled=this.page===last;
     this.body.scrollTop=scroll;if(focused&&active?.isConnected){active.focus({preventScroll:true});if(selection)active.setSelectionRange(...selection);}void this.requestVisibleTranslations();
   }
   openComposer(event){const issue=this.bundle.issues.find(i=>i.key===event.issueKey);if(!issue)return;const source=event.id?this.bundle.comments.find(c=>c.id===event.id&&c.issueId===issue.id):null;if(event.id&&!source){this.status.setText("원댓글을 다시 불러와 주세요.");return;}
