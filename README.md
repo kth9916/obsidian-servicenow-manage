@@ -6,7 +6,11 @@ This is an independent community project. It is not affiliated with, endorsed by
 
 Maintainer: **thkim9916** · `thkim9916@cyberlogitec.com`
 
-## Unreleased: optional Atlassian connection and Jira workspace
+## What's new in 2.18.0: optional Atlassian connection and Jira workspace
+
+Connect Jira and Confluence optionally, automatically refresh linked Jira work with ServiceNow tickets, and read comments as conversations. Import Jira schedules into local To-Dos, translate comments automatically, and make separately authorized, human-confirmed Jira changes. Existing notes and settings are preserved; Atlassian remains off for users who have not enabled it.
+
+See the [full 2.18.0 release notes](releases/2.18.0.md) for features, fixes, upgrade steps and authorization limits.
 
 Settings now offers an optional **Jira · Confluence** connection, disabled by default. Enable it, choose **Connect Atlassian account**, and complete company-account login and read-access approval in the browser. Select an accessible site if more than one is available, then run **Connection test**. No API token or OAuth JSON needs to be pasted into the plugin. Company app policies can still require administrator approval.
 
@@ -32,7 +36,7 @@ No Jira-only ticket registration or Confluence publication is added. Live compan
 
 The automatic Jira test searches only issues updated in the last 30 days, then reads one result. A result limit alone is not a search bound: the Jira service rejects unbounded JQL. If there is no recent issue, specify an accessible issue in **Test a specific issue/page**; direct issue tests do not require recent updates. Query rejection is shown separately from account/permission errors, with a sanitized explanation instead of raw server details.
 
-## What's new in 2.17.0
+## Previous release: 2.17.0
 
 - Optional AI Wiki under the configured work root, with standardized work records, ticket-summary links, metadata checks and a five-step connection helper.
 - Compact cards or a saved spreadsheet-style table, shared search/filter/pagination, and a read-only detail popup before opening a Wiki note.
