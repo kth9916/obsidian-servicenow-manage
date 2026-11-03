@@ -1,0 +1,48 @@
+const fs=require('fs'),path=require('path'),assert=require('assert');
+const template=fs.readFileSync(path.join(__dirname,'jira-workspace-check.js'),'utf8');
+const {fixture,api,ticket,context}=new Function('require','__dirname',template.slice(0,template.indexOf('(async()=>{'))+';return {fixture,api,ticket,context};')(require,__dirname);
+let checks=0;const check=(value,message)=>{checks++;assert(value,message)};
+const text=value=>({nodeType:3,nodeValue:value});
+const el=(tag,attrs={},...children)=>({nodeType:1,tagName:tag.toUpperCase(),childNodes:children,getAttribute:name=>attrs[name]||null,get textContent(){return children.map(c=>c.nodeValue||c.textContent||'').join('')}});
+// DOMParser itself is browser-owned. These controlled nodes test the real visitor;
+// the native parser/Markdown renderer is also exercised in browser UI checks.
+let tree;context.DOMParser=class{parseFromString(){return {body:tree}}};
+const assets=[{id:'111',filename:'example-screen.png',localPath:'Work/Tickets/CR0000000/assets/Jira/EXAMPLE-3/111-example-screen.png'}];
+const embed=`![[${assets[0].localPath}]]`;
+const media=(attrs={},...children)=>el('div',{'data-type':'media','data-media-type':'file','data-id':'example-media-uuid','data-alt':'example-screen.png',...attrs},...children);
+const render=(node,available=assets)=>{tree=el('body',{},node);return api.jiraMarkdown('<div>fixture</div>',available)};
+const fixtureNode=el('div',{},el('p',{},text('Before image')),el('figure',{'data-type':'media-single'},media()),el('p',{},text('After image')));
+const result=render(fixtureNode);
+check(result.includes(embed)&&result.indexOf('Before image')<result.indexOf(embed)&&result.indexOf(embed)<result.indexOf('After image'),'Rovo HTML media div stays in its original comment position');
+check(result.includes('Before image\n\n'+embed+'\n\nAfter image'),'image is a separate Markdown block, not on the following text line');
+check(render(media({},el('img',{src:'https://example.atlassian.net/rest/api/3/attachment/content/111',alt:'example-screen.png'}))).split(embed).length===2,'media wrapper plus nested img renders only once');
+check(render(el('span',{'data-type':'media-inline','data-alt':'example-screen.png'})).includes(embed),'inline media span uses the same safe local attachment');
+check(render(el('img',{'data-file-id':'111'})).includes(embed),'legacy img ID remains supported');
+check(render(el('img',{src:'https://example.atlassian.net/rest/api/3/attachment/content/111'})).includes(embed),'legacy img attachment URL remains supported');
+check(render(media({'data-alt':'unknown.png'})).includes('첨부 이미지:')&&!render(media({'data-alt':'unknown.png'})).includes('![['),'missing attachment remains explicit, never silently disappears');
+check(!render(media(),[...assets,{...assets[0],id:'222',localPath:'Work/another.png'}]).includes('![['),'duplicate filenames cannot pick an arbitrary attachment');
+check(render(media({'data-id':'111'}),[...assets,{...assets[0],id:'222',localPath:'Work/another.png'}]).includes(embed),'exact attachment ID wins over filename ambiguity');
+check(!render(media(),[{...assets[0],localPath:''}]).includes('![['),'undownloaded media cannot embed a missing or remote file');
+check(!render(el('script',{},media())).includes('![[')&&!render(el('svg',{},media())).includes('![['),'active containers remain blocked before media traversal');
+check(!render(el('img',{src:'https://untrusted.test/track.png',alt:'unrelated'})).includes('https://untrusted.test'),'unknown remote images never load');
+check(!api.jiraMarkdown('![[Private/Secret.md]]',assets).includes('![['),'remote bodies cannot embed arbitrary Vault files');
+check(api.jiraMarkdown(result,assets)===result,'second rendering/archive pass preserves one local embed');
+const adf={type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Before image'}]},{type:'mediaSingle',content:[{type:'media',attrs:{id:'example-media-uuid',alt:'example-screen.png'}}]},{type:'paragraph',content:[{type:'text',text:'After image'}]}]};
+check(api.jiraMarkdown(adf,assets)===result,'ADF and rich HTML resolve the same positioned image');
+(async()=>{
+ const f=fixture(),read=f.connection.readTool;let downloads=0;
+ f.connection.readTool=async(name,args)=>{if(name==='downloadJiraIssueAttachment')downloads++;const values=await read(name,args);if(name==='listJiraIssueComments'&&args.issueIdOrKey==='EXAMPLE-3'&&args.startAt===0)for(const v of values)for(const c of v.comments)c.body='<div>fixture</div>';return values;};
+ f.issues.get('EXAMPLE-3').fields.attachment[0].filename='example-screen.png';tree=el('body',{},fixtureNode);
+ let bundle=await f.manager.sync(ticket,{force:true});const comment=bundle.comments.find(c=>c.issueKey==='EXAMPLE-3'&&c.id==='1');
+ check(comment.body.includes(embed)&&bundle.assets.length===1&&downloads===1,'full sync downloads attachment and normalizes comment with issue-scoped assets');
+ check(f.files.get(bundle.notePath).includes(embed),'local comment archive preserves inline position');
+ const original=comment.body;let sent='';f.plugin.translateTextForExport=async input=>{sent=input;return '번역: '+input};
+ await f.manager.translate(ticket,[comment],'ko');bundle=await f.manager.read(ticket);const translated=bundle.comments.find(c=>c.id===comment.id&&c.issueId===comment.issueId);
+ check(!sent.includes(assets[0].localPath)&&sent.includes('SNMJIRAMEDIA'),'translation provider gets opaque position markers, not local file paths');
+ check(translated.translations.ko.includes(embed)&&translated.translations.ko.indexOf(embed)<translated.translations.ko.indexOf('After image'),'translated comment restores image at the same position');
+ check(translated.body===original&&f.writes.length===0,'translation leaves original comment and Jira unchanged');
+ for(const mode of ['missing','duplicate']){f.plugin.translateTextForExport=async input=>mode==='missing'?input.replace(/SNMJIRAMEDIA\w+END/g,''):input+input;await assert.rejects(()=>f.manager.translate(ticket,[comment],'en'),/이미지 위치/);const saved=await f.manager.read(ticket);check(!saved.comments.find(c=>c.id===comment.id&&c.issueId===comment.issueId).translations.en,'invalid media markers cannot be cached as a successful '+mode+' translation');}
+ tree=el('body',{},fixtureNode);await f.manager.sync(ticket,{force:true});check(downloads===1,'next refresh reuses verified local attachment instead of downloading again');
+ const missing=fixture();missing.issues.get('EXAMPLE-3').fields.attachment[0].filename='example-screen.png';missing.manager.fetchImage=async()=>{throw Error('download failed')};const missingRead=missing.connection.readTool;missing.connection.readTool=async(name,args)=>{const values=await missingRead(name,args);if(name==='listJiraIssueComments'&&args.issueIdOrKey==='EXAMPLE-3'&&args.startAt===0)for(const v of values)for(const c of v.comments)c.body='<div>fixture</div>';return values;};tree=el('body',{},fixtureNode);const partial=await missing.manager.sync(ticket,{force:true});check(partial.warnings.some(w=>w.includes('이미지'))&&partial.comments.find(c=>c.issueKey==='EXAMPLE-3'&&c.id==='1').body.includes('첨부 이미지:'),'download failure leaves comments readable and a visible image warning');
+ console.log('PASS Jira inline images: '+checks+' checks; rich HTML/ADF position, safe issue-scoped resolution, no duplicates, sync/archive, translation markers, cached downloads and visible failures. All Jira calls mocked.');
+})().catch(error=>{console.error(error);process.exit(1)});

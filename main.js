@@ -826,8 +826,12 @@ function jiraSafeLink(value) {
 }
 function jiraMarkdown(body, assets = []) {
   const image = (id, name, url) => {
-    const matches = assets.filter(a => a.localPath && (a.id === String(id || "") || a.filename === name || (url && String(url).includes(`/attachment/content/${a.id}`))));
-    return matches.length === 1 ? `\n![[${matches[0].localPath}]]\n` : "\n[첨부 이미지: 이슈의 이미지 목록에서 확인]\n";
+    // Media Services UUIDs differ from attachment IDs. Use an exact ID/URL first,
+    // then an unambiguous filename within this issue; never guess by list order.
+    const available = assets.filter(a => a.localPath);
+    const exact = available.filter(a => a.id === String(id || "") || (url && String(url).includes(`/attachment/content/${a.id}`)));
+    const matches = exact.length ? exact : available.filter(a => name && a.filename === name);
+    return matches.length === 1 ? `\n\n![[${matches[0].localPath}]]\n\n` : "\n\n[첨부 이미지: 이슈의 이미지 목록에서 확인]\n\n";
   };
   const adf = node => {
     if (!node || typeof node !== "object") return "";
@@ -854,8 +858,14 @@ function jiraMarkdown(body, assets = []) {
           if (node.nodeType === 3) return node.nodeValue || "";
           const tag = String(node.tagName || "").toLowerCase();
           if (["script","style","iframe","object","embed","link","form","input","button","svg"].includes(tag)) return "";
+          // Rovo rich HTML uses <div data-type="media" data-id="UUID"
+          // data-alt="filename.png">, not necessarily an <img src="...">.
+          const mediaType = node.getAttribute?.("data-type");
+          if (tag === "img" || tag === "media" || ["media","media-inline","mediaInline"].includes(mediaType)) return image(
+            node.getAttribute("data-file-id") || node.getAttribute("data-id") || node.getAttribute("id"),
+            node.getAttribute("data-file-name") || node.getAttribute("data-alt") || node.getAttribute("alt"),
+            node.getAttribute("src") || node.getAttribute("data-url"));
           const inner = [...node.childNodes].map(visit).join("");
-          if (tag === "img" || tag === "media") return image(node.getAttribute("data-file-id") || node.getAttribute("id"), node.getAttribute("data-file-name") || node.getAttribute("alt"), node.getAttribute("src"));
           if (tag === "a") { const url = jiraSafeLink(node.getAttribute("href")); return url ? `[${inner || url}](${url})` : inner; }
           if (["strong","b"].includes(tag)) return `**${inner}**`;
           if (["em","i"].includes(tag)) return `*${inner}*`;
@@ -1128,7 +1138,10 @@ class JiraTicketWorkspace {
       const key=JSON.stringify([identity,source.issueId,source.id,source.hash,language]);let job=this.translationJobs.get(key);
       if(!job){job=this.translationTail.catch(()=>{}).then(async()=>{
         if(this.disposed||site!==this.connection.prefs.site)return;
-        const text=await this.plugin.translateTextForExport(source.body,language);if(!String(text||"").trim())throw Error("번역 결과가 비어 있습니다.");
+        const images=[],prefix=`SNMJIRAMEDIA${jiraHash(source.body)}X`;
+        const input=source.body.replace(/!\[\[([^\]]+)\]\]/g,embed=>{const token=`${prefix}${images.length}END`;images.push({token,embed});return token;});
+        let text=await this.plugin.translateTextForExport(input,language);if(!String(text||"").trim())throw Error("번역 결과가 비어 있습니다.");
+        text=String(text);for(const {token,embed} of images){if(text.split(token).length!==2)throw Error("번역 결과에서 이미지 위치를 확인하지 못했습니다. 원문으로 표시합니다.");text=text.replace(token,()=>embed);}
         const syncing=this.inflight.get(identity);if(syncing)await syncing.catch(()=>{});
         if(this.disposed||site!==this.connection.prefs.site)return;
         const bundle=await this.read(ticket),current=bundle?.comments.find(c=>c.issueId===source.issueId&&c.id===source.id&&c.hash===source.hash);
