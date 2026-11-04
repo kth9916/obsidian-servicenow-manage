@@ -7300,6 +7300,7 @@ class CltServiceNowWorkNotes extends Plugin {
 
   onunload() {
     this.atlassianSettingsUnsubscribe?.();
+    this.ticketAiPromptStates?.clear();
     this.jiraWorkspace?.dispose();
     this.atlassianConnection?.dispose();
     this.aiWikiViews?.forEach(view => view.close());
@@ -9942,7 +9943,62 @@ class CltServiceNowWorkNotes extends Plugin {
     new StatusGuideModal(this.app, this, normalized, category, status, guideKey ? guideMap[guideKey] : null).open();
   }
 
+  getTicketAiPromptState(ticketId) {
+    const normalized = normalizeTicketId(ticketId);
+    const key = JSON.stringify([this.rootTicketFile(normalized)?.path || this.rootFolder(), normalized]);
+    this.ticketAiPromptStates ||= new Map();
+    let state = this.ticketAiPromptStates.get(key);
+    if (!state) {
+      state = { key, ticketId: normalized, running: false, stage: "", prompt: "", messages: [], error: "", generatedAt: "", expanded: true, job: null };
+      this.ticketAiPromptStates.set(key, state);
+    }
+    for (const [oldKey, old] of this.ticketAiPromptStates) {
+      if (this.ticketAiPromptStates.size <= 8) break;
+      if (old !== state && !old.running && !this.views?.get(old.ticketId)?.size) this.ticketAiPromptStates.delete(oldKey);
+    }
+    return state;
+  }
+
+  startTicketAiPrompt(ticketId) {
+    const normalized = normalizeTicketId(ticketId), state = this.getTicketAiPromptState(normalized);
+    if (state.job) return state.job;
+    const isCurrent = () => this.ticketAiPromptStates?.get(state.key) === state;
+    const notify = () => {
+      if (!isCurrent()) return;
+      try { this.refreshViews(normalized); }
+      catch (error) { console.warn("[ServiceNow Manage] AI 프롬프트 화면 갱신 실패", error); }
+    };
+    state.running = true; state.error = ""; state.stage = "업무가이드 확인 중…";
+    const job = Promise.resolve().then(() => this.generateAiPromptForTicket(normalized, {
+      onProgress: stage => { if (isCurrent()) { state.stage = stage; notify(); } }
+    })).then(generated => {
+      if (!isCurrent()) return null;
+      if (typeof generated?.prompt !== "string" || !generated.prompt.trim()) throw new Error("프롬프트 생성 결과가 없습니다. 업무가이드팩과 티켓 노트를 확인해 주세요.");
+      state.prompt = generated.prompt; state.messages = generated.messages || [];
+      state.generatedAt = localIsoDateTime().replace("T", " ").slice(0, 16); state.expanded = true;
+      if (state.messages.length) new Notice(state.messages.join("\n"), 10000);
+      return generated;
+    }).catch(error => {
+      if (!isCurrent()) return null;
+      state.error = String(error.message || error);
+      console.error(`[ServiceNow Manage] ${normalized} AI 티켓 분석 프롬프트 생성 실패`, error);
+      new Notice(`AI 티켓 분석 프롬프트 생성 실패: ${state.error}`, 10000);
+      return null;
+    }).finally(() => {
+      if (state.job !== job) return;
+      state.running = false; state.stage = ""; state.job = null;
+      for (const [oldKey, old] of this.ticketAiPromptStates || []) {
+        if (this.ticketAiPromptStates.size <= 8) break;
+        if (old !== state && !old.running && !this.views?.get(old.ticketId)?.size) this.ticketAiPromptStates.delete(oldKey);
+      }
+      notify();
+    });
+    state.job = job; notify();
+    return job;
+  }
+
   renderTicketStatusControl(el, ticketId) {
+    const promptState = this.getTicketAiPromptState(ticketId);
     el.addClass("clt-sn-ticket-status");
     const ticket = this.data.tickets[ticketId];
     if (ticket?.shortDescription || ticket?.description) {
@@ -10000,6 +10056,8 @@ class CltServiceNowWorkNotes extends Plugin {
     guideButton.addEventListener("click", () => this.openCurrentStatusGuide(ticketId));
     const aiPrompt = controls.createEl("button", { text: "AI 티켓 분석 프롬프트 생성" });
     aiPrompt.hidden = !this.organizationFeatureEnabled("aiPrompt");
+    aiPrompt.disabled = promptState.running;
+    if (promptState.running) aiPrompt.setText(promptState.stage || "티켓 분석 프롬프트 생성 중…");
     const wikiButton = controls.createEl("button", { text: "AI Wiki 기록", attr: { "data-snm-ai-wiki": "ticket" } });
     wikiButton.hidden = !this.settings.aiWikiEnabled;
     wikiButton.addEventListener("click", () => this.openAiWiki(ticketId));
@@ -10044,46 +10102,35 @@ class CltServiceNowWorkNotes extends Plugin {
     jiraWorkspace.hidden = !this.atlassianConnection?.prefs.enabled;
     jiraWorkspace.addEventListener("click", () => new JiraWorkspaceModal(this.app, this, ticketId).open());
     this.observeResponsiveActions?.(controls, 200);
+    const promptStatus = el.createDiv({ cls: `clt-ai-prompt-status${promptState.error ? " is-error" : ""}`, attr: { role: "status", "aria-live": "polite" } });
+    promptStatus.hidden = !promptState.running && !promptState.error && !promptState.generatedAt;
+    promptStatus.setText(promptState.running
+      ? `${promptState.stage}${promptState.prompt ? " · 이전 생성 결과는 아래에서 확인할 수 있습니다." : ""}`
+      : promptState.error ? `생성 실패: ${promptState.error}${promptState.prompt ? " · 이전 생성 결과는 유지했습니다." : ""}`
+      : `프롬프트 생성 완료 · ${promptState.generatedAt}${promptState.messages.length ? ` · 확인 사항 ${promptState.messages.length}개` : ""}`);
     const aiPromptDetails = el.createEl("details", { cls: "clt-ai-prompt-details" });
-    aiPromptDetails.hidden = true;
+    aiPromptDetails.hidden = !promptState.prompt;
+    aiPromptDetails.open = Boolean(promptState.prompt && promptState.expanded);
+    aiPromptDetails.addEventListener("toggle", () => { if (aiPromptDetails.isConnected) promptState.expanded = aiPromptDetails.open; });
     aiPromptDetails.createEl("summary", { text: "AI 티켓 분석 프롬프트 펼치기" });
     const aiPromptToolbar = aiPromptDetails.createDiv({ cls: "clt-ai-prompt-toolbar" });
     const copyPrompt = aiPromptToolbar.createEl("button", { text: "프롬프트 복사" });
-    const aiPromptContent = aiPromptDetails.createEl("pre", { cls: "clt-ai-prompt-content" });
-    let currentPrompt = "";
+    aiPromptDetails.createEl("pre", { cls: "clt-ai-prompt-content", text: promptState.prompt });
     copyPrompt.addEventListener("click", async (event) => {
       event.preventDefault();
-      if (!currentPrompt) return;
+      if (!promptState.prompt) return;
       try {
-        await navigator.clipboard.writeText(currentPrompt);
+        await navigator.clipboard.writeText(promptState.prompt);
         new Notice(`${ticketId} AI 티켓 분석 프롬프트를 클립보드에 복사했습니다.`, 5000);
       } catch (error) {
         new Notice(`AI 프롬프트 복사 실패: ${error.message || error}`, 8000);
       }
     });
-    aiPrompt.addEventListener("click", async () => {
-      aiPrompt.disabled = true;
-      aiPrompt.setText("티켓 분석 프롬프트 생성 중…");
-      try {
-        const generated = await this.generateAiPromptForTicket(ticketId);
-        if (generated?.prompt) {
-          currentPrompt = generated.prompt;
-          aiPromptContent.setText(currentPrompt);
-          aiPromptDetails.hidden = false;
-          aiPromptDetails.open = true;
-          if (generated.messages.length) new Notice(generated.messages.join("\n"), 10000);
-        }
-      } catch (error) {
-        console.error(`[ServiceNow Manage] ${ticketId} AI 티켓 분석 프롬프트 생성 실패`, error);
-        new Notice(`AI 티켓 분석 프롬프트 생성 실패: ${error.message || error}`, 10000);
-      } finally {
-        aiPrompt.disabled = false;
-        aiPrompt.setText("AI 티켓 분석 프롬프트 생성");
-      }
-    });
+    aiPrompt.addEventListener("click", () => this.startTicketAiPrompt(ticketId));
   }
 
-  async generateAiPromptForTicket(ticketId) {
+  async generateAiPromptForTicket(ticketId, { onProgress = () => {} } = {}) {
+    onProgress("업무가이드 확인 중…");
     if (!this.organizationFeatureEnabled("aiPrompt")) {
       return new Notice("설정에서 업무가이드팩을 등록하고 업무가이드 기능을 켜세요.", 7000);
     }
@@ -10106,6 +10153,7 @@ class CltServiceNowWorkNotes extends Plugin {
     const messages = [];
     const previousTicket = this.data.tickets[normalized] || { ticketId: normalized, entries: [] };
     let ticket = previousTicket;
+    onProgress("ServiceNow 최신 정보 조회 중…");
     try {
       const fresh = await this.fetchTicket(normalized);
       const oldById = new Map((previousTicket.entries || []).map((entry) => [entry.id, entry]));
@@ -10128,6 +10176,7 @@ class CltServiceNowWorkNotes extends Plugin {
     }
 
     let documentSync = { local: {}, downloaded: [], warnings: [], failures: {}, renamedBs: "" };
+    onProgress("관련 문서 확인 중…");
     try {
       documentSync = await this.downloadTicketCltDocuments(normalized, fm);
     } catch (error) {
@@ -10138,6 +10187,7 @@ class CltServiceNowWorkNotes extends Plugin {
     }
 
     let savedImages = 0;
+    onProgress("ServiceNow 이미지 확인 중…");
     try {
       savedImages = await this.persistTicketAttachmentImages(normalized, ticket);
     } catch (error) {
@@ -10156,6 +10206,7 @@ class CltServiceNowWorkNotes extends Plugin {
       .join("\n\n");
     let jiraHistory = false;
     if (this.jiraWorkspace?.enabled()) {
+      onProgress("Jira 댓글 확인 중…");
       try {
         const jira = await this.jiraWorkspace.sync(normalized, { force: true });
         if (jira?.root) { workNotes = jiraPromptHistory(jira, ticket.entries || []); jiraHistory = true; }
@@ -10163,6 +10214,7 @@ class CltServiceNowWorkNotes extends Plugin {
       } catch (_) { messages.push("Jira 이력 최신 조회 실패 · ServiceNow 이력만 포함했습니다."); }
     }
 
+    onProgress("프롬프트 구성 중…");
     const numberLabel = category === "CR" ? "CR No" : "SR No";
     prompt = replacePromptField(prompt, numberLabel, "Short Description", normalized);
     prompt = replacePromptField(prompt, "Short Description", "Long Description", ticket.shortDescription || "");

@@ -236,6 +236,16 @@
   gap: 8px;
 }
 
+.clt-ai-prompt-status {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.clt-ai-prompt-status.is-error { color: var(--text-error); }
+
 .clt-ai-prompt-details {
   border-top: 1px dashed var(--background-modifier-border);
   margin-top: 10px;
