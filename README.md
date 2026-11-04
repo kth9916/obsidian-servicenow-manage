@@ -1,5 +1,7 @@
 # ServiceNow Manage
 
+긴 작업 일지는 원본 티켓과 업무현황 팝업에서 화면 높이의 55%(최대 560px) 안에서 스크롤됩니다. 최근/전체/정렬 버튼은 목록 밖에 유지하며, 원본 노트의 동일 내용 재렌더링을 생략하고 갱신 시 목록 스크롤 위치를 보존합니다.
+
 ServiceNow tickets, work notes, document links, status updates, work logs, and To-Do dashboards inside Obsidian.
 
 This is an independent community project. It is not affiliated with, endorsed by, or provided by ServiceNow or Obsidian.

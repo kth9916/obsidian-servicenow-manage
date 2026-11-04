@@ -1,0 +1,12 @@
+const fs=require('fs'),path=require('path'),assert=require('assert');
+const root=path.join(__dirname,'..'),main=fs.readFileSync(path.join(root,'main.js'),'utf8'),css=fs.readFileSync(path.join(root,'styles.css'),'utf8');
+const renderer=main.slice(main.indexOf('  renderTicketWorkLogCards('),main.indexOf('  async deleteTicketWorkLog('));
+assert(renderer.includes('existing?.cltWorklogSignature === signature'));
+assert(!renderer.includes('existing.remove()'));
+assert(renderer.includes('Promise.allSettled(renders)'));
+assert(renderer.includes('list.isConnected && !userScrolled'));
+assert(renderer.includes('"aria-label": "작업 일지 목록"'));
+assert(renderer.includes('const card = list.createDiv'));
+for(const rule of ['max-height: min(560px, 55vh)','overscroll-behavior: contain','scrollbar-gutter: stable','overflow-anchor: none']) assert(css.includes(rule));
+assert(css.includes('.opus-note-modal .opus-note-body:has(.opus-work-log-list)'));
+console.log('PASS bounded work-log surfaces, stable redraw, accessible scroll region and async scroll guard');

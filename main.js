@@ -9430,19 +9430,29 @@ class CltServiceNowWorkNotes extends Plugin {
 
   renderTicketWorkLogCards(sourceList, ticketId, workLogs, sourcePath = "") {
     if (!(sourceList instanceof HTMLElement)) return;
-    const existing = sourceList.previousElementSibling;
-    if (existing?.matches?.(".clt-ticket-worklog-cards")) existing.remove();
+    const previous = sourceList.previousElementSibling;
+    const existing = previous?.matches?.(".clt-ticket-worklog-cards") ? previous : null;
     sourceList.addClass("clt-ticket-worklog-source-hidden");
     const viewMode = sourceList.dataset.cltWorklogView || "latest";
     const sortDirection = sourceList.dataset.cltWorklogSort || "desc";
+    // Markdown postprocessors may run again while Obsidian scrolls. Never tear
+    // down an unchanged history (including its asynchronously rendered content).
+    const signature = JSON.stringify([sourcePath, viewMode, sortDirection, workLogs]);
+    if (existing?.cltWorklogSignature === signature) return;
+    const sameView = existing?.dataset.viewMode === viewMode && existing?.dataset.sortDirection === sortDirection;
+    const scrollTop = sameView ? existing.querySelector(".clt-worklog-scroll")?.scrollTop || 0 : 0;
     const sortedLogs = [...workLogs].sort((left, right) => {
       const compared = String(left.dateTime).localeCompare(String(right.dateTime));
       return sortDirection === "asc" ? compared : -compared;
     });
     const visibleLogs = viewMode === "latest" ? sortedLogs.slice(0, 1) : sortedLogs;
-    const container = document.createElement("div");
+    const container = existing || document.createElement("div");
+    container.replaceChildren();
+    container.cltWorklogSignature = signature;
     container.className = "clt-ticket-worklog-cards";
     container.dataset.sourcePath = sourcePath;
+    container.dataset.viewMode = viewMode;
+    container.dataset.sortDirection = sortDirection;
     const toolbar = document.createElement("div");
     toolbar.className = "clt-ticket-worklog-toolbar";
     const viewButtons = document.createElement("div");
@@ -9475,9 +9485,16 @@ class CltServiceNowWorkNotes extends Plugin {
     viewButtons.append(latestButton, allButton);
     toolbar.append(viewButtons, sortButton);
     container.appendChild(toolbar);
-    if (!visibleLogs.length) container.createDiv({ cls: "clt-ticket-worklog-empty", text: "작성된 작업 일지가 없습니다." });
+    const list = container.createDiv({ cls: "clt-worklog-scroll", attr: { tabindex: "0", role: "region", "aria-label": "작업 일지 목록" } });
+    const renders = [];
+    let userScrolled = false;
+    list.addEventListener("wheel", () => { userScrolled = true; }, { passive: true });
+    list.addEventListener("touchstart", () => { userScrolled = true; }, { passive: true });
+    list.addEventListener("keydown", () => { userScrolled = true; });
+    list.addEventListener("pointerdown", () => { userScrolled = true; });
+    if (!visibleLogs.length) list.createDiv({ cls: "clt-ticket-worklog-empty", text: "작성된 작업 일지가 없습니다." });
     for (const entry of visibleLogs) {
-      const card = container.createDiv({ cls: "clt-ticket-worklog-card" });
+      const card = list.createDiv({ cls: "clt-ticket-worklog-card" });
       const heading = card.createDiv({ cls: "clt-ticket-worklog-heading" });
       heading.createDiv({ cls: "clt-ticket-worklog-time", text: entry.dateTime || "날짜 없음" });
       const remove = heading.createEl("button", {
@@ -9502,10 +9519,14 @@ class CltServiceNowWorkNotes extends Plugin {
         ).open();
       });
       const body = card.createDiv({ cls: "clt-ticket-worklog-body markdown-rendered" });
-      if (entry.contentMarkdown) void this.renderMarkdownInto(body, entry.contentMarkdown, sourcePath);
+      if (entry.contentMarkdown) renders.push(this.renderMarkdownInto(body, entry.contentMarkdown, sourcePath));
       else body.createSpan({ cls: "clt-ticket-worklog-empty", text: "내용 없음" });
     }
-    sourceList.parentElement?.insertBefore(container, sourceList);
+    if (!existing) sourceList.parentElement?.insertBefore(container, sourceList);
+    list.scrollTop = scrollTop;
+    void Promise.allSettled(renders).then(() => {
+      if (list.isConnected && !userScrolled) list.scrollTop = scrollTop;
+    });
   }
 
   async deleteTicketWorkLog(sourcePath, entry) {

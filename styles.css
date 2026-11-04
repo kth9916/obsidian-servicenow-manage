@@ -764,6 +764,36 @@
   margin: 10px 0 22px;
 }
 
+/* One scroll surface per history, not one nested scroller per entry. Keep
+   controls outside it so recent/all/sort remain reachable on small displays. */
+.clt-worklog-scroll {
+  display: grid;
+  gap: 9px;
+  max-height: min(560px, 55vh);
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  overflow-anchor: none;
+}
+
+.clt-worklog-scroll:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+.clt-worklog-scroll .clt-ticket-worklog-card { min-width: 0; }
+.clt-worklog-scroll img { max-width: 100%; height: auto; }
+
+.opus-note-modal .opus-note-body:has(.opus-work-log-list) {
+  min-height: 0;
+  max-height: min(560px, 55vh);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  overflow-anchor: none;
+}
+
 .clt-ticket-worklog-toolbar {
   align-items: center;
   display: flex;
