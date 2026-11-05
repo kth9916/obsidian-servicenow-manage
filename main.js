@@ -4994,6 +4994,30 @@ class WorkNotesRenderChild extends MarkdownRenderChild {
   }
 }
 
+// Each Markdown fragment owns its own source-range context. The action block's
+// context is not necessarily able to resolve sibling fragments (live preview,
+// delayed postprocessing and virtualized sections). Retry on owner readiness,
+// not just on an arbitrary 120ms timer.
+class TicketWorkLogSourceRenderChild extends MarkdownRenderChild {
+  constructor(containerEl, plugin, file, ticketId, context) {
+    super(containerEl); this.plugin = plugin; this.file = file; this.ticketId = ticketId; this.context = context; this.revision = 0;
+  }
+  onload() {
+    this.root = this.containerEl.closest?.(".markdown-preview-section") || this.containerEl.closest?.(".markdown-rendered");
+    if (this.root) this.registerDomEvent(this.root, "clt-worklog-ready", () => void this.render());
+    void this.render();
+  }
+  onunload() { this.closed = true; this.revision++; }
+  async render() {
+    const revision = ++this.revision;
+    try {
+      const markdown = await this.plugin.app.vault.cachedRead(this.file);
+      if (this.closed || revision !== this.revision) return;
+      this.plugin.decorateTicketWorkLogSource(this.containerEl, this.context, markdown, extractTicketWorkLogs(markdown), this.ticketId, this.file.path);
+    } catch (_) { /* Keep the native Markdown visible if reading fails. */ }
+  }
+}
+
 class TicketWorkLogRenderChild extends MarkdownRenderChild {
   constructor(containerEl, plugin, file, ticketId, context = null) {
     super(containerEl); this.plugin = plugin; this.file = file; this.ticketId = ticketId; this.context = context; this.revision = 0;
@@ -5025,8 +5049,10 @@ class TicketWorkLogRenderChild extends MarkdownRenderChild {
       this.lastMarkdown = markdown;
       this.plugin.renderTicketWorkLogCards(this.sourceList, this.ticketId, records, this.file.path);
       this.containerEl.dataset.cltWorklogReady = "true";
-      const root = this.containerEl.closest?.(".markdown-preview-section, .markdown-rendered");
+      this.containerEl.dataset.sourcePath = this.file.path;
+      const root = this.containerEl.closest?.(".markdown-preview-section") || this.containerEl.closest?.(".markdown-rendered");
       if (this.context && root) for (const node of root.children) this.plugin.decorateTicketWorkLogSource(node, this.context, markdown, records, this.ticketId, this.file.path);
+      root?.dispatchEvent?.(new Event("clt-worklog-ready"));
     } catch (_) { if (!this.closed && revision === this.revision && !this.errorEl) this.errorEl = this.containerEl.createDiv({ cls: "clt-sn-empty", text: "작업 일지를 읽지 못했습니다. 원본 노트를 확인해 주세요." }); }
   }
 }
@@ -7183,6 +7209,7 @@ class CltServiceNowWorkNotes extends Plugin {
       const ticketId = this.rootTicketIdFromFile(file) || this.rootTicketIdFromPathStructure(file);
       if (!ticketId) return;
       if (el.closest?.(".clt-ticket-worklog-panel, .clt-ticket-worklog-cards")) return;
+      ctx.addChild(new TicketWorkLogSourceRenderChild(el, this, file, ticketId, ctx));
       const mountTodoBoards = async () => {
         const taskItems = [
           ...(el.matches?.("li.task-list-item") ? [el] : []),
@@ -9411,8 +9438,8 @@ class CltServiceNowWorkNotes extends Plugin {
       const owner = lists.find(list => { const info = ctx.getSectionInfo(list); return info && info.lineStart <= first.renderLine && info.lineEnd >= first.renderLine; });
       if (owner) this.renderTicketWorkLogCards(owner, ticketId, workLogs, sourcePath);
     }
-    const root = el.closest?.(".markdown-preview-section, .markdown-rendered");
-    if (hasPanel && ![...(root?.querySelectorAll(".clt-ticket-worklog-panel") || [])].some(panel => panel.dataset.cltWorklogReady === "true")) return;
+    const root = el.closest?.(".markdown-preview-section") || el.closest?.(".markdown-rendered");
+    if (hasPanel && ![...(root?.querySelectorAll(".clt-ticket-worklog-panel") || [])].some(panel => panel.dataset.cltWorklogReady === "true" && (!panel.dataset.sourcePath || panel.dataset.sourcePath === sourcePath))) return;
     if (!hasPanel && !root?.querySelector(".clt-ticket-worklog-cards")) return;
     for (const node of [el, ...el.children]) {
       if (node.closest?.(".clt-ticket-worklog-panel, .clt-ticket-worklog-cards") || node.querySelector?.(".clt-ticket-worklog-panel")) continue;
