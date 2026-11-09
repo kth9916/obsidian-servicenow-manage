@@ -1,8 +1,15 @@
 const fs=require('fs'),path=require('path'),assert=require('assert'),vm=require('vm');
 const template=fs.readFileSync(path.join(__dirname,'jira-workspace-check.js'),'utf8');
-const {fixture,api,ticket}=new Function('require','__dirname',template.slice(0,template.indexOf('(async()=>{'))+';return {fixture,api,ticket};')(require,__dirname);
+const {fixture,api,ticket,context:workspaceContext}=new Function('require','__dirname',template.slice(0,template.indexOf('(async()=>{'))+';return {fixture,api,ticket,context};')(require,__dirname);
 let checks=0;const check=(v,m)=>{checks++;assert(v,m)};
 (async()=>{
+ let notice,opened='';workspaceContext.ConfirmActionModal=class{constructor(...args){this.args=args;}open(){notice=this;}};workspaceContext.shell={openExternal:url=>{opened=url}};
+ const replyView=Object.create(api.JiraWorkspaceModal.prototype);replyView.app={};replyView.status={setText:text=>{replyView.message=text}};
+ replyView.openReplyNotice({url:'https://example.atlassian.net/browse/EXAMPLE-2?focusedCommentId=1'});
+ check(notice.args[2].includes('대댓글 등록을 제공하지 않습니다')&&notice.args[4]==='원본 댓글로 이동','reply immediately explains unsupported feature and offers original link');
+ check(!opened&&!replyView.composing,'opening notice does not launch browser or composer');await notice.args[3]();check(opened.endsWith('focusedCommentId=1'),'only explicit confirmation opens exact original comment');
+ notice=null;opened='';replyView.openReplyNotice({});check(!notice&&!opened&&replyView.message.includes('링크를 찾지 못했습니다'),'missing original link safely asks to refresh');
+ const workspaceSource=fs.readFileSync(path.join(__dirname,'../resources/jira-workspace.js'),'utf8');check(!workspaceSource.includes('"이 댓글에 답글"')&&workspaceSource.includes('draft.mode="new"'),'unsupported reply cannot be selected after composing');
  const f=fixture();await f.manager.sync(ticket,{force:true});
  f.connection.readTool=async(name,args)=>{check(name==='lookupJiraAccountId'&&args.maxResults===10,'bounded read-only member lookup');return [{users:[{accountId:'one',displayName:'Same Name',active:true},{accountId:'two',displayName:'Same Name',active:true},{accountId:'one',displayName:'Duplicate'},{accountId:'inactive',displayName:'Disabled',active:false}]}]};
  check((await f.manager.mentionUsers('a')).length===0,'short input does not request directory');const users=await f.manager.mentionUsers('Same');check(users.length===2&&users[0].accountId!==users[1].accountId,'same names retain distinct identities and account duplicates removed');

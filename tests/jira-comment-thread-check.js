@@ -45,7 +45,8 @@ function viewFor(rows){const f=fixture(),view=Object.create(api.JiraWorkspaceMod
  check(hasClass(cards[1],'snm-jira-comment-reply')&&cards[1].attrs['data-parent-comment-id']==='1','reply styling carries exact parent identity');
  check(cards[1].textContent.includes('Original author에게 답글')&&!cards[1].textContent.includes('상위 댓글 1'),'human-readable parent context replaces isolated numeric reference');
  check(view.pager.textContent.includes('댓글 3개 · 대화 1개'),'pager distinguishes comment count from conversation count');
- let target=null;view.openComposer=e=>target=e;elements(cards[1],e=>e.tagName==='button'&&e.text==='댓글 달기')[0].listeners.click();check(target.id==='2'&&target.issueId==='2','reply action retains clicked comment and its exact source issue');
+ let target=null;view.openReplyNotice=e=>target=e;elements(cards[1],e=>e.tagName==='button'&&e.text==='대댓글 달기')[0].listeners.click();check(target.id==='2'&&target.issueId==='2','reply notice retains clicked comment and its exact source issue');
+ target=null;view.openComposer=e=>target=e;elements(cards[1],e=>e.tagName==='button'&&e.text==='새 댓글 작성')[0].listeners.click();check(target.id==='2'&&target.issueId==='2','separate new-comment action retains source context');
  view.filter.query='Comment 2';view.drawEventList();cards=elements(view.eventsEl,e=>e.tagName==='article');check(cards.length===3&&cards[0].textContent.includes('대화 맥락'),'filtered reply retains clearly labeled conversation context');
  view.filter.from='2026-10-31';view.drawEventList();check(!elements(view.eventsEl,e=>e.tagName==='article').length,'date filters with no matching comment remain empty');
  view.filter.from='';view.filter.query='';view.commentKeys=new Set();view.drawEventList();check(!elements(view.eventsEl,e=>e.tagName==='article').length,'issue selection excludes entire conversations');
