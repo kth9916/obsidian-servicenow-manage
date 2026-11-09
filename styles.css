@@ -2424,7 +2424,7 @@ button.mod-warning:hover {
 .snm-jira-composer-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .snm-jira-composer-heading h4 { margin: 0; }
 .snm-jira-composer-target { margin: 8px 0 4px; font-weight: 600; font-size: var(--font-ui-small); overflow-wrap: anywhere; }
-.snm-jira-composer-options { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; position: sticky; bottom: 0; z-index: 2; padding: 8px 0; background: var(--background-primary); border-top: 1px solid var(--background-modifier-border); }
+.snm-jira-composer-options { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; padding: 8px 0; background: var(--background-primary); border-top: 1px solid var(--background-modifier-border); }
 .snm-jira-composer-options > label { flex: 0 1 200px; }
 .snm-jira-composer-options .snm-jira-field > select { height: 34px; }
 .snm-jira-composer-buttons { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; }
@@ -2438,6 +2438,7 @@ button.mod-warning:hover {
   .snm-jira-composer-options > label, .snm-jira-composer-buttons { flex: 1 1 100%; }
   .snm-jira-composer-buttons > button { flex: 1 1 120px; }
   .snm-jira-composer > textarea { height: 130px; min-height: 96px; }
+  .snm-jira-composer-options { position: static; }
 }
 .snm-jira-change-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr)); gap: 12px; }
 .snm-jira-panel { display: flex; flex-direction: column; gap: 10px; }
@@ -2550,3 +2551,8 @@ button.mod-warning:hover {
   .snm-jira-modal .snm-jira-status { max-height: 52px; }
   .snm-jira-modal .snm-jira-footer > button { font-size: var(--font-ui-small); }
 }
+/* Comment composer: one aligned action row, contained member picker. */
+.snm-jira-mention-list { display:flex; flex-direction:column; gap:4px; max-height:200px; overflow:auto; padding:6px; border:1px solid var(--background-modifier-border); border-radius:8px; }
+.snm-jira-mention-list[hidden] { display:none; }
+.snm-jira-mention-list button { width:100%; text-align:left; white-space:normal; height:auto; min-height:32px; justify-content:flex-start; overflow-wrap:anywhere; }
+.snm-jira-posted { border:1px solid var(--interactive-accent); border-radius:8px; padding:12px; margin-bottom:12px; }

@@ -1,5 +1,12 @@
 # ServiceNow Manage
 
+## Unreleased: Jira comment composition
+
+- Choose a reply to the selected comment or a new conversation on the same issue. Native replies are sent only when the connected server advertises a supported parent-comment parameter; unsupported connections show a clear message and never silently post a new comment instead.
+- Type `@` and at least two characters, then select a Jira member. Selected account mentions are preserved during translation and included in the reviewed outgoing rich-text body.
+- After an acknowledged submission, automatically refresh comments. A newly posted comment outside the current filter/page is shown separately; a refresh failure does not trigger another submission.
+- Actual Jira posting still requires explicit human confirmation. Automated tests use mock writes, not production comments.
+
 긴 작업 일지는 원본 티켓과 업무현황 팝업에서 화면 높이의 55%(최대 560px) 안에서 스크롤됩니다. 최근/전체/정렬 버튼은 목록 밖에 유지하며, 원본 노트의 동일 내용 재렌더링을 생략하고 갱신 시 목록 스크롤 위치를 보존합니다.
 
 작업 일지 카드 준비가 늦어져도 각 Markdown 조각의 위치 정보를 다시 확인하여 원문 목록의 중복 표시를 방지합니다. 수동 문단·To-Do·회의록은 그대로 보존하며, 원본 기록을 이동하거나 삭제하지 않습니다.

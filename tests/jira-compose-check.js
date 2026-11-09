@@ -1,0 +1,18 @@
+const fs=require('fs'),path=require('path'),assert=require('assert'),vm=require('vm');
+const template=fs.readFileSync(path.join(__dirname,'jira-workspace-check.js'),'utf8');
+const {fixture,api,ticket}=new Function('require','__dirname',template.slice(0,template.indexOf('(async()=>{'))+';return {fixture,api,ticket};')(require,__dirname);
+let checks=0;const check=(v,m)=>{checks++;assert(v,m)};
+(async()=>{
+ const f=fixture();await f.manager.sync(ticket,{force:true});
+ f.connection.readTool=async(name,args)=>{check(name==='lookupJiraAccountId'&&args.maxResults===10,'bounded read-only member lookup');return [{users:[{accountId:'one',displayName:'Same Name',active:true},{accountId:'two',displayName:'Same Name',active:true},{accountId:'one',displayName:'Duplicate'},{accountId:'inactive',displayName:'Disabled',active:false}]}]};
+ check((await f.manager.mentionUsers('a')).length===0,'short input does not request directory');const users=await f.manager.mentionUsers('Same');check(users.length===2&&users[0].accountId!==users[1].accountId,'same names retain distinct identities and account duplicates removed');
+ let done;f.manager.inflight.set(f.manager.identity(ticket),new Promise(r=>done=r));let syncs=0;f.manager.sync=async(_ticket,options)=>{check(options.force,'post-write refresh bypasses cache');syncs++;return {fresh:true}};
+ const refreshing=api.JiraTicketWorkspace.prototype.refreshAfterWrite.call(f.manager,ticket);await Promise.resolve();check(syncs===0,'wait for older pre-write read');done();check((await refreshing).fresh&&syncs===1,'new read runs after prior read completes');
+ f.manager.inflight.clear();f.manager.sync=async()=>{throw Error('offline')};check(await api.JiraTicketWorkspace.prototype.refreshAfterWrite.call(f.manager,ticket)===null,'refresh failure is not mistaken for submission failure');
+ const main=fs.readFileSync(path.join(__dirname,'../main.js'),'utf8'),block=main.slice(main.indexOf('// BEGIN ATLASSIAN CONNECTION'),main.indexOf('// END ATLASSIAN CONNECTION'));
+ const ctx=vm.createContext({URL,URLSearchParams,Buffer,setTimeout,clearTimeout,PLUGIN_ID:'test',crypto:require('crypto'),http:{},https:{},shell:{}});vm.runInContext(block+';globalThis.Connection=AtlassianRovoConnection',ctx);
+ const connection=Object.create(ctx.Connection.prototype);connection.epoch=1;connection.readTool=async()=>[];connection.accessToken=async()=>'';connection.guard=e=>{if(e!==connection.epoch)throw Error('changed')};let pages=0;
+ connection.mcp=async(_t,method,args)=>{check(method==='tools/list','schema inspection never calls write tool');pages++;return {result:args.cursor?{tools:[{name:'addOrEditJiraIssueComment',inputSchema:{properties:{parentId:{type:'string',description:'Parent comment for a reply'}}}}]}:{tools:[],nextCursor:'next'}}};
+ check((await connection.commentCapabilities()).parentField==='parentId'&&pages===2,'parent field discovered with pagination');await connection.commentCapabilities();check(pages===2,'schema cache scoped to auth epoch');connection.epoch++;connection.mcp=async()=>({result:{tools:[{name:'addOrEditJiraIssueComment',inputSchema:{properties:{commentId:{type:'string',description:'Edit existing comment'}}}}]}});check(!(await connection.commentCapabilities()).parentField,'edit ID never misidentified as reply ID');
+ console.log('PASS Jira composer: '+checks+' checks; native capability discovery, member identities, cache ordering, refresh failure separation. No live writes.');
+})().catch(e=>{console.error(e);process.exit(1)});
