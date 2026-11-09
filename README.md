@@ -1,5 +1,12 @@
 # ServiceNow Manage
 
+## Unreleased: incident tickets
+
+- Register `INC` tickets using the configured Incident table, alongside CR and SR. Incident notes participate in refresh, dashboards, work notes, To-Dos, meeting links and AI Wiki links.
+- Preserve incident-specific impact, urgency, caller, configuration item, service, hold reason and resolution information. Optional INC columns are available in the dashboard field selector without changing your selected columns.
+- Incident notes omit empty CR-only document/schedule fields. Manual fields and note content are preserved. Automatic first-registration CR document search and CR/SR SLA assumptions are not applied to incidents.
+- AI prompts use an explicit INC section when available, otherwise an incident-specific fallback. A missing INC analysis template is not replaced by a CR/SR template. Actual fields and access depend on your ServiceNow instance and account.
+
 ## Unreleased: Jira comment composition
 
 - The reply button explains the current connector limitation and offers the exact original Jira comment link. A separate new-comment button never pretends to create a threaded reply.

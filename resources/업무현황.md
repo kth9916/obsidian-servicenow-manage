@@ -327,7 +327,7 @@ const columns = [
     },
     {
         key: "id",
-        label: "CR 번호",
+        label: "티켓 번호",
         value: page => page.id,
         type: "cr",
         filterType: "text",
@@ -365,6 +365,15 @@ const columns = [
         filterType: "select",
         sortType: "text"
     },
+    ...[
+        ["incident_impact", "영향도"], ["incident_urgency", "긴급도"],
+        ["incident_caller", "신고자"], ["incident_configuration_item", "구성 항목"],
+        ["incident_business_service", "서비스"], ["incident_subcategory", "세부 분류"],
+        ["incident_hold_reason", "보류 사유"], ["incident_opened_at", "접수일"],
+        ["incident_resolved_at", "해결일"], ["incident_closed_at", "종료일"],
+        ["incident_resolution_code", "해결 코드"], ["incident_resolution_notes", "해결 내용"],
+        ["incident_resolved_by", "해결자"]
+    ].map(([key, label]) => ({ key, label: `${label} (INC)`, value: page => page[key], type: "text", filterType: "text", sortType: "text" })),
     {
         key: "shortDescription",
         label: "Short Description",
@@ -1160,7 +1169,7 @@ function extractTodos(markdown, page) {
     const todos = [];
     const rawId = String(page?.id || "").trim();
     const isGeneralNote = page?.file?.name === "To-Do" || page?.file?.name === "일반 To-Do" || rawId === "To-Do" || rawId === "일반 To-Do" || rawId === "일반";
-    const ticketId = isGeneralNote ? "" : (rawId || (/^(CR|SR)\d+$/i.test(String(page?.file?.name || "")) ? String(page.file.name) : ""));
+    const ticketId = isGeneralNote ? "" : (rawId || (/^(CR|SR|INC)\d+$/i.test(String(page?.file?.name || "")) ? String(page.file.name) : ""));
     const ticketTitle = ticketId ? String(page.file.name || page.id || "") : "티켓 없음";
 
     for (let lineIndex = section.headingLineIndex + 1; lineIndex < section.sectionEndLineIndex; lineIndex += 1) {
@@ -1669,7 +1678,7 @@ function dashboardActivityPlugin() { return app.plugins?.getPlugin?.("servicenow
 function ticketActivityInfo(item) { return dashboardActivityPlugin()?.getTicketActivity?.(String(item.page.id || item.page.file.name), item.page.status) || { kind: "active", label: "활성", reason: "" }; }
 function exactTicketActivityLookup(item, query = "") {
     const ticket = query.trim().toUpperCase();
-    if (!/^(CR|SR)\d+$/.test(ticket)) return false;
+    if (!/^(CR|SR|INC)\d+$/.test(ticket)) return false;
     const id = String(item.page.id || item.page.file.name);
     if (id.toUpperCase() === ticket) return true;
     return new RegExp(`\\b${ticket}\\b`, "i").test(dashboardActivityPlugin()?.getTicketActivitySearchText?.(id) || "");
@@ -1717,10 +1726,10 @@ const sourcePages = dv.pages('""')
         .toLowerCase()
         .startsWith(`${ROOT_FOLDER}/티켓/`.toLowerCase())
     )
-    .where(page => ["CR", "SR"].includes(
+    .where(page => ["CR", "SR", "INC"].includes(
         String(page.category ?? "").toUpperCase()
     ))
-    .where(page => /^(CR|SR)\d+$/i.test(
+    .where(page => /^(CR|SR|INC)\d+$/i.test(
         String(page.id ?? "").trim()
     ))
     .array();
@@ -4934,7 +4943,7 @@ statusRefreshButton.classList.add(
 );
 
 statusRefreshButton.title =
-    "ServiceNow에서 모든 CR/SR 원본 노트의 상태를 갱신";
+    "ServiceNow에서 모든 CR/SR/INC 원본 노트의 상태를 갱신";
 
 const searchInput = dashboardElement(
     "input",
