@@ -2,7 +2,9 @@
 
 ## Unreleased: Jira comment composition
 
-- Choose a reply to the selected comment or a new conversation on the same issue. Native replies are sent only when the connected server advertises a supported parent-comment parameter; unsupported connections show a clear message and never silently post a new comment instead.
+- The reply button explains the current connector limitation and offers the exact original Jira comment link. A separate new-comment button never pretends to create a threaded reply.
+- Edit existing comments inline: fetch the latest original, review before/after, then explicitly save to the same comment ID. Jira permissions still apply. Concurrent changes/deletion block an overwrite and keep the draft.
+- Editing preserves original media, mentions and complex formatting as protected placeholders. Keep these markers unchanged; edit those elements in Jira itself. Visibility stays unchanged, and saving refreshes the displayed comments automatically.
 - Type `@` and at least two characters, then select a Jira member. Selected account mentions are preserved during translation and included in the reviewed outgoing rich-text body.
 - After an acknowledged submission, automatically refresh comments. A newly posted comment outside the current filter/page is shown separately; a refresh failure does not trigger another submission.
 - Actual Jira posting still requires explicit human confirmation. Automated tests use mock writes, not production comments.

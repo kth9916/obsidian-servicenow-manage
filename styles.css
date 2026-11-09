@@ -2421,8 +2421,9 @@ button.mod-warning:hover {
 .snm-jira-composer, .snm-jira-panel { border: 1px solid var(--background-modifier-border); background: var(--background-primary-alt); border-radius: 10px; padding: 14px; }
 .snm-jira-composer h4, .snm-jira-panel h4 { margin: 0 0 12px; }
 .snm-jira-composer > textarea { display: block; width: 100%; height: 170px; min-height: 100px; max-height: 40dvh; resize: vertical; margin: 12px 0; font-family: var(--font-text); }
-.snm-jira-composer-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.snm-jira-composer-heading h4 { margin: 0; }
+.snm-jira-composer-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.snm-jira-composer-heading h4 { margin: 0; flex: 1 1 160px; }
+.snm-jira-composer-heading > button { flex: 0 0 auto; white-space: nowrap; }
 .snm-jira-composer-target { margin: 8px 0 4px; font-weight: 600; font-size: var(--font-ui-small); overflow-wrap: anywhere; }
 .snm-jira-composer-options { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; padding: 8px 0; background: var(--background-primary); border-top: 1px solid var(--background-modifier-border); }
 .snm-jira-composer-options > label { flex: 0 1 200px; }
