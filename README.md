@@ -1,5 +1,12 @@
 # ServiceNow Manage
 
+## Unreleased: reliable scheduled refresh
+
+- Concurrent refreshes of the same ticket wait for the same result instead of counting a busy ticket as a failure. Deferred work is reported separately.
+- Actual full-refresh failures are retried on the automation tick after 1, 5 and 15 minutes, up to three retries. Pending retries survive restart; successful refreshes clear the queue. Only existing active tickets are retried while automatic refresh is enabled and Obsidian is running.
+- Failed retries stop after the limit. A manual refresh or the next regular scheduled refresh starts a new bounded cycle. ServiceNow work notes show the current failure, retry schedule and the last five failures, including after recovery.
+- Failure to refresh Jira after a successful ServiceNow refresh is logged separately, not counted as a failed ServiceNow refresh.
+
 ## Unreleased: incident tickets
 
 - Register `INC` tickets using the configured Incident table, alongside CR and SR. Incident notes participate in refresh, dashboards, work notes, To-Dos, meeting links and AI Wiki links.

@@ -4829,12 +4829,17 @@ class WorkNotesRenderChild extends MarkdownRenderChild {
     const header = container.createDiv({ cls: "clt-sn-header" });
     const headingBlock = header.createDiv({ cls: "clt-sn-heading" });
     headingBlock.createEl("h3", { text: `${this.ticketId} ServiceNow 워킹노트` });
-    const statusText = ticket?.lastSyncedAt
-      ? `마지막 갱신: ${ticket.lastSyncedAt}`
-      : ticket?.lastError
-        ? `갱신 실패: ${ticket.lastError}`
+    const statusText = ticket?.lastError
+      ? `갱신 실패: ${ticket.lastError}${ticket.syncRetry?.nextAt ? ` · 재시도 ${ticket.syncRetry.attempt + 1}/3 예정: ${localIsoDateTime(new Date(ticket.syncRetry.nextAt))}` : ticket.syncRetry ? " · 자동 재시도 3회 종료 · 연결 확인 후 지금 갱신을 눌러 주세요." : ""}`
+      : ticket?.lastSyncedAt
+        ? `마지막 갱신: ${ticket.lastSyncedAt}`
         : "ServiceNow 연결 후 갱신할 수 있습니다.";
     headingBlock.createDiv({ cls: "clt-sn-sync-status", text: statusText });
+    if (ticket?.syncFailureHistory?.length) {
+      const history = headingBlock.createEl("details");
+      history.createEl("summary", { text: "최근 갱신 실패 이력" });
+      for (const entry of ticket.syncFailureHistory) history.createEl("div", { text: `${entry.time} · ${entry.error}` });
+    }
 
     const actions = header.createDiv({ cls: "clt-sn-actions" });
     const refresh = actions.createEl("button", { cls: "mod-cta", text: "지금 갱신" });
@@ -7187,6 +7192,8 @@ class CltServiceNowWorkNotes extends Plugin {
     this.jiraWorkspace = new JiraTicketWorkspace(this);
     this.views = new Map();
     this.syncing = new Set();
+    this.ticketSyncJobs = new Map();
+    this.syncDisposed = false;
     this.statusSyncing = new Set();
     this.dailyStatusSyncing = false;
     this.translating = new Set();
@@ -7462,6 +7469,7 @@ class CltServiceNowWorkNotes extends Plugin {
   }
 
   onunload() {
+    this.syncDisposed = true;
     this.atlassianSettingsUnsubscribe?.();
     this.ticketAiPromptStates?.clear();
     this.jiraWorkspace?.dispose();
@@ -10352,6 +10360,8 @@ class CltServiceNowWorkNotes extends Plugin {
         }
       }
       fresh.documentSearchInitialized = Boolean(previousTicket.documentSearchInitialized);
+      fresh.syncFailureHistory = previousTicket.syncFailureHistory || [];
+      fresh.syncRetry = previousTicket.syncRetry || null;
       ticket = fresh;
       this.data.tickets[normalized] = fresh;
     } catch (error) {
@@ -12178,30 +12188,44 @@ class CltServiceNowWorkNotes extends Plugin {
     const files = options.activeOnly ? this.activeRootTicketFiles(allFiles) : allFiles;
     let completed = 0;
     let failed = 0;
+    let deferred = 0;
     for (const file of files) {
       const ticketId = this.rootTicketIdFromFile(file);
       try {
         const fresh = await this.syncTicket(ticketId);
         if (fresh) completed += 1;
-        else failed += 1;
+        else if (fresh === null) failed += 1;
+        else deferred += 1;
       } catch (error) {
         failed += 1;
         console.error(`[ServiceNow Manage] ${ticketId} 전체 갱신 실패`, error);
       }
     }
     if (options.notify) {
-      new Notice(`ServiceNow 전체 갱신 완료 · 상태·기본정보·워킹노트 ${completed}건${failed ? ` · 실패 ${failed}건` : ""}`, 9000);
+      new Notice(`ServiceNow 전체 갱신 완료 · 상태·기본정보·워킹노트 ${completed}건${failed ? ` · 실패 ${failed}건` : ""}${deferred ? ` · 실행 보류 ${deferred}건` : ""}`, 9000);
     }
-    return { total: files.length, skipped: allFiles.length - files.length, completed, failed };
+    return { total: files.length, skipped: allFiles.length - files.length, completed, failed, deferred };
   }
 
   async syncTicket(ticketId, options = {}) {
     const normalized = normalizeTicketId(ticketId);
-    if (!normalized || this.syncing.has(normalized)) return;
+    if (!normalized || this.syncDisposed) return;
+    this.ticketSyncJobs ||= new Map();
+    if (this.ticketSyncJobs.has(normalized)) return this.ticketSyncJobs.get(normalized);
+    // Publish the promise before starting I/O so all callers share the actual outcome.
+    const job = Promise.resolve().then(() => this.performTicketSync(normalized, options));
+    this.ticketSyncJobs.set(normalized, job);
+    try { return await job; }
+    finally { if (this.ticketSyncJobs.get(normalized) === job) this.ticketSyncJobs.delete(normalized); }
+  }
+
+  async performTicketSync(ticketId, options = {}) {
+    const normalized = normalizeTicketId(ticketId);
+    if (!normalized || this.syncDisposed) return;
     this.syncing.add(normalized);
     const previous = this.data.tickets[normalized] || { ticketId: normalized, entries: [] };
     previous.lastAttemptAt = localIsoDateTime();
-    previous.lastError = "";
+    // Keep the failure durable until success, including saves by other concurrent tickets.
     this.data.tickets[normalized] = previous;
     this.refreshViews(normalized);
     try {
@@ -12228,6 +12252,8 @@ class CltServiceNowWorkNotes extends Plugin {
         }
       }
       fresh.documentSearchInitialized = Boolean(previous.documentSearchInitialized);
+      fresh.syncFailureHistory = previous.syncFailureHistory || [];
+      fresh.syncRetry = null;
       await this.persistTicketAttachmentImages(normalized, fresh);
       await this.persistTicketAttachmentVideos(normalized, fresh);
       await this.updateTicketMetadata(normalized, fresh, options.rootFile);
@@ -12244,13 +12270,19 @@ class CltServiceNowWorkNotes extends Plugin {
         const warningText = fresh.warnings?.length ? `\n${fresh.warnings.join("\n")}` : "";
         new Notice(`${normalized} 워킹노트 갱신 완료 · ${fresh.entries.length}건${warningText}`, 8000);
       }
-      await this.jiraWorkspace?.queueSync(normalized);
+      try { await this.jiraWorkspace?.queueSync(normalized); }
+      catch (error) { console.warn(`[ServiceNow Manage] ${normalized} ServiceNow 갱신 성공 후 Jira 갱신 실패`, error); }
       return fresh;
     } catch (error) {
       previous.lastError = error.message || String(error);
       previous.lastAttemptAt = localIsoDateTime();
+      const attempt = options.retry ? Number(previous.syncRetry?.attempt || 0) + 1 : 0;
+      const delay = [60_000, 300_000, 900_000][attempt];
+      previous.syncRetry = { attempt, nextAt: delay ? Date.now() + delay : null };
+      previous.syncFailureHistory = [{ time: previous.lastAttemptAt, error: String(previous.lastError).slice(0, 400) }, ...(previous.syncFailureHistory || [])].slice(0, 5);
       this.data.tickets[normalized] = previous;
-      await this.updateWorkNotesFrontMatter(normalized, "Failed", "");
+      try { await this.updateWorkNotesFrontMatter(normalized, "Failed", ""); }
+      catch (writeError) { console.warn("[ServiceNow Manage] 실패 상태 표시 저장 실패", writeError); }
       await this.savePluginData();
       this.refreshViews(normalized);
       if (options.notify) new Notice(`${normalized} 갱신 실패: ${previous.lastError}`, 9000);
@@ -12464,6 +12496,7 @@ class CltServiceNowWorkNotes extends Plugin {
     const today = localIsoDateTime().slice(0, 10);
     const ids = Object.keys(this.data.tickets).filter((id) => {
       if (this.getTicketActivity(id).kind !== "active") return false;
+      if (this.data.tickets[id]?.syncRetry && this.data.tickets[id]?.lastAttemptAt?.slice(0, 10) === today) return false;
       const last = this.data.tickets[id]?.lastSyncedAt || "";
       return last.slice(0, 10) < today;
     });
@@ -12473,12 +12506,12 @@ class CltServiceNowWorkNotes extends Plugin {
   async syncUninitializedTickets() {
     const ids = this.rootTicketFiles()
       .map((file) => this.rootTicketIdFromFile(file))
-      .filter((id) => id && this.getTicketActivity(id).kind === "active" && !this.data.tickets[id]?.lastSyncedAt);
+      .filter((id) => id && this.getTicketActivity(id).kind === "active" && !this.data.tickets[id]?.lastSyncedAt && !this.data.tickets[id]?.syncRetry);
     for (const id of ids) await this.syncTicket(id);
   }
 
   async runDailyStatusSyncIfDue() {
-    if (!this.settings.autoStatusSync || this.dailyStatusSyncing) return;
+    if (this.syncDisposed || !this.settings.autoStatusSync || this.dailyStatusSyncing) return;
     const now = new Date();
     const today = localIsoDate(now);
     if (this.settings.lastStatusSyncDate === today) return;
@@ -12490,18 +12523,40 @@ class CltServiceNowWorkNotes extends Plugin {
     this.dailyStatusSyncing = true;
     try {
       const result = await this.syncAllTickets({ activeOnly: true });
+      if (this.syncDisposed) return;
       this.settings.lastStatusSyncDate = today;
       await this.savePluginData();
-      new Notice(`일일 ServiceNow 활성 업무 갱신 완료 · ${result.completed}건 · 보관·휴면 제외 ${result.skipped}건${result.failed ? ` · 실패 ${result.failed}건` : ""}`, 8000);
+      new Notice(`일일 ServiceNow 활성 업무 갱신 완료 · ${result.completed}건 · 보관·휴면 제외 ${result.skipped}건${result.failed ? ` · 실패 ${result.failed}건 (실패 건만 1·5·15분 간격으로 최대 3회 재시도)` : ""}${result.deferred ? ` · 실행 보류 ${result.deferred}건` : ""}`, 8000);
     } finally {
       this.dailyStatusSyncing = false;
     }
   }
 
+  async retryFailedTickets() {
+    if (this.syncDisposed || this.retrySyncing || (!this.settings.autoSync && !this.settings.autoStatusSync)) return;
+    this.retrySyncing = true;
+    let completed = 0, failed = 0, stopped = 0;
+    try {
+      const active = new Set(this.activeRootTicketFiles().map(file => this.rootTicketIdFromFile(file)));
+      for (const id of active) {
+        if (this.syncDisposed || (!this.settings.autoSync && !this.settings.autoStatusSync)) break;
+        const ticket = this.data.tickets[id], retry = ticket?.syncRetry;
+        if (!ticket?.lastError || !retry?.nextAt || retry.nextAt > Date.now() || this.ticketSyncJobs?.has(id)) continue;
+        try {
+          if (await this.syncTicket(id, { retry: true })) completed++;
+          else { failed++; if (!this.data.tickets[id]?.syncRetry?.nextAt) stopped++; }
+        } catch (error) { failed++; console.error("[ServiceNow Manage] 재시도 결과 저장 실패", error); }
+      }
+      if (!this.syncDisposed && (completed || failed)) new Notice(`ServiceNow 실패 건 재시도 · 성공 ${completed}건 · 실패 ${failed}건${stopped ? ` · ${stopped}건 자동 재시도 종료 (워킹노트의 실패 이유 확인)` : ""}`, 8000);
+    } finally { this.retrySyncing = false; }
+  }
+
   async automationTick() {
+    if (this.syncDisposed) return;
     const activityDay = localIsoDate(new Date());
     if (this.lastTicketActivityDay !== activityDay) { this.lastTicketActivityDay = activityDay; this.notifyTicketActivityChanged(); }
     await this.runDailyStatusSyncIfDue();
+    await this.retryFailedTickets();
     if (!this.settings.autoSync || !this.settings.syncAtTopOfHour) return;
     const now = new Date();
     if (now.getMinutes() !== 0) return;
