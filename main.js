@@ -603,7 +603,10 @@ class AtlassianRovoConnection {
     const validVisibility = visibility === undefined || (visibility && !Array.isArray(visibility) && Object.keys(visibility).sort().join(",") === "type,value" && ["group", "role"].includes(visibility.type) && typeof visibility.value === "string" && visibility.value.trim().length > 0 && visibility.value.length <= 256 && !/[\r\n\x00]/.test(visibility.value));
     if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(args.issueIdOrKey || "")) throw atlassianError("confirm");
     const valid = name === "editJiraIssue"
-      ? keys === "cloudId,fields,issueIdOrKey" && Object.keys(args.fields || {}).join(",") === "duedate" && (args.fields.duedate === null || /^\d{4}-\d{2}-\d{2}$/.test(args.fields.duedate))
+      ? keys === "cloudId,fields,issueIdOrKey" && args.fields && !Array.isArray(args.fields) && Object.keys(args.fields).length > 0 && Object.entries(args.fields).every(([key,value]) => {
+        if(key === "duedate" || /^customfield_\d+$/.test(key)) { if(value === null)return true; if(typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))return false; const date=new Date(value+"T00:00:00Z");return Number.isFinite(+date)&&date.toISOString().slice(0,10)===value; }
+        return ["assignee","reporter"].includes(key) && (key === "assignee" && value === null || value && Object.keys(value).join(",") === "accountId" && typeof value.accountId === "string" && /^[\w:-]{1,128}$/.test(value.accountId));
+      })
       : name === "transitionJiraIssue"
         ? keys === "cloudId,issueIdOrKey,transitionId" && /^\d+$/.test(args.transitionId || "")
         : ["cloudId,commentBody,contentFormat,issueIdOrKey", "cloudId,commentBody,contentFormat,issueIdOrKey,jsmCommentType"].includes(commentKeys) && validVisibility && (args.commentId === undefined || typeof args.commentId === "string" && /^\d+$/.test(args.commentId)) && ["markdown","html"].includes(args.contentFormat) && typeof args.commentBody === "string" && args.commentBody.trim().length > 0 && args.commentBody.length <= 32767 && (!args.jsmCommentType || ["internalNote", "publicComment"].includes(args.jsmCommentType));
@@ -829,6 +832,15 @@ function jiraDate(value) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}(?:$|T)/.test(value)) return "";
   const day = value.slice(0,10), parsed = new Date(day + "T00:00:00Z"); return Number.isFinite(+parsed) && parsed.toISOString().slice(0,10) === day ? day : "";
 }
+function jiraValidEditFields(fields) {
+  return fields && !Array.isArray(fields) && Object.keys(fields).length>0 && Object.entries(fields).every(([key,value])=>{
+    if(key==="duedate"||/^customfield_\d+$/.test(key))return value===null||typeof value==="string"&&value.length===10&&jiraDate(value)===value;
+    if(["assignee","reporter"].includes(key))return key==="assignee"&&value===null||value&&Object.keys(value).join(",")==="accountId"&&typeof value.accountId==="string"&&/^[\w:-]{1,128}$/.test(value.accountId);
+    return false;
+  });
+}
+function jiraEditValue(value){return value&&typeof value==="object"?value.accountId||null:value??null;}
+function jiraEditChanges(snapshot,draft){const fields={};for(const key of Object.keys(snapshot.values)){const value=draft[key]??null;if(jiraEditValue(value)!==jiraEditValue(snapshot.values[key]))fields[key]=value&&["assignee","reporter"].includes(key)?{accountId:value.accountId}:value;}return fields;}
 function jiraInstant(value, serviceNow = false) {
   if (!value) return Number.POSITIVE_INFINITY;
   const source = serviceNow && !/(Z|[+-]\d{2}:?\d{2})$/.test(value) ? String(value).replace(" ","T") + "+09:00" : value;
@@ -915,7 +927,7 @@ function jiraNormalizeIssue(raw, site, startField = "Plan Start Date") {
     projectType: String(f.project?.projectTypeKey || ""),projectKey:String(f.project?.key||""),projectName:String(f.project?.name||""),description:jiraMarkdown(f.description),created:String(f.created||""),priority:String(f.priority?.name||""),attachments: Array.isArray(f.attachment) ? f.attachment.map(a => ({ id: String(a.id || ""), filename: String(a.filename || ""), size: Number(a.size || 0), mimeType: String(a.mimeType || "") })) : null };
 }
 const JIRA_WORKSPACE_RESOLUTION_VERSION=2;
-const JIRA_WORKSPACE_TABS=[["comments","Jira 댓글·작성","여러 업무 선택 · 시간순 댓글"],["timeline","업무 기록·댓글","ServiceNow / Jira 탭으로 보기"],["schedule","일정 생성","DS 문서 / Jira → To-Do"],["change","상태·마감일 바꾸기","선택한 Jira 업무 정보 변경"]];
+const JIRA_WORKSPACE_TABS=[["comments","Jira 댓글·작성","여러 업무 선택 · 시간순 댓글"],["timeline","업무 기록·댓글","ServiceNow / Jira 탭으로 보기"],["schedule","일정 생성","DS 문서 / Jira → To-Do"],["change","업무 정보 수정","담당자 · 보고자 · 상태 · 일정"]];
 function jiraStartText(issue){return issue.startReadFailed?"조회 미완료":issue.start||"미지정";}
 function jiraIssueFacts(issue,startLabel="Plan Start Date"){return `담당자 ${issue.pic||"미지정"} · 보고자 ${issue.reporter||"미지정"} · ${startLabel} ${jiraStartText(issue)}`;}
 function jiraHierarchyLabel(issue){return issue?.hierarchyKnown===false?"유형 확인 필요":issue?.level>=1?"메인 업무 · 에픽":issue?.level<0?"하위 작업":"작업";}
@@ -1170,6 +1182,33 @@ class JiraTicketWorkspace {
   async transitions(key) {
     const values=await this.connection.readTool("listJiraIssueTransitions",{cloudId:this.connection.prefs.cloudId,issueIdOrKey:jiraKey(key),expand:"transitions.fields"});return values.find(v=>Array.isArray(v.transitions))?.transitions||[];
   }
+  async editSnapshot(key) {
+    const site=this.connection.prefs.site;
+    const rows=await this.connection.readTool("getJiraIssue",{cloudId:this.connection.prefs.cloudId,issueIdOrKey:jiraKey(key),view:"full",includeEditableFields:true});
+    const raw=rows.find(v=>v.key),metadata=rows.find(v=>v.editableFields)?.editableFields||raw?.editmeta?.fields;
+    if(!raw?.id||!raw.fields||!metadata||site!==this.connection.prefs.site)throw Error("현재 값과 편집 권한을 확인하지 못했습니다. 다시 시도해 주세요.");
+    const start=this.connection.prefs.startField||"Plan Start Date",matches=Object.entries(metadata).filter(([id,f])=>id===start||f.name?.toLowerCase()===start.toLowerCase());
+    const startId=matches.length===1&&/^customfield_\d+$/.test(matches[0][0])&&["date","string"].includes(matches[0][1].schema?.inputType||matches[0][1].schema?.type)?matches[0][0]:null;
+    if(startId&&!Object.prototype.hasOwnProperty.call(raw.fields,startId)){
+      const mapped=Object.values(raw.fields.customFields||{}).filter(f=>f?.id===startId&&Object.prototype.hasOwnProperty.call(f,"value"));
+      if(mapped.length===1)raw.fields[startId]=mapped[0].value;
+    }
+    const labels={assignee:"담당자",reporter:"보고자",duedate:"기한",...(startId?{[startId]:start}:{})},values={},editable={};
+    for(const id of Object.keys(labels)){
+      // Absent fields are unknown, not an empty current value.
+      if(!Object.prototype.hasOwnProperty.call(raw.fields,id))continue;
+      const value=raw.fields[id];values[id]=["assignee","reporter"].includes(id)?value?{accountId:value.accountId,displayName:value.displayName}:null:value||null;
+      editable[id]=Boolean(metadata[id]?.operations?.includes("set"))&&(!value||!["assignee","reporter"].includes(id)||Boolean(value.accountId));
+    }
+    return {site,key,id:String(raw.id),title:raw.fields.summary,status:raw.fields.status?.name||"",values,editable,labels,metadata,startId};
+  }
+  async prepareDetails(ticket,key,snapshot,draft,transitionId){
+    if(snapshot.site!==this.connection.prefs.site||snapshot.key!==key)throw Error("업무 또는 연결이 변경됐습니다. 다시 불러와 주세요.");
+    const fields=jiraEditChanges(snapshot,draft),reviews=[];
+    if(Object.keys(fields).length)reviews.push(await this.prepareChange(ticket,key,"fields",{fields,snapshot}));
+    if(transitionId)reviews.push(await this.prepareChange(ticket,key,"status",{transitionId}));
+    if(!reviews.length)throw Error("변경된 내용이 없습니다.");return reviews;
+  }
   async mentionUsers(query) {
     if(!this.enabled())throw Error("Jira 연결을 확인해 주세요.");
     query=String(query||"").trim();if(query.length<2)return [];
@@ -1184,6 +1223,15 @@ class JiraTicketWorkspace {
     if(kind==="comment"){const body=String(payload.body||"").trim();if(!body||body.length>32767)throw Error("댓글은 1~32767자 범위로 입력해 주세요.");if(current.projectType==="service_desk"&&!["internal","public"].includes(payload.visibility))throw Error("내부 메모 또는 공개 댓글을 직접 선택해 주세요.");name="addOrEditJiraIssueComment";args={cloudId,issueIdOrKey:key,commentBody:body,contentFormat:"markdown",...(current.projectType==="service_desk"?{jsmCommentType:payload.visibility==="internal"?"internalNote":"publicComment"}:{})};after=body;}
     else if(kind==="due"){if(payload.due!=="" && !jiraDate(payload.due))throw Error("기한 날짜를 확인해 주세요.");name="editJiraIssue";args={cloudId,issueIdOrKey:key,fields:{duedate:payload.due||null}};after=payload.due||"기한 없음";}
     else if(kind==="status"){const transitions=await this.transitions(key),transition=transitions.find(t=>String(t.id)===String(payload.transitionId));if(!transition || transition.isAvailable===false || !transition.to?.id)throw Error("현재 사용할 수 없는 상태 전환입니다. 다시 확인해 주세요.");const missing=Object.entries(transition.fields||{}).filter(([_k,f])=>f.required&&!f.hasDefaultValue);if(missing.length)throw Error("이 상태 전환에는 추가 필수 입력이 필요합니다. Jira 원본 화면에서 변경해 주세요.");name="transitionJiraIssue";args={cloudId,issueIdOrKey:key,transitionId:String(transition.id)};expectedStatusId=String(transition.to.id);after=`${transition.name} → ${transition.to?.name||""}`;}
+    else if(kind==="fields"){
+      const snapshot=await this.editSnapshot(key),fields=payload.fields;
+      if(!jiraValidEditFields(fields))throw Error("지원하지 않는 입력 값입니다.");
+      for(const [id,value] of Object.entries(fields)){
+        if(!snapshot.editable[id]||snapshot.metadata[id]?.required&&value===null)throw Error(`${snapshot.labels[id]||id}: 수정 권한 또는 필수 입력을 확인해 주세요.`);
+        if(!payload.snapshot||jiraEditValue(snapshot.values[id])!==jiraEditValue(payload.snapshot.values[id]))throw Error("원본 값이 변경됐습니다. 입력을 보존했습니다. 최신 값과 비교해 주세요.");
+      }
+      name="editJiraIssue";args={cloudId,issueIdOrKey:key,fields};editContext={fields:true,before:Object.fromEntries(Object.keys(fields).map(id=>[id,jiraEditValue(snapshot.values[id])]))};after="업무 정보 변경";
+    }
     else throw Error("지원하지 않는 변경입니다.");
     if(kind==="comment"&&payload.replyTo){
       const ref=payload.replyTo;if(String(ref.issueId)!==current.id)throw Error("원댓글의 업무가 변경됐습니다. 댓글을 다시 열어 주세요.");
@@ -1215,10 +1263,15 @@ class JiraTicketWorkspace {
     this.writeBusy=true;try{
       const fresh=await this.issue(review.key);if(fresh.id!==review.current.id || review.kind==="due"&&fresh.due!==review.current.due || review.kind==="status"&&fresh.statusId!==review.current.statusId)throw Error("원본 값이 변경됐습니다. 최신 내용을 다시 검토해 주세요.");
       if(review.replyContext){const source=(await this.comments(fresh,[])).find(c=>c.id===review.replyContext.commentId);if(!source||JSON.stringify([source.visibility,source.jsdPublic,source.visibilityUnknown])!==review.replyContext.scope)throw Error("원댓글 또는 공개 범위가 변경됐습니다. 다시 확인해 주세요.");}
-      if(review.editContext){const source=(await this.comments(fresh,[],true)).find(c=>c.id===review.editContext.id);if(!source||source.editVersion!==review.editContext.version)throw Error("확인 이후 댓글이 변경되거나 삭제됐습니다. 덮어쓰지 않았습니다. 최신 댓글을 다시 확인해 주세요.");}
+      if(review.kind==="fields"){const snapshot=await this.editSnapshot(review.key);for(const [id,before] of Object.entries(review.editContext.before)){if(!snapshot.editable[id]||jiraEditValue(snapshot.values[id])!==before)throw Error("원본 값 또는 편집 권한이 변경됐습니다. 최신 내용을 다시 확인해 주세요.");}}
+      else if(review.editContext){const source=(await this.comments(fresh,[],true)).find(c=>c.id===review.editContext.id);if(!source||source.editVersion!==review.editContext.version)throw Error("확인 이후 댓글이 변경되거나 삭제됐습니다. 덮어쓰지 않았습니다. 최신 댓글을 다시 확인해 주세요.");}
       if(review.kind==="status"){const current=await this.transitions(review.key);if(!current.some(t=>String(t.id)===review.args.transitionId&&String(t.to?.id)===review.expectedStatusId&&t.isAvailable!==false&&!Object.values(t.fields||{}).some(f=>f.required&&!f.hasDefaultValue)))throw Error("상태 전환 가능 여부가 변경됐습니다.")}
       const permit=this.connection.authorizeInteractiveWrite(review.name,review.args);this.reviews.delete(review);
       let response;try{response=await this.connection.writeTool(review.name,review.args,permit);if(review.kind==="comment"){if(!response.some(v=>{const id=v.commentId||v.id||v.comment?.id;return id&&(!review.editContext||String(id)===review.editContext.id)}))throw Error("댓글 등록 응답 미확인")}else{const actual=await this.issue(review.key);if(review.kind==="due"&&actual.due!==(review.args.fields.duedate||"")||review.kind==="status"&&actual.statusId!==review.expectedStatusId)throw Error("변경 후 값 미확인");bundle.issues=bundle.issues.map(i=>i.id===actual.id?actual:i);if(bundle.root.id===actual.id)bundle.root=actual;}}catch(error){bundle.uncertainWrite={key:review.key,kind:review.kind,at:new Date().toISOString()};await this.save(bundle);throw Error("변경 결과를 확인하지 못했습니다. 중복 전송을 막기 위해 보류했습니다. Jira 원본에서 적용 여부를 먼저 확인하세요.")}
+      if(review.kind==="fields"){
+        try{const actual=await this.editSnapshot(review.key);for(const [id,value] of Object.entries(review.args.fields)){if(!Object.prototype.hasOwnProperty.call(actual.values,id)||jiraEditValue(actual.values[id])!==jiraEditValue(value))throw Error("변경 후 값 불일치");}}
+        catch(_){bundle.uncertainWrite={key:review.key,kind:review.kind,at:new Date().toISOString()};await this.save(bundle);throw Error("변경 후 값을 확인하지 못했습니다. 중복 전송하지 말고 Jira 원본을 확인해 주세요.");}
+      }
       bundle.lastWrite={key:review.key,kind:review.kind,at:new Date().toISOString()};await this.save(bundle);
       // Do not keep the confirmation dialog blocked by a full hierarchy/image refresh.
       const refresh=this.refreshAfterWrite(review.ticket);return {response,bundle,refresh};
@@ -1567,13 +1620,43 @@ class JiraWorkspaceModal extends Modal {
       const parent=review.args.parentId||review.args.parentCommentId;
       this.status.setText(posted&&parent&&posted.parentId!==parent?"댓글은 등록됐지만 Jira 답글 연결을 확인하지 못했습니다. 원본 댓글을 확인해 주세요. 중복 전송하지 않습니다.":fresh&&found?(review.editContext?"수정 완료 · 최신 목록에 반영했습니다.":"등록 완료 · 최신 목록에 반영했습니다."):"등록은 완료했습니다. 최신 목록 조회가 지연되고 있습니다. 중복 등록하지 말고 잠시 후 다시 불러와 주세요.");
     }).open()});}
-  drawChange(){const box=this.body.createDiv({cls:"snm-jira-change"});box.createEl("p",{cls:"snm-jira-note",text:"상태와 기한은 각각 확인 후 반영합니다. Jira가 현재 허용하는 상태 전환만 표시하며 추가 필수 입력이 있는 전환은 Jira 원본에서 진행합니다."});
-    if(!this.manager.connection.hasWriteAccess()){box.createDiv({cls:"snm-jira-empty",text:"현재 읽기 전용입니다. 연결 설정 → Jira 직접 변경 허용 → 편집 권한 승인 후 사용할 수 있습니다."});return;}
-    const key=this.scope;const issue=this.bundle.issues.find(i=>i.key===key);if(!issue){box.createDiv({cls:"snm-jira-empty",text:"위 ‘변경할 업무’에서 업무 하나를 선택해 주세요. 댓글 표시 필터와 별개이며 여러 업무를 한 번에 변경하지 않습니다."});return;}
-    const row=box.createDiv({cls:"snm-jira-change-grid"}),status=row.createDiv({cls:"snm-jira-panel"});status.createEl("h4",{text:"상태 변경"});status.createEl("p",{text:`현재 ${issue.status}`});const loading=status.createDiv({cls:"snm-jira-note",text:"전환 가능한 상태를 확인하는 중…"});
-    const generation=this.drawGeneration=(this.drawGeneration||0)+1;
-    void this.manager.transitions(key).then(transitions=>{if(this.closed||generation!==this.drawGeneration||!loading.isConnected)return;loading.remove();if(!transitions.length){status.createEl("p",{text:"사용 가능한 상태 전환이 없습니다."});return;}let chosen="";const select=jiraSelect(status,"변경할 상태",[["","상태 선택"],...transitions.map(t=>[String(t.id),`${t.name} → ${t.to?.name||""}${Object.values(t.fields||{}).some(f=>f.required&&!f.hasDefaultValue)?" (Jira에서 추가 입력 필요)":""}`])],"",v=>{chosen=v;confirm.disabled=!v});for(const option of select.options){const t=transitions.find(t=>String(t.id)===option.value);if(t&&(t.isAvailable===false||Object.values(t.fields||{}).some(f=>f.required&&!f.hasDefaultValue)))option.disabled=true;}const confirm=jiraButton(status,"변경 전후 확인",()=>this.review("status",key,{transitionId:chosen}),"mod-cta");confirm.disabled=true;}).catch(()=>{if(loading.isConnected)loading.setText("상태 전환 조회에 실패했습니다. 새로고침하거나 Jira 원본에서 확인하세요.")});
-    const due=row.createDiv({cls:"snm-jira-panel"});due.createEl("h4",{text:"기한 변경"});due.createEl("p",{text:`현재 ${issue.due||"미지정"}`});let date=issue.due;const input=jiraDateField(due,"새 기한",date,v=>{date=v;confirmDue.disabled=date===issue.due});jiraButton(due,"입력 지우기",()=>{date="";input.value="";confirmDue.disabled=date===issue.due});const confirmDue=jiraButton(due,"변경 전후 확인",()=>this.review("due",key,{due:date}),"mod-cta");confirmDue.disabled=true;
+  drawChange(){
+    const box=this.body.createDiv({cls:"snm-jira-change"}),key=this.scope;
+    if(!key){box.createDiv({cls:"snm-jira-empty",text:"변경할 업무를 선택하면 현재 담당자·보고자·상태·일정을 표시합니다."});return;}
+    if(!this.manager.connection.hasWriteAccess()){box.createDiv({text:"읽기 전용입니다. 연결 설정에서 Jira 직접 변경 권한을 승인해 주세요."});return;}
+    this.editDrafts||=new Map();const identity=`${this.manager.connection.prefs.site}|${key}`;
+    const note=box.createDiv({cls:"snm-jira-note",attr:{role:"status"},text:"현재 정보와 편집 권한을 불러오는 중…"});
+    const current=()=>!this.closed&&box.isConnected&&this.scope===key&&identity===`${this.manager.connection.prefs.site}|${this.scope}`;
+    void (async()=>{try{
+      let state=this.editDrafts.get(identity);
+      if(!state){const [snapshot,transitions]=await Promise.all([this.manager.editSnapshot(key),this.manager.transitions(key)]);if(!current())return;state={snapshot,draft:JSON.parse(JSON.stringify(snapshot.values)),transitions,transitionId:""};this.editDrafts.set(identity,state);}
+      if(!current())return;
+      const {snapshot,draft,transitions}=state;note.setText("저장을 누르면 Jira 원본에 반영됩니다. 변경한 항목만 보내며, 업무를 바꿔도 이 창의 미저장 입력은 유지됩니다.");
+      box.createEl("h4",{text:`${key} · ${snapshot.title}`});const grid=box.createDiv({cls:"snm-jira-edit-grid"});
+      const actions=this.footer.createDiv({cls:"snm-jira-edit-actions"});this.editActions?.remove();this.editActions=actions;
+      const summary=actions.createSpan({attr:{role:"status"}});let saving=false;
+      const update=()=>{const count=Object.keys(jiraEditChanges(snapshot,draft)).length+(state.transitionId?1:0);summary.setText(count?`미저장 변경 ${count}개`:"변경 사항 없음");save.disabled=saving||!count;};
+      const status=jiraSelect(grid,"상태",[["",snapshot.status+" (현재)"],...transitions.map(t=>[String(t.id),t.to?.name||t.name])],state.transitionId,v=>{state.transitionId=v;update()});
+      for(const option of status.options){const t=transitions.find(t=>String(t.id)===option.value);if(t&&(t.isAvailable===false||!t.to?.id||Object.values(t.fields||{}).some(f=>f.required&&!f.hasDefaultValue))){option.disabled=true;option.textContent+=" · Jira에서 추가 입력 필요";}}
+      for(const id of ["assignee","reporter"]){const field=grid.createDiv({cls:"snm-jira-edit-field"});field.createEl("label",{text:snapshot.labels[id]});const selected=field.createDiv({cls:"snm-jira-selected-person",text:draft[id]?.displayName||"미지정"});
+        if(!snapshot.editable[id]){field.createEl("small",{text:"현재 계정에서는 수정할 수 없습니다."});continue;}
+        const search=field.createEl("input",{attr:{type:"search",placeholder:"이름 검색 (두 글자 이상)","aria-label":`${snapshot.labels[id]} 검색`}}),results=field.createDiv({cls:"snm-jira-person-results"});let revision=0,timer;
+        search.addEventListener("input",()=>{clearTimeout(timer);const r=++revision,query=search.value.trim();results.empty();if(query.length<2)return;timer=setTimeout(async()=>{try{const users=await this.manager.mentionUsers(query);if(!current()||revision!==r)return;results.empty();if(!users.length)results.createDiv({text:"검색 결과 없음"});for(const user of users)jiraButton(results,`${user.displayName} · ${user.accountId.slice(-8)}`,()=>{draft[id]={...user};selected.setText(user.displayName);search.value="";revision++;results.empty();update()});}catch(_){if(current()&&revision===r)results.setText("검색에 실패했습니다. 다시 입력해 주세요.");}},300);});
+        if(!snapshot.metadata[id]?.required)jiraButton(field,"미지정으로 변경",()=>{draft[id]=null;selected.setText("미지정");update()});
+      }
+      for(const id of [snapshot.startId,"duedate"].filter(Boolean)){const input=jiraDateField(grid,snapshot.labels[id],draft[id]||"",v=>{draft[id]=v||null;update()});input.disabled=!snapshot.editable[id];}
+      if(!snapshot.startId)grid.createDiv({cls:"snm-jira-note",text:"Plan Start Date 편집 필드를 확인하지 못했습니다. 연결 설정의 시작일 필드명을 확인하세요."});
+      const reset=jiraButton(actions,"최신 값 다시 불러오기",()=>{if(saving)return;new ConfirmActionModal(this.app,"입력 초기화","이 업무의 미저장 입력을 버리고 최신 값을 불러올까요?",()=>{this.editDrafts.delete(identity);this.draw()},"다시 불러오기").open()});
+      const save=jiraButton(actions,"저장",()=>this.action(async()=>{
+        if(saving)return;saving=true;reset.disabled=true;for(const input of box.querySelectorAll("input,select,button"))input.disabled=true;update();let completed=0;
+        try{
+          const reviews=await this.manager.prepareDetails(this.ticket,key,snapshot,draft,state.transitionId);
+          for(const review of reviews){await this.manager.applyChange(review);completed++;if(review.kind==="fields")snapshot.values=JSON.parse(JSON.stringify(draft));else{snapshot.status=review.after;state.transitionId="";}}
+          this.editDrafts.delete(identity);this.bundle=await this.manager.read(this.ticket);this.draw();this.status.setText("저장 완료 · Jira의 변경 결과를 확인했습니다.");
+        }catch(error){this.status.setText(`${completed?"일부 항목은 저장되었습니다. 나머지 변경은 완료되지 않았습니다. ":"저장하지 못했거나 결과 확인이 필요합니다. "}${error.message} 입력은 유지됩니다.`);this.draw();}
+        finally{saving=false;}
+      }),"mod-cta");update();
+    }catch(error){if(current())note.setText(`편집 화면을 준비하지 못했습니다: ${error.message}`);}})();
   }
   drawSchedule(){const options=this.body.createEl("details",{cls:"snm-jira-schedule-options"});options.open=Boolean(this.scheduleOptionsOpen);options.addEventListener("toggle",()=>this.scheduleOptionsOpen=options.open);const stateLabel=this.plugin.getTodoWorkflow().find(s=>s.key===this.todoState)?.label||this.todoState;options.createEl("summary",{text:`생성 옵션 · ${this.basis==="start"?this.startLabel():"Due Date"} → 완료 예정일 · ${stateLabel}`});const controls=options.createDiv({cls:"snm-jira-filters"});controls.createEl("p",{cls:"snm-jira-note",text:"원하는 업무를 아래 목록에서 체크하세요. 날짜만 있으면 생성 당시 시간을 넣고, 날짜가 없으면 미지정으로 만듭니다. Jira 원본은 바꾸지 않습니다."});
     jiraSelect(controls,"일정 업무 범위",this.issueOptions("메인·하위 업무 모두"),this.scope,value=>{this.scope=value;this.selected.clear();this.draw()});

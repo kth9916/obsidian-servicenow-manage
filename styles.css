@@ -2557,3 +2557,14 @@ button.mod-warning:hover {
 .snm-jira-mention-list[hidden] { display:none; }
 .snm-jira-mention-list button { width:100%; text-align:left; white-space:normal; height:auto; min-height:32px; justify-content:flex-start; overflow-wrap:anywhere; }
 .snm-jira-posted { border:1px solid var(--interactive-accent); border-radius:8px; padding:12px; margin-bottom:12px; }
+/* Jira issue editor: compact aligned fields, scrollable people results, visible save. */
+.snm-jira-edit-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; max-width:960px; }
+.snm-jira-edit-grid > * { min-width:0; }
+.snm-jira-edit-grid > :first-child { grid-column:1 / -1; max-width:360px; }
+.snm-jira-edit-field { display:flex; flex-direction:column; gap:8px; }
+.snm-jira-edit-grid input,.snm-jira-edit-grid select { width:100%; min-width:0; }
+.snm-jira-selected-person { padding:8px 10px; border:1px solid var(--background-modifier-border); border-radius:6px; }
+.snm-jira-person-results { display:flex; flex-direction:column; gap:4px; max-height:180px; overflow:auto; }
+.snm-jira-person-results button { height:auto; min-height:32px; text-align:left; white-space:normal; }
+.snm-jira-edit-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-left:auto; }
+@media(max-width:650px) { .snm-jira-edit-grid { grid-template-columns:1fr; } .snm-jira-edit-actions { width:100%; } }

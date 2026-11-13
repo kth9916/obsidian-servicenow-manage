@@ -1,5 +1,11 @@
 # ServiceNow Manage
 
+## Unreleased: unified Jira issue editor
+
+- Select an issue in **업무 정보 수정** to see current assignee, reporter, available status transitions, Plan Start Date and due date. Search for people and save changed fields together. Drafts remain local to the open window and survive switching issues.
+- Edit permission and current values are read from Jira. Unavailable fields remain read-only; transitions requiring extra fields must be completed in Jira. Status and field updates are separate requests, so partial completion and unverified outcomes are reported explicitly, without automatic write retries.
+- Saving requires the existing opt-in Jira write permission. Automatic refresh remains read-only. No production Jira writes are used for automated tests.
+
 ## Unreleased: reliable scheduled refresh
 
 - Concurrent refreshes of the same ticket wait for the same result instead of counting a busy ticket as a failure. Deferred work is reported separately.
