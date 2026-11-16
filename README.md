@@ -1,5 +1,12 @@
 # ServiceNow Manage
 
+## Unreleased: local monthly translation budget
+
+- **번역 연동** settings now show a local monthly character counter, editable limit (default 400,000), and warning threshold (default 80%). This is independent of Google Cloud usage/billing and applies to ServiceNow Manage translation requests only, not other Translate commands, apps or devices.
+- Confirm the initial untracked usage once (enter 0 to count from installation onward). Each target-language request reserves its Unicode codepoint count, including whitespace, before dispatch. Cached translations do not count; failed or uncertain requests remain counted conservatively.
+- A request exceeding the remaining allowance is blocked before sending and shows a notification. Ticket synchronization and existing translations are preserved. The month resets at 00:00 Asia/Seoul on the first day, when the next usage check runs.
+- Usage and limits persist in private `translation-usage.json` beside the plugin, without translation text. Do not delete this file or its `.initialized` marker to reset usage. Corrupt/unwritable/missing initialized storage blocks translation rather than silently resetting the counter. Separate devices are not coordinated.
+
 ## 2.19.0: Jira editing, incidents and reliable refresh
 
 See the [2.19.0 patch notes](releases/2.19.0.md) for all changes since 2.18.1, connector limitations and update instructions.

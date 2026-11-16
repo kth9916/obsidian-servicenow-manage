@@ -4,6 +4,8 @@ coverage/
 .env.*
 data.json
 ticket-activity.json
+translation-usage.json
+translation-usage.json.initialized
 client_secret_*.json
 credentials*.json
 organization-pack.json

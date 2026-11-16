@@ -1671,6 +1671,84 @@ class JiraWorkspaceModal extends Modal {
 }
 // END GENERATED JIRA WORKSPACE
 const FIRST_RUN_SETUP_VERSION = 1;
+// BEGIN TRANSLATION BUDGET
+const TRANSLATION_BUDGET_ZONE = "Asia/Seoul";
+function translationBudgetMonth(now = new Date()) {
+  const parts=new Intl.DateTimeFormat("en-US",{timeZone:TRANSLATION_BUDGET_ZONE,year:"numeric",month:"2-digit"}).formatToParts(now);
+  return `${parts.find(p=>p.type==="year").value}-${parts.find(p=>p.type==="month").value}`;
+}
+function translationCharacterCount(text) { return Array.from(String(text)).length; }
+function translationBudgetError(message) { return Object.assign(new Error(message),{translationBudgetBlocked:true}); }
+class TranslationBudget {
+  constructor(plugin,now=()=>new Date(),notice=message=>new Notice(message,9000)) {
+    this.plugin=plugin;this.now=now;this.notice=notice;this.tail=Promise.resolve();this.notices=new Map();
+    this.adapter=plugin.app.vault.adapter;
+    this.file=`${plugin.manifest.dir||plugin.app.vault.configDir+"/plugins/"+PLUGIN_ID}/translation-usage.json`;
+    this.marker=this.file+".initialized";
+  }
+  notify(key,message){const time=+this.now();if(!this.notices.has(key)||time-this.notices.get(key)>60000){this.notices.set(key,time);this.notice(message);}}
+  validate(s){return s&&s.version===1&&/^\d{4}-(0[1-9]|1[0-2])$/.test(s.month)&&Number.isSafeInteger(s.limit)&&s.limit>0&&s.limit<=1e9&&Number.isInteger(s.warningPercent)&&s.warningPercent>=1&&s.warningPercent<=100&&Number.isSafeInteger(s.used)&&s.used>=0&&Number.isSafeInteger(s.baseline)&&s.baseline>=0&&Number.isSafeInteger(s.used+s.baseline)&&typeof s.baselineKnown==="boolean";}
+  async load(){
+    if(this.broken)throw translationBudgetError("번역 사용량 저장 오류로 호출을 차단했습니다. 저장 공간·권한을 확인하고 플러그인을 다시 시작해 주세요.");
+    if(this.state)return;
+    try{
+      if(await this.adapter.exists(this.file)){const state=JSON.parse(await this.adapter.read(this.file));if(!this.validate(state))throw Error("invalid ledger");this.state=state;}
+      else{if(await this.adapter.exists(this.marker))throw Error("missing ledger");await this.persist({version:1,month:translationBudgetMonth(this.now()),limit:400000,warningPercent:80,used:0,baseline:0,baselineKnown:false,warned:false,startedAt:this.now().toISOString()});}
+      if(!await this.adapter.exists(this.marker))await this.adapter.write(this.marker,"Translation usage initialized. Do not delete to reset quota.");
+    }catch(_){this.broken=true;throw translationBudgetError("월 번역 사용량을 읽거나 저장하지 못해 호출을 차단했습니다. 사용량 파일을 임의로 초기화하지 말고 저장 공간·권한을 확인해 주세요.");}
+  }
+  async persist(next){try{await this.adapter.write(this.file,JSON.stringify(next));this.state=next;}catch(_){this.broken=true;throw translationBudgetError("사용량을 저장하지 못해 번역 API를 호출하지 않았습니다.");}}
+  async current(){await this.load();const month=translationBudgetMonth(this.now());if(month<this.state.month)throw translationBudgetError("현재 날짜가 집계 월보다 이전입니다. 시스템 날짜를 확인해 주세요.");if(month!==this.state.month)await this.persist({...this.state,month,used:0,baseline:0,baselineKnown:true,warned:false});return this.state;}
+  queue(fn){const job=this.tail.then(fn);this.tail=job.catch(()=>{});return job;}
+  summary(){return this.queue(async()=>{const s=await this.current();return {...s,total:s.used+s.baseline,remaining:Math.max(0,s.limit-s.used-s.baseline)};});}
+  configure(limit,warningPercent){return this.queue(async()=>{const s=await this.current(),next={...s,limit,warningPercent,warned:false};if(!this.validate(next))throw Error("월 한도는 1~1,000,000,000자의 정수, 알림은 1~100%로 입력해 주세요.");await this.persist(next);});}
+  setBaseline(value,expectedMonth){return this.queue(async()=>{const s=await this.current();if(s.month!==expectedMonth)throw Error("집계 월이 바뀌었습니다. 새로고침 후 다시 입력해 주세요.");const next={...s,baseline:value,baselineKnown:true};if(!this.validate(next))throw Error("이전 사용량은 0 이상의 안전한 정수로 입력해 주세요.");await this.persist(next);});}
+  async reserve(text){return this.queue(async()=>{
+    const s=await this.current(),count=translationCharacterCount(text),total=s.baseline+s.used;
+    if(!s.baselineKnown)throw translationBudgetError("번역 설정에서 이번 달 초기 사용량을 확인해 주세요. 도입 전 사용량은 자동으로 알 수 없습니다.");
+    if(total+count>s.limit)throw translationBudgetError(`월 번역 한도 초과: 누적 ${total.toLocaleString()}자 + 요청 ${count.toLocaleString()}자 > 한도 ${s.limit.toLocaleString()}자. API를 호출하지 않았습니다.`);
+    const warn=!s.warned&&total+count>=s.limit*s.warningPercent/100;
+    await this.persist({...s,used:s.used+count,warned:s.warned||warn});
+    if(warn)this.notify(`warning:${s.month}`,`월 번역 사용량 ${total+count}자 · 한도의 ${s.warningPercent}%에 도달했습니다. 남은 ${s.limit-total-count}자`);
+    return count;
+  });}
+  async translate(api,text,source,target){
+    if(!String(text).trim())return {status_code:200,translation:""};
+    if(source===target)return {status_code:200,translation:text};
+    if(typeof target!=="string"||!target.trim())throw Error("대상 언어 하나를 선택해 주세요.");
+    try{await this.reserve(text);}catch(error){this.notify("blocked",error.message);throw error;}
+    // Persist the reservation BEFORE dispatch. Failures/unknown outcomes remain counted;
+    // no rollback, paid-provider fallback or automatic retry is performed here.
+    return api.translate(text,source,target);
+  }
+}
+function renderTranslationBudgetSettings(parent,plugin){
+  const box=parent.createDiv({cls:"snm-translation-budget"});box.createEl("h3",{text:"월 번역 문자 한도 · 플러그인 자체 집계"});
+  const status=box.createDiv({cls:"snm-translation-budget-status",attr:{role:"status","aria-live":"polite"},text:"사용량을 확인하는 중…"});
+  box.createEl("p",{cls:"setting-item-description",text:"Google Cloud 사용량·요금과 연동하지 않습니다. ServiceNow Manage가 요청한 문자만 계산하며 다른 앱·기기의 사용량은 합산하지 않습니다. 매월 1일 00:00 한국 시간(Asia/Seoul)에 새 집계를 시작합니다."});
+  const body=box.createDiv(),budget=plugin.getTranslationBudget();let generation=0;
+  async function draw(){const rev=++generation;try{const s=await budget.summary();if(rev!==generation||!box.isConnected)return;body.empty();
+    status.setText(`${s.month} · 누적 ${s.total.toLocaleString()} / ${s.limit.toLocaleString()}자 · 남은 ${s.remaining.toLocaleString()}자${s.baselineKnown?"":" · 초기 사용량 미확인"}`);
+    body.createEl("progress",{attr:{max:String(s.limit),value:String(Math.min(s.total,s.limit)),"aria-label":"월 번역 문자 사용량"}});
+    body.createEl("p",{cls:"setting-item-description",text:`플러그인 집계 ${s.used.toLocaleString()}자 + 직접 입력한 이전 사용량 ${s.baseline.toLocaleString()}자. 공백·줄바꿈 포함, Unicode 코드포인트 기준이며 요청 언어별로 각각 집계합니다. 실패·결과 불명 요청도 보수적으로 포함합니다. 캐시에서 재사용한 번역은 차감하지 않습니다.`});
+    let limit=String(s.limit),warning=String(s.warningPercent),baseline=String(s.baseline);
+    const fields=body.createDiv({cls:"snm-translation-budget-fields"});
+    const number=(label,value,onChange)=>{const wrap=fields.createEl("label");wrap.createSpan({text:label});const input=wrap.createEl("input",{attr:{type:"number",min:"0",step:"1","aria-label":label}});input.value=value;input.addEventListener("input",()=>onChange(input.value));return input;};
+    number("월 최대 문자 수",limit,v=>limit=v);number("사전 알림 (%)",warning,v=>warning=v);
+    const actions=body.createDiv({cls:"snm-translation-budget-actions"});
+    const run=async(fn,button)=>{button.disabled=true;try{await fn();await draw();}catch(error){status.setText(error.message);button.disabled=false;}};
+    const save=actions.createEl("button",{text:"한도 저장",cls:"mod-cta"});save.addEventListener("click",()=>run(()=>budget.configure(Number(limit),Number(warning)),save));
+    const refresh=actions.createEl("button",{text:"사용량 새로고침"});refresh.addEventListener("click",()=>void draw());
+    const initial=body.createEl("details");initial.open=!s.baselineKnown;initial.createEl("summary",{text:s.baselineKnown?"이전 사용량 보정 (선택)":"처음 사용 · 이번 달 초기 사용량 확인"});
+    initial.createEl("p",{text:"도입 전 사용량은 자동 집계할 수 없습니다. 알고 있는 이전 사용량을 입력하세요. 0으로 시작하면 이전 사용량이 제외되어 월 전체 한도를 보장하지 않습니다. 이미 집계한 사용량은 초기화하지 않습니다."});
+    const initialInput=initial.createEl("input",{attr:{type:"number",min:"0",step:"1","aria-label":"이번 달 이전 사용량"}});initialInput.value=baseline;
+    const confirmLabel=initial.createEl("label",{cls:"snm-translation-budget-confirm"}),confirmed=confirmLabel.createEl("input",{attr:{type:"checkbox"}});confirmLabel.createSpan({text:"미집계 범위와 입력값을 확인했습니다"});
+    const apply=initial.createEl("button",{text:"이전 사용량 반영"});apply.disabled=true;confirmed.addEventListener("change",()=>apply.disabled=!confirmed.checked);apply.addEventListener("click",()=>run(()=>budget.setBaseline(initialInput.value.trim()?Number(initialInput.value):NaN,s.month),apply));
+  }catch(error){if(rev===generation)status.setText(error.message);}}
+  void draw();
+}
+// END TRANSLATION BUDGET
+
 const DEFAULT_SETTINGS = {
   setupWizardVersion: 0,
   popupWidthPercent: 75,
@@ -7125,6 +7203,8 @@ class WorkNotesSettingTab extends PluginSettingTab {
       .setButtonText(translateApi ? "Translate 설정 열기" : "Translate 설치하기")
       .onClick(() => this.plugin.openTranslateSetup()));
 
+    renderTranslationBudgetSettings(containerEl,this.plugin);
+
     const dataview = this.plugin.app.plugins?.plugins?.dataview;
     const dataviewJsEnabled = dataview ? dataview.settings?.enableDataviewJs === true : false;
     const dataviewSetting = new Setting(containerEl)
@@ -12412,6 +12492,10 @@ class CltServiceNowWorkNotes extends Plugin {
     return this.app.plugins?.plugins?.translate?.api || null;
   }
 
+  getTranslationBudget() { return this.translationBudget ||= new TranslationBudget(this); }
+
+  translateWithBudget(api,text,source,target) { return this.getTranslationBudget().translate(api,text,source,target); }
+
   async ensureTranslateApi() {
     const translatePlugin = this.app.plugins?.plugins?.translate;
     const api = translatePlugin?.api;
@@ -12456,7 +12540,7 @@ class CltServiceNowWorkNotes extends Plugin {
       throw new Error(message.trim());
     }
     const { masked, urls } = protectUrls(source);
-    const output = await translate.api.translate(masked, "auto", target);
+    const output = await this.translateWithBudget(translate.api, masked, "auto", target);
     if (output?.status_code !== 200 || !output.translation) {
       throw new Error(output?.message || `번역 실패 (status ${output?.status_code || "unknown"})`);
     }
@@ -12505,7 +12589,7 @@ class CltServiceNowWorkNotes extends Plugin {
         }
         const { masked, urls } = protectUrls(content);
         try {
-          const output = await api.translate(masked, "auto", target);
+          const output = await this.translateWithBudget(api, masked, "auto", target);
           if (output?.status_code !== 200 || !output.translation) {
             throw new Error(output?.message || `status ${output?.status_code || "unknown"}`);
           }
@@ -12516,7 +12600,7 @@ class CltServiceNowWorkNotes extends Plugin {
         } catch (error) {
           failures.push(`${label}: ${error.message}`);
           consecutiveFailures++;
-          if (!api.canTranslate || consecutiveFailures >= 3) {
+          if (error.translationBudgetBlocked || !api.canTranslate || consecutiveFailures >= 3) {
             stoppedEarly = true;
             break;
           }
@@ -12536,7 +12620,7 @@ class CltServiceNowWorkNotes extends Plugin {
           }
           const { masked, urls } = protectUrls(entry.content);
           try {
-            const output = await api.translate(masked, "auto", target);
+            const output = await this.translateWithBudget(api, masked, "auto", target);
             if (output?.status_code !== 200 || !output.translation) {
               throw new Error(output?.message || `status ${output?.status_code || "unknown"}`);
             }
@@ -12551,7 +12635,7 @@ class CltServiceNowWorkNotes extends Plugin {
           } catch (error) {
             failures.push(`${entry.time}: ${error.message}`);
             consecutiveFailures++;
-            if (!api.canTranslate || consecutiveFailures >= 3) {
+            if (error.translationBudgetBlocked || !api.canTranslate || consecutiveFailures >= 3) {
               stoppedEarly = true;
               break;
             }

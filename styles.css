@@ -2568,3 +2568,11 @@ button.mod-warning:hover {
 .snm-jira-person-results button { height:auto; min-height:32px; text-align:left; white-space:normal; }
 .snm-jira-edit-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-left:auto; }
 @media(max-width:650px) { .snm-jira-edit-grid { grid-template-columns:1fr; } .snm-jira-edit-actions { width:100%; } }
+.snm-translation-budget { border:1px solid var(--background-modifier-border); border-radius:8px; padding:16px; margin:12px 0 24px; }
+.snm-translation-budget-status { font-weight:600; margin-bottom:12px; }
+.snm-translation-budget progress { width:100%; height:12px; }
+.snm-translation-budget-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+.snm-translation-budget-fields label { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.snm-translation-budget input[type=number] { max-width:100%; width:100%; box-sizing:border-box; }
+.snm-translation-budget-actions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.snm-translation-budget-confirm { display:flex; align-items:center; gap:8px; margin:12px 0; }

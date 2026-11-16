@@ -130,7 +130,7 @@ if (!dashboard.includes("width: min(1580px, 98vw)")) throw new Error("Jira Expor
 
 const main = fs.readFileSync(path.join(root, "main.js"), "utf8");
 if (!main.includes('async translateTextForExport(content, target = "en")')
-    || !main.includes('translate.api.translate(masked, "auto", target)')) {
+    || !main.includes('this.translateWithBudget(translate.api, masked, "auto", target)')) {
   throw new Error("Jira Export English translation bridge is missing");
 }
 
