@@ -1,6 +1,8 @@
 # ServiceNow Manage
 
-## Unreleased: local monthly translation budget
+## 2.20.0: local monthly translation budget
+
+See the [2.20.0 patch notes](releases/2.20.0.md) for setup instructions and counting boundaries.
 
 - **번역 연동** settings now show a local monthly character counter, editable limit (default 400,000), and warning threshold (default 80%). This is independent of Google Cloud usage/billing and applies to ServiceNow Manage translation requests only, not other Translate commands, apps or devices.
 - Confirm the initial untracked usage once (enter 0 to count from installation onward). Each target-language request reserves its Unicode codepoint count, including whitespace, before dispatch. Cached translations do not count; failed or uncertain requests remain counted conservatively.
