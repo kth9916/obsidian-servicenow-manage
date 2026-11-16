@@ -1,26 +1,30 @@
 # ServiceNow Manage
 
-## Unreleased: unified Jira issue editor
+## 2.19.0: Jira editing, incidents and reliable refresh
+
+See the [2.19.0 patch notes](releases/2.19.0.md) for all changes since 2.18.1, connector limitations and update instructions.
+
+### Unified Jira issue editor
 
 - Select an issue in **업무 정보 수정** to see current assignee, reporter, available status transitions, Plan Start Date and due date. Search for people and save changed fields together. Drafts remain local to the open window and survive switching issues.
 - Edit permission and current values are read from Jira. Unavailable fields remain read-only; transitions requiring extra fields must be completed in Jira. Status and field updates are separate requests, so partial completion and unverified outcomes are reported explicitly, without automatic write retries.
 - Saving requires the existing opt-in Jira write permission. Automatic refresh remains read-only. No production Jira writes are used for automated tests.
 
-## Unreleased: reliable scheduled refresh
+### Reliable scheduled refresh
 
 - Concurrent refreshes of the same ticket wait for the same result instead of counting a busy ticket as a failure. Deferred work is reported separately.
 - Actual full-refresh failures are retried on the automation tick after 1, 5 and 15 minutes, up to three retries. Pending retries survive restart; successful refreshes clear the queue. Only existing active tickets are retried while automatic refresh is enabled and Obsidian is running.
 - Failed retries stop after the limit. A manual refresh or the next regular scheduled refresh starts a new bounded cycle. ServiceNow work notes show the current failure, retry schedule and the last five failures, including after recovery.
 - Failure to refresh Jira after a successful ServiceNow refresh is logged separately, not counted as a failed ServiceNow refresh.
 
-## Unreleased: incident tickets
+### Incident tickets
 
 - Register `INC` tickets using the configured Incident table, alongside CR and SR. Incident notes participate in refresh, dashboards, work notes, To-Dos, meeting links and AI Wiki links.
 - Preserve incident-specific impact, urgency, caller, configuration item, service, hold reason and resolution information. Optional INC columns are available in the dashboard field selector without changing your selected columns.
 - Incident notes omit empty CR-only document/schedule fields. Manual fields and note content are preserved. Automatic first-registration CR document search and CR/SR SLA assumptions are not applied to incidents.
 - AI prompts use an explicit INC section when available, otherwise an incident-specific fallback. A missing INC analysis template is not replaced by a CR/SR template. Actual fields and access depend on your ServiceNow instance and account.
 
-## Unreleased: Jira comment composition
+### Jira comment composition
 
 - The reply button explains the current connector limitation and offers the exact original Jira comment link. A separate new-comment button never pretends to create a threaded reply.
 - Edit existing comments inline: fetch the latest original, review before/after, then explicitly save to the same comment ID. Jira permissions still apply. Concurrent changes/deletion block an overwrite and keep the draft.
